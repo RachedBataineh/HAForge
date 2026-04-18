@@ -388,6 +388,9 @@ export class Orchestrator extends EventEmitter {
 
       const nodeKey = `node${i + 1}` as keyof typeof certs.etcdNodes;
 
+      // Create directories before moving files
+      await ssh.exec("sudo mkdir -p /etc/etcd/ssl /var/lib/postgresql/ssl");
+
       // Upload CA cert
       await ssh.uploadFile(certs.ca.cert, `/tmp/ca.crt`);
       await ssh.exec("sudo mv /tmp/ca.crt /etc/etcd/ssl/ca.crt");

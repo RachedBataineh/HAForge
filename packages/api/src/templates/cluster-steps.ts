@@ -138,12 +138,11 @@ backend postgres_backend
     option tcp-check
     option httpchk GET /primary
     http-check expect status 200
-    timeout connect 5s
-    timeout client 30s
     timeout server 30s
-    server postgresql-01 \${IP_ADDRESS_NODE_1_POSTGRESQL}:5432 port 8008 check check-ssl verify none
-    server postgresql-02 \${IP_ADDRESS_NODE_2_POSTGRESQL}:5432 port 8008 check check-ssl verify none
-    server postgresql-03 \${IP_ADDRESS_NODE_3_POSTGRESQL}:5432 port 8008 check check-ssl verify none`;
+    server postgresql-01 \${IP_ADDRESS_NODE_1_POSTGRESQL}:5432 check port 8008 check-ssl verify none
+    server postgresql-02 \${IP_ADDRESS_NODE_2_POSTGRESQL}:5432 check port 8008 check-ssl verify none
+    server postgresql-03 \${IP_ADDRESS_NODE_3_POSTGRESQL}:5432 check port 8008 check-ssl verify none
+`;
 }
 
 // --- Failover script template ---
@@ -426,10 +425,13 @@ export function getClusterSteps(): StepDefinition[] {
             "sudo systemctl start etcd || true",
             "sleep 10",
             "sudo systemctl restart etcd || true",
-            "sleep 5",
-            "sudo systemctl restart etcd",
-            "sleep 3",
+            "sleep 10",
+            "sudo systemctl restart etcd || true",
+            "sleep 10",
+            "echo '--- etcd service status ---'",
             "sudo systemctl status etcd --no-pager || true",
+            "echo '--- etcd journal (last 30 lines) ---'",
+            "sudo journalctl -u etcd --no-pager -n 30 || true",
             "sudo usermod -aG etcd $USER || true",
           ],
         },
@@ -559,8 +561,20 @@ export function getClusterSteps(): StepDefinition[] {
             "sudo chown postgres:postgres /var/lib/postgresql/ssl/server.pem",
             "sudo chmod 600 /var/lib/postgresql/ssl/server.pem",
             "sudo openssl x509 -in /var/lib/postgresql/ssl/server.pem -text -noout",
-            "sudo systemctl restart patroni",
+            "sudo systemctl restart patroni || true",
             "sleep 5",
+            "sudo systemctl restart etcd || true",
+            "sleep 5",
+            "sudo systemctl restart patroni || true",
+            "sleep 5",
+            "echo '--- patroni status ---'",
+            "sudo systemctl status patroni --no-pager || true",
+            "echo '--- etcd status ---'",
+            "sudo systemctl status etcd --no-pager || true",
+            "echo '--- patroni journal (last 20 lines) ---'",
+            "sudo journalctl -u patroni --no-pager -n 20 || true",
+            "echo '--- etcd journal (last 20 lines) ---'",
+            "sudo journalctl -u etcd --no-pager -n 20 || true",
             "sudo sed -i 's/ETCD_INITIAL_CLUSTER_STATE=\"new\"/ETCD_INITIAL_CLUSTER_STATE=\"existing\"/' /etc/etcd/etcd.env",
           ],
         },
@@ -594,7 +608,10 @@ export function getClusterSteps(): StepDefinition[] {
       commands: [
         {
           commands: [
-            "sudo systemctl reload haproxy",
+            "sudo haproxy -c -f /etc/haproxy/haproxy.cfg",
+            "sudo systemctl restart haproxy",
+            "echo '--- haproxy status ---'",
+            "sudo systemctl status haproxy --no-pager || true",
           ],
         },
       ],
@@ -616,7 +633,8 @@ defaults
     timeout client  30s
     timeout server  30s
 
-${haproxyConfigContent()}`,
+${haproxyConfigContent()}
+`,
         },
       ],
     },
