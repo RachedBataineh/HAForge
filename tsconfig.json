@@ -1,0 +1,3 @@
+{
+  "extends": "@HAForge/config/tsconfig.base.json"
+}
