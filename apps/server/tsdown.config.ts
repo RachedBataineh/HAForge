@@ -6,4 +6,5 @@ export default defineConfig({
   outDir: "./dist",
   clean: true,
   noExternal: [/@HAForge\/.*/],
+  external: ["ssh2", "cpu-features"],
 });

@@ -1,0 +1,427 @@
+import { db } from "@HAForge/db";
+import {
+  clusters,
+  executions,
+  executionSteps,
+  executionLogs,
+} from "@HAForge/db";
+import { eq } from "drizzle-orm";
+import { SSHExecutor } from "./ssh-executor";
+import { generateClusterCertificates, type GeneratedCerts } from "./cert-generator";
+import { resolveVariables, type VariableMap } from "./variable-resolver";
+import { getClusterSteps, type StepDefinition, type TargetRole } from "../templates/cluster-steps";
+import { EventEmitter } from "events";
+
+export interface OrchestratorEvents {
+  stepStarted: (step: typeof executionSteps.$inferSelect) => void;
+  stepCompleted: (step: typeof executionSteps.$inferSelect) => void;
+  stepFailed: (step: typeof executionSteps.$inferSelect, error: string) => void;
+  log: (data: { stepId: string; serverId: string; stdout?: string; stderr?: string; exitCode?: number }) => void;
+  completed: (executionId: string) => void;
+  failed: (executionId: string, error: string) => void;
+}
+
+function getTargetServerRoles(targetRole: TargetRole): string[] {
+  switch (targetRole) {
+    case "all_pg":
+      return ["postgresql_1", "postgresql_2", "postgresql_3"];
+    case "all_ha":
+      return ["haproxy_1", "haproxy_2", "haproxy_3"];
+    default:
+      return [targetRole];
+  }
+}
+
+function generatePassword(length = 32): string {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let result = "";
+  for (let i = 0; i < length; i++) {
+    result += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return result;
+}
+
+export class Orchestrator extends EventEmitter {
+  private clusterId: string;
+  private executionId: string | null = null;
+  private sshConnections: Map<string, SSHExecutor> = new Map();
+  private cancelled = false;
+
+  constructor(clusterId: string) {
+    super();
+    this.clusterId = clusterId;
+  }
+
+  async start(): Promise<string> {
+    // Fetch cluster with servers
+    const cluster = await db.query.clusters.findFirst({
+      where: eq(clusters.id, this.clusterId),
+      with: { servers: true },
+    });
+
+    if (!cluster) throw new Error("Cluster not found");
+    if (!cluster.servers || cluster.servers.length < 6) {
+      throw new Error("Cluster must have 6 servers (3 PostgreSQL + 3 HAProxy)");
+    }
+
+    // Auto-generate passwords if not set
+    if (!cluster.superuserPassword || !cluster.replicationPassword) {
+      await db
+        .update(clusters)
+        .set({
+          superuserPassword: cluster.superuserPassword || generatePassword(),
+          replicationPassword: cluster.replicationPassword || generatePassword(),
+          status: "deploying",
+        })
+        .where(eq(clusters.id, this.clusterId));
+
+      // Re-fetch
+      const updated = await db.query.clusters.findFirst({
+        where: eq(clusters.id, this.clusterId),
+      });
+      if (updated) Object.assign(cluster, updated);
+    } else {
+      await db
+        .update(clusters)
+        .set({ status: "deploying" })
+        .where(eq(clusters.id, this.clusterId));
+    }
+
+    // Create execution record
+    const inserted = await db
+      .insert(executions)
+      .values({ clusterId: this.clusterId, status: "running" })
+      .returning();
+
+    if (!inserted[0]) throw new Error("Failed to create execution record");
+    this.executionId = inserted[0].id;
+
+    // Build variable map
+    const serverMap = this.buildServerMap(cluster.servers);
+    const vars = this.buildVariableMap(cluster, serverMap);
+
+    // Create step records
+    const steps = getClusterSteps();
+    const stepRecords: (typeof executionSteps.$inferSelect)[] = [];
+
+    for (const step of steps) {
+      const inserted = await db
+        .insert(executionSteps)
+        .values({
+          executionId: this.executionId,
+          stepNumber: step.stepNumber,
+          phase: step.phase,
+          stepName: step.name,
+          targetRole: step.targetRole,
+          status: "pending",
+          commandTemplate: JSON.stringify(step.commands),
+          resolvedCommand: "",
+        })
+        .returning();
+      if (inserted[0]) stepRecords.push(inserted[0]);
+    }
+
+    // Run orchestration in background
+    this.run(serverMap, vars, stepRecords);
+
+    return this.executionId!;
+  }
+
+  private async run(
+    serverMap: Map<string, any>,
+    vars: VariableMap,
+    stepRecords: (typeof executionSteps.$inferSelect)[],
+  ) {
+    try {
+      // Phase 0: Connect to all servers
+      await this.connectAllServers(serverMap);
+
+      // Phase 0.5: Generate and upload certificates
+      const certs = generateClusterCertificates([
+        vars.IP_ADDRESS_NODE_1,
+        vars.IP_ADDRESS_NODE_2,
+        vars.IP_ADDRESS_NODE_3,
+      ]);
+
+      await this.uploadCertificates(certs, serverMap);
+
+      // Execute steps
+      for (const stepRecord of stepRecords) {
+        if (this.cancelled) {
+          await this.markExecutionFailed("Cancelled by user");
+          return;
+        }
+
+        const stepDef = getClusterSteps().find((s) => s.stepNumber === stepRecord.stepNumber);
+        if (!stepDef) continue;
+
+        await this.executeStep(stepRecord, stepDef, serverMap, vars);
+      }
+
+      // Mark execution completed
+      await db
+        .update(executions)
+        .set({ status: "completed", completedAt: new Date(), currentPhase: "done", currentStep: "completed" })
+        .where(eq(executions.id, this.executionId!));
+
+      await db
+        .update(clusters)
+        .set({ status: "running" })
+        .where(eq(clusters.id, this.clusterId));
+
+      this.emit("completed", this.executionId);
+    } catch (err: any) {
+      await this.markExecutionFailed(err.message);
+      this.emit("failed", this.executionId!, err.message);
+    } finally {
+      await this.disconnectAll();
+    }
+  }
+
+  private async executeStep(
+    stepRecord: typeof executionSteps.$inferSelect,
+    stepDef: StepDefinition,
+    serverMap: Map<string, any>,
+    vars: VariableMap,
+  ) {
+    // Mark step running
+    await db
+      .update(executionSteps)
+      .set({ status: "running", startedAt: new Date() })
+      .where(eq(executionSteps.id, stepRecord.id));
+
+    await db
+      .update(executions)
+      .set({ currentPhase: stepDef.phase, currentStep: stepDef.name })
+      .where(eq(executions.id, this.executionId!));
+
+    this.emit("stepStarted", stepRecord);
+
+    try {
+      const targetRoles = getTargetServerRoles(stepDef.targetRole as TargetRole);
+      const targetServers = Array.from(serverMap.values()).filter((s) =>
+        targetRoles.includes(s.role),
+      );
+
+      // Upload files first
+      for (const file of stepDef.files) {
+        const resolvedContent = resolveVariables(file.content, vars);
+
+        for (const server of targetServers) {
+          const ssh = this.sshConnections.get(server.id);
+          if (!ssh) continue;
+
+          // Write file content via temp file + sudo mv (to handle root-owned paths)
+          const tmpPath = `/tmp/haforge-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          await ssh.uploadFile(resolvedContent, tmpPath);
+          await ssh.exec(`sudo mkdir -p $(dirname '${file.path}') && sudo mv ${tmpPath} '${file.path}'`);
+
+          if (file.owner) {
+            await ssh.exec(`sudo chown ${file.owner} '${file.path}'`);
+          }
+          if (file.permissions) {
+            await ssh.exec(`sudo chmod ${file.permissions} '${file.path}'`);
+          }
+        }
+      }
+
+      // Execute commands
+      for (const cmdGroup of stepDef.commands) {
+        const results = await Promise.allSettled(
+          targetServers.map(async (server) => {
+            const ssh = this.sshConnections.get(server.id);
+            if (!ssh) throw new Error(`No SSH connection for server ${server.id}`);
+
+            for (const cmd of cmdGroup.commands) {
+              if (this.cancelled) break;
+
+              const resolvedCmd = resolveVariables(cmd, vars);
+              const result = await ssh.exec(resolvedCmd);
+
+              // Log output
+              await db.insert(executionLogs).values({
+                stepId: stepRecord.id,
+                serverId: server.id,
+                stdout: result.stdout,
+                stderr: result.stderr,
+                exitCode: result.exitCode,
+              });
+
+              this.emit("log", {
+                stepId: stepRecord.id,
+                serverId: server.id,
+                stdout: result.stdout,
+                stderr: result.stderr,
+                exitCode: result.exitCode ?? undefined,
+              });
+
+              if (result.exitCode !== 0 && result.exitCode !== null) {
+                throw new Error(
+                  `Command failed on ${server.ipAddress} (exit ${result.exitCode}): ${cmd}\n${result.stderr}`,
+                );
+              }
+            }
+          }),
+        );
+
+        // Check for failures
+        const failures = results.filter((r) => r.status === "rejected");
+        if (failures.length > 0) {
+          const errorMsg = failures
+            .map((f) => (f as PromiseRejectedResult).reason)
+            .join("\n");
+          throw new Error(errorMsg);
+        }
+      }
+
+      // Run validation if present
+      if (stepDef.validation) {
+        const resolvedValidation = resolveVariables(stepDef.validation, vars);
+        // Run on first target server
+        const firstServer = targetServers[0];
+        const ssh = this.sshConnections.get(firstServer.id);
+        if (ssh) {
+          await ssh.exec(resolvedValidation);
+        }
+      }
+
+      // Mark step completed
+      await db
+        .update(executionSteps)
+        .set({ status: "completed", completedAt: new Date() })
+        .where(eq(executionSteps.id, stepRecord.id));
+
+      this.emit("stepCompleted", stepRecord);
+    } catch (error: any) {
+      await db
+        .update(executionSteps)
+        .set({ status: "failed", completedAt: new Date(), errorMessage: error.message })
+        .where(eq(executionSteps.id, stepRecord.id));
+
+      this.emit("stepFailed", stepRecord, error.message);
+      throw error;
+    }
+  }
+
+  private async connectAllServers(serverMap: Map<string, any>) {
+    const results = await Promise.allSettled(
+      Array.from(serverMap.values()).map(async (server) => {
+        const ssh = new SSHExecutor({
+          host: server.ipAddress,
+          port: server.sshPort,
+          username: server.sshUser,
+          privateKey: server.sshPrivateKey,
+        });
+        await ssh.connect();
+        this.sshConnections.set(server.id, ssh);
+      }),
+    );
+
+    const failures = results.filter((r) => r.status === "rejected");
+    if (failures.length > 0) {
+      const msgs = failures
+        .map((f) => (f as PromiseRejectedResult).reason?.message || "Unknown error")
+        .join("; ");
+      throw new Error(`SSH connection failed for ${failures.length} server(s): ${msgs}`);
+    }
+  }
+
+  private async uploadCertificates(certs: GeneratedCerts, serverMap: Map<string, any>) {
+    const pgServers = ["postgresql_1", "postgresql_2", "postgresql_3"].map((role) =>
+      Array.from(serverMap.values()).find((s) => s.role === role),
+    ).filter(Boolean);
+
+    for (let i = 0; i < pgServers.length; i++) {
+      const server = pgServers[i];
+      const ssh = this.sshConnections.get(server.id);
+      if (!ssh) continue;
+
+      const nodeKey = `node${i + 1}` as keyof typeof certs.etcdNodes;
+
+      // Upload CA cert
+      await ssh.uploadFile(certs.ca.cert, `/tmp/ca.crt`);
+      await ssh.exec("sudo mv /tmp/ca.crt /etc/etcd/ssl/ca.crt");
+
+      // Upload etcd node cert
+      await ssh.uploadFile(certs.etcdNodes[nodeKey].cert, `/tmp/etcd-node${i + 1}.crt`);
+      await ssh.exec(`sudo mv /tmp/etcd-node${i + 1}.crt /etc/etcd/ssl/`);
+
+      // Upload etcd node key
+      await ssh.uploadFile(certs.etcdNodes[nodeKey].key, `/tmp/etcd-node${i + 1}.key`);
+      await ssh.exec(`sudo mv /tmp/etcd-node${i + 1}.key /etc/etcd/ssl/`);
+
+      // Upload PostgreSQL server cert
+      await ssh.uploadFile(certs.postgresServer.cert, "/tmp/server.crt");
+      await ssh.exec("sudo mv /tmp/server.crt /var/lib/postgresql/ssl/");
+
+      await ssh.uploadFile(certs.postgresServer.key, "/tmp/server.key");
+      await ssh.exec("sudo mv /tmp/server.key /var/lib/postgresql/ssl/");
+
+      await ssh.uploadFile(certs.postgresServer.req, "/tmp/server.req");
+      await ssh.exec("sudo mv /tmp/server.req /var/lib/postgresql/ssl/");
+    }
+  }
+
+  private buildServerMap(serversList: any[]): Map<string, any> {
+    const map = new Map<string, any>();
+    for (const server of serversList) {
+      map.set(server.id, server);
+    }
+    return map;
+  }
+
+  private buildVariableMap(cluster: any, serverMap: Map<string, any>): VariableMap {
+    const getServerByRole = (role: string) =>
+      Array.from(serverMap.values()).find((s: any) => s.role === role);
+
+    const pg1 = getServerByRole("postgresql_1");
+    const pg2 = getServerByRole("postgresql_2");
+    const pg3 = getServerByRole("postgresql_3");
+    const ha1 = getServerByRole("haproxy_1");
+    const ha2 = getServerByRole("haproxy_2");
+    const ha3 = getServerByRole("haproxy_3");
+
+    return {
+      IP_ADDRESS_NODE_1: pg1?.ipAddress || "",
+      IP_ADDRESS_NODE_2: pg2?.ipAddress || "",
+      IP_ADDRESS_NODE_3: pg3?.ipAddress || "",
+      IP_ADDRESS_NODE_1_POSTGRESQL: pg1?.ipAddress || "",
+      IP_ADDRESS_NODE_2_POSTGRESQL: pg2?.ipAddress || "",
+      IP_ADDRESS_NODE_3_POSTGRESQL: pg3?.ipAddress || "",
+      FLOATING_IP: cluster.floatingIp || "",
+      HETZNER_API_TOKEN: cluster.hetznerApiToken || "",
+      FLOATING_IP_ID: cluster.floatingIpId || "",
+      SERVER_ID_1: ha1?.hetznerServerId || "",
+      SERVER_ID_2: ha2?.hetznerServerId || "",
+      SERVER_ID_3: ha3?.hetznerServerId || "",
+      SUPERUSER_PASSWORD: cluster.superuserPassword || "",
+      REPLICATION_PASSWORD: cluster.replicationPassword || "",
+    };
+  }
+
+  private async markExecutionFailed(_error: string) {
+    if (this.executionId) {
+      await db
+        .update(executions)
+        .set({ status: "failed", completedAt: new Date() })
+        .where(eq(executions.id, this.executionId));
+
+      await db
+        .update(clusters)
+        .set({ status: "error" })
+        .where(eq(clusters.id, this.clusterId));
+    }
+  }
+
+  private async disconnectAll() {
+    for (const ssh of this.sshConnections.values()) {
+      await ssh.disconnect();
+    }
+    this.sshConnections.clear();
+  }
+
+  async cancel() {
+    this.cancelled = true;
+    await this.disconnectAll();
+  }
+}

@@ -20,11 +20,14 @@
   "dependencies": {
     "@HAForge/env": "*",
     "dotenv": "^17.2.2",
+    "node-forge": "^1.4.0",
+    "ssh2": "^1.17.0",
     "zod": "^4.1.13"
   },
   "devDependencies": {
     "@HAForge/config": "*",
     "@types/node": "^22.13.14",
+    "@types/ssh2": "^1.15.5",
     "turbo": "^2.8.12",
     "typescript": "^5"
   },
