@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
 import { Orchestrator } from "../services/orchestrator";
+import { getLiveOutput } from "../services/live-output";
 
 // Track active orchestrators in memory
 const activeOrchestrators = new Map<string, Orchestrator>();
@@ -75,5 +76,11 @@ export const executionRouter = router({
         activeOrchestrators.delete(input.executionId);
       }
       return { success: true };
+    }),
+
+  getLiveOutput: protectedProcedure
+    .input(z.object({ executionId: z.string() }))
+    .query(async ({ input }) => {
+      return getLiveOutput(input.executionId);
     }),
 });

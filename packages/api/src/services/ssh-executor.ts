@@ -64,14 +64,19 @@ export class SSHExecutor extends EventEmitter {
     });
   }
 
-  async exec(command: string): Promise<ExecResult> {
+  async exec(command: string, timeoutMs = 600000): Promise<ExecResult> {
     if (!this.connected) {
       throw new Error(`Not connected to ${this.config.host}`);
     }
 
     return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`Command timed out after ${timeoutMs / 1000}s on ${this.config.host}: ${command.slice(0, 100)}`));
+      }, timeoutMs);
+
       this.client.exec(command, (err, stream) => {
         if (err) {
+          clearTimeout(timer);
           reject(err);
           return;
         }
@@ -86,6 +91,7 @@ export class SSHExecutor extends EventEmitter {
             this.emit("stdout", chunk);
           })
           .on("close", (code: number | null) => {
+            clearTimeout(timer);
             resolve({ stdout, stderr, exitCode: code });
           })
           .stderr.on("data", (data: Buffer) => {

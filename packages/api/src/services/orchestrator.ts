@@ -11,6 +11,13 @@ import { generateClusterCertificates, type GeneratedCerts } from "./cert-generat
 import { resolveVariables, type VariableMap } from "./variable-resolver";
 import { getClusterSteps, type StepDefinition, type TargetRole } from "../templates/cluster-steps";
 import { EventEmitter } from "events";
+import {
+  initStep,
+  initServer,
+  appendOutput,
+  setServerDone,
+  clearExecution,
+} from "./live-output";
 
 export interface OrchestratorEvents {
   stepStarted: (step: typeof executionSteps.$inferSelect) => void;
@@ -121,8 +128,10 @@ export class Orchestrator extends EventEmitter {
       if (inserted[0]) stepRecords.push(inserted[0]);
     }
 
-    // Run orchestration in background
-    this.run(serverMap, vars, stepRecords);
+    // Run orchestration in background (catch to avoid unhandled rejection)
+    this.run(serverMap, vars, stepRecords).catch((err) => {
+      console.error("Orchestrator failed:", err);
+    });
 
     return this.executionId!;
   }
@@ -170,6 +179,7 @@ export class Orchestrator extends EventEmitter {
         .where(eq(clusters.id, this.clusterId));
 
       this.emit("completed", this.executionId);
+      clearExecution(this.executionId!);
     } catch (err: any) {
       await this.markExecutionFailed(err.message);
       this.emit("failed", this.executionId!, err.message);
@@ -196,6 +206,9 @@ export class Orchestrator extends EventEmitter {
       .where(eq(executions.id, this.executionId!));
 
     this.emit("stepStarted", stepRecord);
+
+    // Initialize live output for this step
+    initStep(this.executionId!, stepRecord.id, stepDef.name);
 
     try {
       const targetRoles = getTargetServerRoles(stepDef.targetRole as TargetRole);
@@ -225,20 +238,54 @@ export class Orchestrator extends EventEmitter {
         }
       }
 
-      // Execute commands
+      // Execute commands - join all commands into a single script so env vars persist
       for (const cmdGroup of stepDef.commands) {
+        const resolvedCommands = cmdGroup.commands.map((cmd) => resolveVariables(cmd, vars));
+        const fullScript = [
+          "set -e",
+          "export DEBIAN_FRONTEND=noninteractive",
+          ...resolvedCommands,
+        ].join("\n");
+
+        // Save resolved commands to DB so the UI can show them
+        await db
+          .update(executionSteps)
+          .set({ resolvedCommand: fullScript })
+          .where(eq(executionSteps.id, stepRecord.id));
+
         const results = await Promise.allSettled(
           targetServers.map(async (server) => {
             const ssh = this.sshConnections.get(server.id);
             if (!ssh) throw new Error(`No SSH connection for server ${server.id}`);
 
-            for (const cmd of cmdGroup.commands) {
-              if (this.cancelled) break;
+            // Initialize live output for this server
+            initServer(this.executionId!, stepRecord.id, server.id, server.ipAddress, server.role);
 
-              const resolvedCmd = resolveVariables(cmd, vars);
-              const result = await ssh.exec(resolvedCmd);
+            // Push the commands into the live terminal so the user can see what's being run
+            appendOutput(
+              this.executionId!,
+              stepRecord.id,
+              server.id,
+              `$ ${resolvedCommands.join("\n$ ")}\n\n`,
+            );
 
-              // Log output
+            // Listen to live output events
+            const onStdout = (chunk: string) => {
+              appendOutput(this.executionId!, stepRecord.id, server.id, chunk);
+            };
+            const onStderr = (chunk: string) => {
+              appendOutput(this.executionId!, stepRecord.id, server.id, chunk);
+            };
+            ssh.on("stdout", onStdout);
+            ssh.on("stderr", onStderr);
+
+            try {
+              const result = await ssh.exec(fullScript);
+
+              // Mark server done in live output
+              setServerDone(this.executionId!, stepRecord.id, server.id, result.exitCode);
+
+              // Log output to DB
               await db.insert(executionLogs).values({
                 stepId: stepRecord.id,
                 serverId: server.id,
@@ -257,9 +304,12 @@ export class Orchestrator extends EventEmitter {
 
               if (result.exitCode !== 0 && result.exitCode !== null) {
                 throw new Error(
-                  `Command failed on ${server.ipAddress} (exit ${result.exitCode}): ${cmd}\n${result.stderr}`,
+                  `Commands failed on ${server.ipAddress} (exit ${result.exitCode})\n${result.stderr}\n${result.stdout}`,
                 );
               }
+            } finally {
+              ssh.off("stdout", onStdout);
+              ssh.off("stderr", onStderr);
             }
           }),
         );
