@@ -15,10 +15,10 @@ import { Separator } from "@HAForge/ui/components/separator";
 import { Textarea } from "@HAForge/ui/components/textarea";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import React, { useState } from "react";
 import { toast } from "sonner";
 
-import { trpc } from "@/utils/trpc";
+import { trpc, trpcClient } from "@/utils/trpc";
 
 const PG_ROLES = [
   { role: "postgresql_1" as const, label: "PostgreSQL Node 1 (Primary)", num: 1 },
@@ -41,11 +41,9 @@ interface ServerForm {
 }
 
 export default function ClusterDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id: clusterId } = React.use(params);
   const router = useRouter();
   const queryClient = useQueryClient();
-
-  const [clusterId, setClusterId] = useState("");
-  params.then((p) => setClusterId(p.id));
 
   const cluster = useQuery(trpc.cluster.getById.queryOptions({ id: clusterId }));
 
@@ -66,13 +64,7 @@ export default function ClusterDetailPage({ params }: { params: Promise<{ id: st
 
   const updateCluster = useMutation({
     mutationFn: async (data: any) => {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_SERVER_URL}/trpc/cluster.update`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ json: data }),
-      });
-      return res.json();
+      return await trpcClient.cluster.update.mutate(data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries(trpc.cluster.getById.queryFilter());
@@ -82,26 +74,13 @@ export default function ClusterDetailPage({ params }: { params: Promise<{ id: st
 
   const addServer = useMutation({
     mutationFn: async (data: any) => {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_SERVER_URL}/trpc/server.add`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ json: data }),
-      });
-      return res.json();
+      return await trpcClient.server.add.mutate(data);
     },
   });
 
   const testConnection = useMutation({
     mutationFn: async (data: { ipAddress: string; sshPort: number; sshUser: string; sshPrivateKey: string }) => {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_SERVER_URL}/trpc/server.testConnection`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ json: data }),
-      });
-      const json = await res.json();
-      return json.result.data.json;
+      return await trpcClient.server.testConnection.mutate(data);
     },
     onSuccess: (data) => {
       if (data.success) {
@@ -114,14 +93,7 @@ export default function ClusterDetailPage({ params }: { params: Promise<{ id: st
 
   const startDeployment = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_SERVER_URL}/trpc/execution.start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ json: { clusterId } }),
-      });
-      const json = await res.json();
-      return json.result.data.json;
+      return await trpcClient.execution.start.mutate({ clusterId });
     },
     onSuccess: (data) => {
       router.push(`/dashboard/clusters/${clusterId}/deploy?executionId=${data.executionId}`);
@@ -140,12 +112,7 @@ export default function ClusterDetailPage({ params }: { params: Promise<{ id: st
     // Remove existing servers and add new ones
     const existingServers = cluster.data?.servers || [];
     for (const s of existingServers) {
-      await fetch(`${process.env.NEXT_PUBLIC_SERVER_URL}/trpc/server.remove`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ json: { id: s.id } }),
-      });
+      await trpcClient.server.remove.mutate({ id: s.id });
     }
 
     // Add all 6 servers
@@ -175,8 +142,6 @@ export default function ClusterDetailPage({ params }: { params: Promise<{ id: st
     { title: "HAProxy Nodes", description: "3 proxy servers" },
     { title: "Review & Deploy", description: "Confirm and start" },
   ];
-
-  if (!clusterId) return <div className="p-8">Loading...</div>;
 
   return (
     <div className="container mx-auto max-w-4xl px-4 py-8">
@@ -340,7 +305,7 @@ export default function ClusterDetailPage({ params }: { params: Promise<{ id: st
                 <CardTitle className="text-lg">{r.label}</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div className="grid gap-2">
                     <Label>IP Address</Label>
                     <Input
@@ -355,7 +320,20 @@ export default function ClusterDetailPage({ params }: { params: Promise<{ id: st
                     />
                   </div>
                   <div className="grid gap-2">
+                    <Label>SSH User</Label>
+                    <Input
+                      value={haServers[r.role].sshUser}
+                      onChange={(e) =>
+                        setHaServers((prev) => ({
+                          ...prev,
+                          [r.role]: { ...prev[r.role], sshUser: e.target.value },
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="grid gap-2">
                     <Label>Hetzner Server ID</Label>
+                    <p className="text-xs text-muted-foreground">Numeric ID from Hetzner Cloud (used for failover API calls)</p>
                     <Input
                       placeholder="98765"
                       value={haServers[r.role].hetznerServerId}

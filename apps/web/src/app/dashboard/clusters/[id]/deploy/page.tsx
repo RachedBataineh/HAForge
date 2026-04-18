@@ -11,9 +11,9 @@ import {
 import { Progress } from "@HAForge/ui/components/progress";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import React, { useState } from "react";
 
-import { trpc } from "@/utils/trpc";
+import { trpc, trpcClient } from "@/utils/trpc";
 
 const STATUS_COLORS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   pending: "outline",
@@ -30,8 +30,7 @@ const PHASE_LABELS: Record<string, string> = {
 };
 
 export default function DeployPage({ params }: { params: Promise<{ id: string }> }) {
-  const [clusterId, setClusterId] = useState("");
-  params.then((p) => setClusterId(p.id));
+  const { id: clusterId } = React.use(params);
 
   const searchParams = useSearchParams();
   const executionId = searchParams.get("executionId") || "";
@@ -58,16 +57,11 @@ export default function DeployPage({ params }: { params: Promise<{ id: string }>
   const progressPercent = totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 0;
 
   const cancelExecution = async () => {
-    await fetch(`${process.env.NEXT_PUBLIC_SERVER_URL}/trpc/execution.cancel`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ json: { executionId } }),
-    });
+    await trpcClient.execution.cancel.mutate({ executionId });
   };
 
-  if (!clusterId || !executionId) {
-    return <div className="p-8">Loading...</div>;
+  if (!executionId) {
+    return <div className="p-8 text-center text-muted-foreground">No execution ID provided.</div>;
   }
 
   return (
@@ -173,16 +167,12 @@ export default function DeployPage({ params }: { params: Promise<{ id: string }>
         <div className="mt-6 flex justify-end gap-2">
           <Button
             onClick={async () => {
-              const res = await fetch(`${process.env.NEXT_PUBLIC_SERVER_URL}/trpc/execution.retryStep`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({ json: { executionId, stepId: steps.find((s: any) => s.status === "failed")?.id || "" } }),
+              const data = await trpcClient.execution.retryStep.mutate({
+                executionId,
+                stepId: steps.find((s: any) => s.status === "failed")?.id || "",
               });
-              const data = await res.json();
-              // Navigate to new execution
-              if (data.result?.data?.json?.executionId) {
-                window.location.href = `/dashboard/clusters/${clusterId}/deploy?executionId=${data.result.data.json.executionId}`;
+              if (data.executionId) {
+                window.location.href = `/dashboard/clusters/${clusterId}/deploy?executionId=${data.executionId}`;
               }
             }}
           >

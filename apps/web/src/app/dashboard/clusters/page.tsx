@@ -24,7 +24,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { trpc } from "@/utils/trpc";
+import { trpc, trpcClient } from "@/utils/trpc";
 
 export default function ClusterListPage() {
   const router = useRouter();
@@ -36,14 +36,7 @@ export default function ClusterListPage() {
 
   const createCluster = useMutation({
     mutationFn: async (name: string) => {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_SERVER_URL}/trpc/cluster.create`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ json: { name } }),
-      });
-      const data = await res.json();
-      return data.result.data.json;
+      return await trpcClient.cluster.create.mutate({ name });
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries(trpc.cluster.list.queryFilter());
