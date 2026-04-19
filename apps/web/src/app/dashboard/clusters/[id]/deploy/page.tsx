@@ -190,7 +190,7 @@ export default function DeployPage({ params }: { params: Promise<{ id: string }>
   }
 
   return (
-    <div className="container mx-auto max-w-6xl px-4 py-8">
+    <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-3xl font-bold">Cluster Deployment</h1>
