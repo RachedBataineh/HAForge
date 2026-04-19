@@ -205,7 +205,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-4 gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">Host</span>
                 <p className="font-mono">{cluster.data.floatingIp}</p>
