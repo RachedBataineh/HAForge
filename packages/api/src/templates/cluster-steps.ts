@@ -172,7 +172,7 @@ vrrp_script check_haproxy {
 
 vrrp_instance VI_1 {
     state ${state}
-    interface eth0
+    interface enp7s0
     virtual_router_id 51
     priority ${priority}
     advert_int 1
