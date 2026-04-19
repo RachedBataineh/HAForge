@@ -14,12 +14,12 @@ import {
   SidebarRail,
   SidebarSeparator,
 } from "@HAForge/ui/components/sidebar";
-import { Database, Gauge, Server, Settings } from "lucide-react";
+import { Database, Home, Server, Settings } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navItems = [
-  { title: "Dashboard", href: "/dashboard" as const, icon: Gauge },
+  { title: "Dashboard", href: "/dashboard" as const, icon: Home },
   { title: "Clusters", href: "/dashboard/clusters" as const, icon: Server },
 ];
 
@@ -39,11 +39,8 @@ export function AppSidebar() {
               <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                 <Database className="size-4" />
               </div>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">HAForge</span>
-                <span className="truncate text-xs text-muted-foreground">
-                  PostgreSQL HA
-                </span>
+              <div className="grid flex-1 text-left leading-tight">
+                <span className="truncate font-semibold" style={{ fontSize: '16px' }}>HAForge</span>
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -52,7 +49,7 @@ export function AppSidebar() {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+          <SidebarGroupLabel style={{ fontSize: '12px' }}>Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {navItems.map((item) => (
@@ -61,9 +58,10 @@ export function AppSidebar() {
                     render={<Link href={item.href} />}
                     isActive={pathname === item.href}
                     tooltip={item.title}
+                    style={{ height: '40px' }}
                   >
                     <item.icon />
-                    <span>{item.title}</span>
+                    <span style={{ fontSize: '16px', lineHeight: '20px' }}>{item.title}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -80,9 +78,10 @@ export function AppSidebar() {
               render={<Link href="/" />}
               isActive={false}
               tooltip="Settings"
+              style={{ height: '40px' }}
             >
               <Settings />
-              <span>Settings</span>
+              <span style={{ fontSize: '16px', lineHeight: '20px' }}>Settings</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

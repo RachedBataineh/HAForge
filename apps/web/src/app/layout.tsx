@@ -31,7 +31,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <Providers>
-          <SidebarProvider>
+          <SidebarProvider style={{ "--sidebar-width": "14rem" } as React.CSSProperties}>
             <AppSidebar />
             <SidebarInset>
               <TopHeader />
