@@ -183,6 +183,10 @@ ${peers}
         auth_pass HAForgeCluster
     }
 
+    virtual_ipaddress {
+        \${FLOATING_IP}/32 dev eth0
+    }
+
     track_script {
         check_haproxy
     }
