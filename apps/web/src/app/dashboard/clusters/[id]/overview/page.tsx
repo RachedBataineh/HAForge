@@ -16,6 +16,7 @@ import {
   RotateCcw,
   Eye,
   EyeOff,
+  Copy,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -220,7 +221,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
               </div>
               <div>
                 <span className="text-muted-foreground">Password</span>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
                   <p className="font-mono">
                     {showPassword ? (cluster.data.superuserPassword || "N/A") : "••••••••"}
                   </p>
@@ -230,6 +231,16 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                     onClick={() => setShowPassword(!showPassword)}
                   >
                     {showPassword ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(cluster.data.superuserPassword || "");
+                      toast.success("Password copied");
+                    }}
+                  >
+                    <Copy className="size-3.5" />
                   </Button>
                 </div>
               </div>
