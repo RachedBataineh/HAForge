@@ -206,11 +206,13 @@ HETZNER_TOKEN="\${HETZNER_API_TOKEN}"
 FLOATING_IP_ID="\${FLOATING_IP_ID}"
 MY_SERVER_ID="${myServerId}"
 
+echo "$(date): notify_master fired - assigning floating IP to ${myServerId}" >> /var/log/keepalived-failover.log
+
 curl -s -X POST \\
   "https://api.hetzner.cloud/v1/floating_ips/\${FLOATING_IP_ID}/actions/assign" \\
   -H "Authorization: Bearer \${HETZNER_TOKEN}" \\
   -H "Content-Type: application/json" \\
-  -d "{\\"server\\": \${MY_SERVER_ID}}"`;
+  -d "{\\"server\\": \${MY_SERVER_ID}}" >> /var/log/keepalived-failover.log 2>&1`;
 }
 
 // --- HAProxy health check script (used by keepalived track_script) ---
