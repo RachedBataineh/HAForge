@@ -14,7 +14,7 @@ import {
   SidebarRail,
   SidebarSeparator,
 } from "@HAForge/ui/components/sidebar";
-import { Database, Gauge, Home, Server, Settings, Shield } from "lucide-react";
+import { Database, Gauge, Server, Settings, Shield } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -22,7 +22,6 @@ import { ModeToggle } from "./mode-toggle";
 import UserMenu from "./user-menu";
 
 const navItems = [
-  { title: "Home", href: "/" as const, icon: Home },
   { title: "Dashboard", href: "/dashboard" as const, icon: Gauge },
   { title: "Clusters", href: "/dashboard/clusters" as const, icon: Server },
 ];
