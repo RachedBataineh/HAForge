@@ -286,9 +286,10 @@ export function getClusterSteps(): StepDefinition[] {
             "sudo apt install -y postgresql-common",
             "echo '' | sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh",
             "sudo apt update",
-            "sudo apt install -y postgresql postgresql-contrib",
-            "sudo systemctl stop postgresql",
-            "sudo systemctl disable postgresql",
+            "sudo apt install -y postgresql-17 postgresql-contrib-17",
+            "sudo systemctl stop postgresql || true",
+            "sudo systemctl disable postgresql || true",
+            "sudo rm -rf /var/lib/postgresql/17/main || true",
           ],
         },
       ],
@@ -452,6 +453,8 @@ export function getClusterSteps(): StepDefinition[] {
         {
           commands: [
             "sudo mkdir -p /var/lib/postgresql/data",
+            "sudo chmod 700 /var/lib/postgresql/data",
+            "sudo chown postgres:postgres /var/lib/postgresql/data",
             "sudo mkdir -p /var/lib/postgresql/ssl",
           ],
         },
@@ -552,7 +555,7 @@ export function getClusterSteps(): StepDefinition[] {
     {
       phase: "postgres",
       stepNumber: 16,
-      name: "Finalize Patroni setup",
+      name: "Create server.pem on all nodes",
       targetRole: "all_pg",
       commands: [
         {
@@ -560,33 +563,68 @@ export function getClusterSteps(): StepDefinition[] {
             "sudo sh -c 'cat /var/lib/postgresql/ssl/server.crt /var/lib/postgresql/ssl/server.key > /var/lib/postgresql/ssl/server.pem'",
             "sudo chown postgres:postgres /var/lib/postgresql/ssl/server.pem",
             "sudo chmod 600 /var/lib/postgresql/ssl/server.pem",
-            "sudo openssl x509 -in /var/lib/postgresql/ssl/server.pem -text -noout",
-            "sudo systemctl restart patroni || true",
-            "sleep 5",
-            "sudo systemctl restart etcd || true",
-            "sleep 5",
-            "sudo systemctl restart patroni || true",
-            "sleep 5",
-            "echo '--- patroni status ---'",
-            "sudo systemctl status patroni --no-pager || true",
-            "echo '--- etcd status ---'",
-            "sudo systemctl status etcd --no-pager || true",
-            "echo '--- patroni journal (last 20 lines) ---'",
+            "sudo openssl x509 -in /var/lib/postgresql/ssl/server.pem -text -noout | head -10",
+          ],
+        },
+      ],
+      files: [],
+    },
+    {
+      phase: "postgres",
+      stepNumber: 17,
+      name: "Start Patroni on all nodes (leader election via etcd)",
+      targetRole: "all_pg",
+      commands: [
+        {
+          commands: [
+            "sudo systemctl stop patroni || true",
+            "sudo rm -rf /var/lib/postgresql/data/*",
+            "sudo chmod 700 /var/lib/postgresql/data",
+            "sudo chown postgres:postgres /var/lib/postgresql/data",
+            "sudo systemctl start patroni",
+          ],
+        },
+      ],
+      files: [],
+    },
+    {
+      phase: "postgres",
+      stepNumber: 18,
+      name: "Wait for cluster formation and verify",
+      targetRole: "postgresql_1",
+      commands: [
+        {
+          commands: [
+            "echo 'Waiting 30s for Patroni cluster to form...'",
+            "sleep 30",
+            "echo '--- Cluster state ---'",
+            "patronictl -c /etc/patroni/config.yml list || true",
+            "echo '--- Patroni journal ---'",
             "sudo journalctl -u patroni --no-pager -n 20 || true",
-            "echo '--- etcd journal (last 20 lines) ---'",
-            "sudo journalctl -u etcd --no-pager -n 20 || true",
+          ],
+        },
+      ],
+      files: [],
+    },
+    {
+      phase: "postgres",
+      stepNumber: 19,
+      name: "Update etcd state to existing",
+      targetRole: "all_pg",
+      commands: [
+        {
+          commands: [
             "sudo sed -i 's/ETCD_INITIAL_CLUSTER_STATE=\"new\"/ETCD_INITIAL_CLUSTER_STATE=\"existing\"/' /etc/etcd/etcd.env",
           ],
         },
       ],
       files: [],
-      validation: "patronictl -c /etc/patroni/config.yml list || true",
     },
 
     // ==================== PHASE 2: HAProxy ====================
     {
       phase: "haproxy",
-      stepNumber: 17,
+      stepNumber: 20,
       name: "Install HAProxy and tools",
       targetRole: "all_ha",
       commands: [
@@ -602,7 +640,7 @@ export function getClusterSteps(): StepDefinition[] {
     },
     {
       phase: "haproxy",
-      stepNumber: 18,
+      stepNumber: 21,
       name: "Configure HAProxy",
       targetRole: "all_ha",
       commands: [
@@ -640,7 +678,7 @@ ${haproxyConfigContent()}
     },
     {
       phase: "haproxy",
-      stepNumber: 19,
+      stepNumber: 22,
       name: "Create failover script (HAProxy 1)",
       targetRole: "haproxy_1",
       commands: [
@@ -662,7 +700,7 @@ ${haproxyConfigContent()}
     },
     {
       phase: "haproxy",
-      stepNumber: 20,
+      stepNumber: 23,
       name: "Create failover script (HAProxy 2)",
       targetRole: "haproxy_2",
       commands: [
@@ -684,7 +722,7 @@ ${haproxyConfigContent()}
     },
     {
       phase: "haproxy",
-      stepNumber: 21,
+      stepNumber: 24,
       name: "Create failover script (HAProxy 3)",
       targetRole: "haproxy_3",
       commands: [
@@ -706,7 +744,7 @@ ${haproxyConfigContent()}
     },
     {
       phase: "haproxy",
-      stepNumber: 22,
+      stepNumber: 25,
       name: "Create failover systemd service",
       targetRole: "all_ha",
       commands: [
@@ -727,7 +765,7 @@ ${haproxyConfigContent()}
     },
     {
       phase: "haproxy",
-      stepNumber: 23,
+      stepNumber: 26,
       name: "Restart all services",
       targetRole: "all_ha",
       commands: [
@@ -742,7 +780,7 @@ ${haproxyConfigContent()}
     },
     {
       phase: "haproxy",
-      stepNumber: 24,
+      stepNumber: 27,
       name: "Verify HAProxy setup",
       targetRole: "haproxy_1",
       commands: [
