@@ -102,6 +102,7 @@ bootstrap:
         - hostssl replication replicator ${privateIp3}/32 md5
         - hostssl all all 127.0.0.1/32 md5
         - hostssl all all 0.0.0.0/0 md5
+        - host all all 0.0.0.0/0 md5
   initdb:
     - encoding: UTF8
     - data-checksums
@@ -140,6 +141,9 @@ backend postgres_backend
     option tcp-check
     option httpchk GET /primary
     http-check expect status 200
+    timeout connect 5s
+    timeout client 30s
+    timeout server 30s
     server postgresql-01 \${PRIVATE_IP_NODE_1}:5432 port 8008 check check-ssl verify none
     server postgresql-02 \${PRIVATE_IP_NODE_2}:5432 port 8008 check check-ssl verify none
     server postgresql-03 \${PRIVATE_IP_NODE_3}:5432 port 8008 check check-ssl verify none
