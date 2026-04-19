@@ -14,17 +14,13 @@ import {
   SidebarRail,
   SidebarSeparator,
 } from "@HAForge/ui/components/sidebar";
-import { Database, Gauge, Server, Settings, Shield } from "lucide-react";
+import { Database, Gauge, Server, Settings } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navItems = [
   { title: "Dashboard", href: "/dashboard" as const, icon: Gauge },
   { title: "Clusters", href: "/dashboard/clusters" as const, icon: Server },
-];
-
-const bottomItems = [
-  { title: "Security", href: "/" as const, icon: Shield },
 ];
 
 export function AppSidebar() {
@@ -75,27 +71,6 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarSeparator />
-
-        <SidebarGroup>
-          <SidebarGroupLabel>System</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {bottomItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    render={<Link href={item.href} />}
-                    isActive={false}
-                    tooltip={item.title}
-                  >
-                    <item.icon />
-                    <span>{item.title}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
       </SidebarContent>
 
       <SidebarFooter>
