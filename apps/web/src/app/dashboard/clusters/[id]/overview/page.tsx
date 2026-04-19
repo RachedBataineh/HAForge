@@ -17,6 +17,7 @@ import {
   Eye,
   EyeOff,
   Copy,
+  Plug,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -100,28 +101,58 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
         </div>
       </div>
 
-      {/* Cluster Info */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Cluster Configuration</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-3 gap-4 text-sm">
-            <div>
-              <span className="text-muted-foreground">Floating IP</span>
-              <p className="font-mono">{cluster.data.floatingIp || "N/A"}</p>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Floating IP ID</span>
-              <p className="font-mono">{cluster.data.floatingIpId || "N/A"}</p>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Created</span>
-              <p>{new Date(cluster.data.createdAt).toLocaleDateString()}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Connection Info */}
+      {cluster.data.status === "running" && cluster.data.floatingIp && (
+        <div>
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <Plug className="size-5" />
+            Connection Info
+          </h2>
+          <Card>
+            <CardContent className="py-4">
+              <div className="grid grid-cols-4 gap-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Host</span>
+                  <p className="font-mono">{cluster.data.floatingIp}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Port</span>
+                  <p className="font-mono">5432</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">User</span>
+                  <p className="font-mono">postgres</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Password</span>
+                  <div className="flex items-center gap-1">
+                    <p className="font-mono">
+                      {showPassword ? (cluster.data.superuserPassword || "N/A") : "••••••••"}
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(cluster.data?.superuserPassword || "");
+                        toast.success("Password copied");
+                      }}
+                    >
+                      <Copy className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* PostgreSQL Servers */}
       <div>
@@ -195,59 +226,6 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
           })}
         </div>
       </div>
-
-      {/* Connection Info */}
-      {cluster.data.status === "running" && cluster.data.floatingIp && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <CheckCircle2 className="size-4" />
-              Connection Info
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-4 gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground">Host</span>
-                <p className="font-mono">{cluster.data.floatingIp}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Port</span>
-                <p className="font-mono">5432</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">User</span>
-                <p className="font-mono">postgres</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Password</span>
-                <div className="flex items-center gap-1">
-                  <p className="font-mono">
-                    {showPassword ? (cluster.data.superuserPassword || "N/A") : "••••••••"}
-                  </p>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => {
-                      navigator.clipboard.writeText(cluster.data.superuserPassword || "");
-                      toast.success("Password copied");
-                    }}
-                  >
-                    <Copy className="size-3.5" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
