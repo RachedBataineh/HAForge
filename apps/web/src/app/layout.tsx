@@ -4,8 +4,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "../index.css";
 import { AppSidebar } from "@/components/app-sidebar";
 import Providers from "@/components/providers";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@HAForge/ui/components/sidebar";
-import { Separator } from "@HAForge/ui/components/separator";
+import TopHeader from "@/components/top-header";
+import { SidebarInset, SidebarProvider } from "@HAForge/ui/components/sidebar";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,10 +34,7 @@ export default function RootLayout({
           <SidebarProvider>
             <AppSidebar />
             <SidebarInset>
-              <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
-                <SidebarTrigger className="-ml-1" />
-                <Separator orientation="vertical" className="mr-2 h-4" />
-              </header>
+              <TopHeader />
               <div className="flex-1 overflow-auto">
                 {children}
               </div>

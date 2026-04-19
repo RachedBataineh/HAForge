@@ -3,7 +3,6 @@
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -17,9 +16,6 @@ import {
 import { Database, Gauge, Server, Settings, Shield } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-
-import { ModeToggle } from "./mode-toggle";
-import UserMenu from "./user-menu";
 
 const navItems = [
   { title: "Dashboard", href: "/dashboard" as const, icon: Gauge },
@@ -101,17 +97,6 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-
-      <SidebarFooter>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <div className="flex items-center justify-between px-2">
-              <ModeToggle />
-              <UserMenu />
-            </div>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarFooter>
 
       <SidebarRail />
     </Sidebar>
