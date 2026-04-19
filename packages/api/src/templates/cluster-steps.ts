@@ -553,7 +553,8 @@ export function getClusterSteps(): StepDefinition[] {
         {
           commands: [
             "sudo systemctl stop patroni || true",
-            "sudo rm -rf /var/lib/postgresql/data/*",
+            "sudo rm -rf /var/lib/postgresql/data",
+            "sudo mkdir -p /var/lib/postgresql/data",
             "sudo chmod 700 /var/lib/postgresql/data",
             "sudo chown postgres:postgres /var/lib/postgresql/data",
             "sudo systemctl start patroni",
