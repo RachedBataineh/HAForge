@@ -93,6 +93,7 @@ export const servers = pgTable(
 
     role: serverRoleEnum("role").notNull(),
     hetznerServerId: text("hetzner_server_id"),
+    privateIpAddress: text("private_ip_address"),
     status: serverStatusEnum("status").default("pending").notNull(),
 
     createdAt: timestamp("created_at").defaultNow().notNull(),

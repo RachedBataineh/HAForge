@@ -146,11 +146,18 @@ export class Orchestrator extends EventEmitter {
       await this.connectAllServers(serverMap);
 
       // Phase 0.5: Generate and upload certificates
-      const certs = generateClusterCertificates([
-        vars.IP_ADDRESS_NODE_1,
-        vars.IP_ADDRESS_NODE_2,
-        vars.IP_ADDRESS_NODE_3,
-      ]);
+      const certs = generateClusterCertificates(
+        [
+          vars.IP_ADDRESS_NODE_1,
+          vars.IP_ADDRESS_NODE_2,
+          vars.IP_ADDRESS_NODE_3,
+        ],
+        [
+          vars.PRIVATE_IP_NODE_1,
+          vars.PRIVATE_IP_NODE_2,
+          vars.PRIVATE_IP_NODE_3,
+        ],
+      );
 
       await this.uploadCertificates(certs, serverMap);
 
@@ -441,6 +448,15 @@ export class Orchestrator extends EventEmitter {
       IP_ADDRESS_NODE_1_POSTGRESQL: pg1?.ipAddress || "",
       IP_ADDRESS_NODE_2_POSTGRESQL: pg2?.ipAddress || "",
       IP_ADDRESS_NODE_3_POSTGRESQL: pg3?.ipAddress || "",
+      PRIVATE_IP_NODE_1: pg1?.privateIpAddress || "",
+      PRIVATE_IP_NODE_2: pg2?.privateIpAddress || "",
+      PRIVATE_IP_NODE_3: pg3?.privateIpAddress || "",
+      IP_ADDRESS_HAPROXY_1: ha1?.ipAddress || "",
+      IP_ADDRESS_HAPROXY_2: ha2?.ipAddress || "",
+      IP_ADDRESS_HAPROXY_3: ha3?.ipAddress || "",
+      PRIVATE_IP_HAPROXY_1: ha1?.privateIpAddress || "",
+      PRIVATE_IP_HAPROXY_2: ha2?.privateIpAddress || "",
+      PRIVATE_IP_HAPROXY_3: ha3?.privateIpAddress || "",
       FLOATING_IP: cluster.floatingIp || "",
       HETZNER_API_TOKEN: cluster.hetznerApiToken || "",
       FLOATING_IP_ID: cluster.floatingIpId || "",

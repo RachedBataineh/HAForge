@@ -30,9 +30,10 @@ export interface StepDefinition {
 }
 
 // --- Helper to build per-node etcd.env content ---
+// Uses PRIVATE IPs for all etcd peer/client communication
 function etcdEnvContent(
   nodeName: string,
-  selfIp: string,
+  selfPrivateIp: string,
   _ip1: string,
   _ip2: string,
   _ip3: string,
@@ -40,13 +41,13 @@ function etcdEnvContent(
 ) {
   return `ETCD_NAME="${nodeName}"
 ETCD_DATA_DIR="/var/lib/etcd"
-ETCD_INITIAL_CLUSTER="postgresql-01=https://\${IP_ADDRESS_NODE_1}:2380,postgresql-02=https://\${IP_ADDRESS_NODE_2}:2380,postgresql-03=https://\${IP_ADDRESS_NODE_3}:2380"
+ETCD_INITIAL_CLUSTER="postgresql-01=https://\${PRIVATE_IP_NODE_1}:2380,postgresql-02=https://\${PRIVATE_IP_NODE_2}:2380,postgresql-03=https://\${PRIVATE_IP_NODE_3}:2380"
 ETCD_INITIAL_CLUSTER_STATE="new"
 ETCD_INITIAL_CLUSTER_TOKEN="etcd-cluster"
-ETCD_INITIAL_ADVERTISE_PEER_URLS="https://${selfIp}:2380"
+ETCD_INITIAL_ADVERTISE_PEER_URLS="https://${selfPrivateIp}:2380"
 ETCD_LISTEN_PEER_URLS="https://0.0.0.0:2380"
 ETCD_LISTEN_CLIENT_URLS="https://0.0.0.0:2379"
-ETCD_ADVERTISE_CLIENT_URLS="https://${selfIp}:2379"
+ETCD_ADVERTISE_CLIENT_URLS="https://${selfPrivateIp}:2379"
 ETCD_CLIENT_CERT_AUTH="true"
 ETCD_TRUSTED_CA_FILE="/etc/etcd/ssl/ca.crt"
 ETCD_CERT_FILE="/etc/etcd/ssl/etcd-node${nodeNum}.crt"
@@ -58,12 +59,13 @@ ETCD_PEER_KEY_FILE="/etc/etcd/ssl/etcd-node${nodeNum}.key"`;
 }
 
 // --- Helper to build per-node patroni config ---
+// Uses PRIVATE IPs for etcd hosts, connect_address, and pg_hba
 function patroniConfigContent(
   nodeName: string,
-  selfIp: string,
-  ip1: string,
-  ip2: string,
-  ip3: string,
+  selfPrivateIp: string,
+  privateIp1: string,
+  privateIp2: string,
+  privateIp3: string,
   nodeNum: number,
 ) {
   return `scope: postgresql-cluster
@@ -71,7 +73,7 @@ namespace: /service/
 name: ${nodeName}
 
 etcd3:
-  hosts: ${ip1}:2379,${ip2}:2379,${ip3}:2379
+  hosts: ${privateIp1}:2379,${privateIp2}:2379,${privateIp3}:2379
   protocol: https
   cacert: /etc/etcd/ssl/ca.crt
   cert: /etc/etcd/ssl/etcd-node${nodeNum}.crt
@@ -79,7 +81,7 @@ etcd3:
 
 restapi:
   listen: 0.0.0.0:8008
-  connect_address: ${selfIp}:8008
+  connect_address: ${selfPrivateIp}:8008
   certfile: /var/lib/postgresql/ssl/server.pem
 
 bootstrap:
@@ -95,9 +97,9 @@ bootstrap:
         ssl_key_file: /var/lib/postgresql/ssl/server.key
       pg_hba:
         - hostssl replication replicator 127.0.0.1/32 md5
-        - hostssl replication replicator ${ip1}/32 md5
-        - hostssl replication replicator ${ip2}/32 md5
-        - hostssl replication replicator ${ip3}/32 md5
+        - hostssl replication replicator ${privateIp1}/32 md5
+        - hostssl replication replicator ${privateIp2}/32 md5
+        - hostssl replication replicator ${privateIp3}/32 md5
         - hostssl all all 127.0.0.1/32 md5
         - hostssl all all 0.0.0.0/0 md5
   initdb:
@@ -106,7 +108,7 @@ bootstrap:
 
 postgresql:
   listen: 0.0.0.0:5432
-  connect_address: ${selfIp}:5432
+  connect_address: ${selfPrivateIp}:5432
   data_dir: /var/lib/postgresql/data
   bin_dir: /usr/lib/postgresql/17/bin
   authentication:
@@ -126,7 +128,7 @@ tags:
   clonefrom: false`;
 }
 
-// --- HAProxy config template ---
+// --- HAProxy config template (uses PG private IPs) ---
 function haproxyConfigContent() {
   return `frontend postgres_frontend
     bind *:5432
@@ -138,100 +140,80 @@ backend postgres_backend
     option tcp-check
     option httpchk GET /primary
     http-check expect status 200
-    timeout server 30s
-    server postgresql-01 \${IP_ADDRESS_NODE_1_POSTGRESQL}:5432 check port 8008 check-ssl verify none
-    server postgresql-02 \${IP_ADDRESS_NODE_2_POSTGRESQL}:5432 check port 8008 check-ssl verify none
-    server postgresql-03 \${IP_ADDRESS_NODE_3_POSTGRESQL}:5432 check port 8008 check-ssl verify none
+    server postgresql-01 \${PRIVATE_IP_NODE_1}:5432 port 8008 check check-ssl verify none
+    server postgresql-02 \${PRIVATE_IP_NODE_2}:5432 port 8008 check check-ssl verify none
+    server postgresql-03 \${PRIVATE_IP_NODE_3}:5432 port 8008 check check-ssl verify none
 `;
 }
 
-// --- Failover script template ---
-function failoverScriptContent(myServerId: string, priorityServers: string) {
-  return `#!/bin/bash
+// --- Keepalived config template (unicast VRRP for Hetzner) ---
+function keepalivedConfigContent(
+  state: string,
+  priority: number,
+  privateIp: string,
+  peerIps: string[],
+) {
+  const peers = peerIps.map(ip => `        ${ip}`).join("\n");
+  return `global_defs {
+    enable_script_security
+    script_user root
+}
 
-HETZNER_API_TOKEN="\${HETZNER_API_TOKEN}"
+vrrp_script check_haproxy {
+    script "/etc/keepalived/check_haproxy.sh"
+    interval 2
+    fall 3
+    rise 2
+}
+
+vrrp_instance VI_1 {
+    state ${state}
+    interface eth0
+    virtual_router_id 51
+    priority ${priority}
+    advert_int 1
+
+    unicast_src_ip ${privateIp}
+    unicast_peer {
+${peers}
+    }
+
+    authentication {
+        auth_type PASS
+        auth_pass HAForgeCluster
+    }
+
+    track_script {
+        check_haproxy
+    }
+
+    notify_master /etc/keepalived/failover.sh
+}`;
+}
+
+// --- Failover script (called by keepalived notify_master) ---
+function failoverScriptContent(myServerId: string) {
+  return `#!/bin/bash
+HETZNER_TOKEN="\${HETZNER_API_TOKEN}"
 FLOATING_IP_ID="\${FLOATING_IP_ID}"
 MY_SERVER_ID="${myServerId}"
-PRIORITY_SERVERS="${priorityServers}"
-CHECK_INTERVAL=5
-HAPROXY_PORT=5432
 
-LOG_FILE="/var/log/haproxy-failover.log"
-
-log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+curl -s -X POST \\
+  "https://api.hetzner.cloud/v1/floating_ips/\${FLOATING_IP_ID}/actions/assign" \\
+  -H "Authorization: Bearer \${HETZNER_TOKEN}" \\
+  -H "Content-Type: application/json" \\
+  -d "{\\"server\\": \${MY_SERVER_ID}}"`;
 }
 
-check_haproxy() {
-    if ! pidof haproxy > /dev/null; then
-        log "ERROR: HAProxy process not running"
-        return 1
-    fi
-    if ! ss -ltn | grep -q ":$HAPROXY_PORT"; then
-        log "ERROR: HAProxy not listening on port $HAPROXY_PORT"
-        return 1
-    fi
-    BACKEND_STATUS=$(echo "show stat" | socat stdio /run/haproxy/admin.sock 2>/dev/null | grep postgres_backend | grep -v "^#" | head -1)
-    if [ -z "$BACKEND_STATUS" ]; then
-        log "WARNING: Could not get backend status"
-        return 0
-    fi
-    BACKEND_UP=$(echo "$BACKEND_STATUS" | awk -F',' '{print $18}')
-    if [[ "$BACKEND_UP" != *"UP"* ]]; then
-        log "WARNING: No healthy backends found"
-    fi
-    return 0
-}
-
-get_current_floating_ip_server() {
-    curl -s -H "Authorization: Bearer $HETZNER_API_TOKEN" \\
-        "https://api.hetzner.cloud/v1/floating_ips/$FLOATING_IP_ID" | \\
-        jq -r '.floating_ip.server // "null"'
-}
-
-assign_floating_ip() {
-    local TARGET_SERVER_ID=$1
-    log "Attempting to assign Floating IP to server $TARGET_SERVER_ID"
-    RESPONSE=$(curl -s -X POST \\
-        -H "Authorization: Bearer $HETZNER_API_TOKEN" \\
-        -H "Content-Type: application/json" \\
-        -d "{\\"server\\": $TARGET_SERVER_ID}" \\
-        "https://api.hetzner.cloud/v1/floating_ips/$FLOATING_IP_ID/actions/assign")
-    if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
-        log "ERROR: Failed to assign Floating IP: $RESPONSE"
-        return 1
-    else
-        log "SUCCESS: Floating IP assigned to server $TARGET_SERVER_ID"
-        return 0
-    fi
-}
-
-perform_failover() {
-    log "Starting failover process..."
-    for SERVER in $PRIORITY_SERVERS; do
-        log "Checking if server $SERVER can take over..."
-        if assign_floating_ip "$SERVER"; then
-            log "Failover completed to server $SERVER"
-            return 0
-        fi
-    done
-    log "ERROR: Failover failed - no servers available"
-    return 1
-}
-
-log "Starting Hetzner Floating IP failover monitoring on server $MY_SERVER_ID"
-
-while true; do
-    CURRENT_SERVER=$(get_current_floating_ip_server)
-    if [ "$CURRENT_SERVER" != "null" ] && [ "$CURRENT_SERVER" == "$MY_SERVER_ID" ]; then
-        if ! check_haproxy; then
-            log "HAProxy health check failed on current owner"
-            perform_failover
-        fi
-    fi
-    sleep $CHECK_INTERVAL
-done`;
-}
+// --- HAProxy health check script (used by keepalived track_script) ---
+const CHECK_HAPROXY_SCRIPT = `#!/bin/bash
+if ! pidof haproxy > /dev/null; then
+    exit 1
+fi
+if ! ss -ltn | grep -q ":5432"; then
+    exit 1
+fi
+exit 0`;
 
 // --- etcd systemd service ---
 const ETCD_SERVICE = `[Unit]
@@ -254,22 +236,14 @@ Group=etcd
 [Install]
 WantedBy=multi-user.target`;
 
-// --- HAProxy failover systemd service ---
-const HAPROXY_FAILOVER_SERVICE = `[Unit]
-Description=HAProxy Hetzner Failover Monitor
-After=network-online.target haproxy.service
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/etc/haproxy/hetzner-failover.sh
-Restart=always
-RestartSec=10s
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target`;
+// --- Netplan config for floating IP ---
+const NETPLAN_FLOATING_IP = `network:
+  version: 2
+  ethernets:
+    eth0:
+      addresses:
+        - \${FLOATING_IP}/32
+`;
 
 export function getClusterSteps(): StepDefinition[] {
   return [
@@ -327,6 +301,7 @@ export function getClusterSteps(): StepDefinition[] {
           commands: [
             "sudo mkdir -p /etc/etcd",
             "sudo mkdir -p /etc/etcd/ssl",
+            "sudo rm -rf /var/lib/etcd/*",
             "sudo mkdir -p /var/lib/etcd",
             "sudo chown -R etcd:etcd /var/lib/etcd",
           ],
@@ -359,7 +334,7 @@ export function getClusterSteps(): StepDefinition[] {
       files: [
         {
           path: "/etc/etcd/etcd.env",
-          content: etcdEnvContent("postgresql-01", "${IP_ADDRESS_NODE_1}", "${IP_ADDRESS_NODE_1}", "${IP_ADDRESS_NODE_2}", "${IP_ADDRESS_NODE_3}", 1),
+          content: etcdEnvContent("postgresql-01", "${PRIVATE_IP_NODE_1}", "${PRIVATE_IP_NODE_1}", "${PRIVATE_IP_NODE_2}", "${PRIVATE_IP_NODE_3}", 1),
           owner: "etcd:etcd",
           permissions: "644",
         },
@@ -382,7 +357,7 @@ export function getClusterSteps(): StepDefinition[] {
       files: [
         {
           path: "/etc/etcd/etcd.env",
-          content: etcdEnvContent("postgresql-02", "${IP_ADDRESS_NODE_2}", "${IP_ADDRESS_NODE_1}", "${IP_ADDRESS_NODE_2}", "${IP_ADDRESS_NODE_3}", 2),
+          content: etcdEnvContent("postgresql-02", "${PRIVATE_IP_NODE_2}", "${PRIVATE_IP_NODE_1}", "${PRIVATE_IP_NODE_2}", "${PRIVATE_IP_NODE_3}", 2),
           owner: "etcd:etcd",
           permissions: "644",
         },
@@ -405,7 +380,7 @@ export function getClusterSteps(): StepDefinition[] {
       files: [
         {
           path: "/etc/etcd/etcd.env",
-          content: etcdEnvContent("postgresql-03", "${IP_ADDRESS_NODE_3}", "${IP_ADDRESS_NODE_1}", "${IP_ADDRESS_NODE_2}", "${IP_ADDRESS_NODE_3}", 3),
+          content: etcdEnvContent("postgresql-03", "${PRIVATE_IP_NODE_3}", "${PRIVATE_IP_NODE_1}", "${PRIVATE_IP_NODE_2}", "${PRIVATE_IP_NODE_3}", 3),
           owner: "etcd:etcd",
           permissions: "644",
         },
@@ -516,7 +491,7 @@ export function getClusterSteps(): StepDefinition[] {
       files: [
         {
           path: "/etc/patroni/config.yml",
-          content: patroniConfigContent("postgresql-01", "${IP_ADDRESS_NODE_1}", "${IP_ADDRESS_NODE_1}", "${IP_ADDRESS_NODE_2}", "${IP_ADDRESS_NODE_3}", 1),
+          content: patroniConfigContent("postgresql-01", "${PRIVATE_IP_NODE_1}", "${PRIVATE_IP_NODE_1}", "${PRIVATE_IP_NODE_2}", "${PRIVATE_IP_NODE_3}", 1),
           owner: "postgres:postgres",
           permissions: "644",
         },
@@ -531,7 +506,7 @@ export function getClusterSteps(): StepDefinition[] {
       files: [
         {
           path: "/etc/patroni/config.yml",
-          content: patroniConfigContent("postgresql-02", "${IP_ADDRESS_NODE_2}", "${IP_ADDRESS_NODE_1}", "${IP_ADDRESS_NODE_2}", "${IP_ADDRESS_NODE_3}", 2),
+          content: patroniConfigContent("postgresql-02", "${PRIVATE_IP_NODE_2}", "${PRIVATE_IP_NODE_1}", "${PRIVATE_IP_NODE_2}", "${PRIVATE_IP_NODE_3}", 2),
           owner: "postgres:postgres",
           permissions: "644",
         },
@@ -546,7 +521,7 @@ export function getClusterSteps(): StepDefinition[] {
       files: [
         {
           path: "/etc/patroni/config.yml",
-          content: patroniConfigContent("postgresql-03", "${IP_ADDRESS_NODE_3}", "${IP_ADDRESS_NODE_1}", "${IP_ADDRESS_NODE_2}", "${IP_ADDRESS_NODE_3}", 3),
+          content: patroniConfigContent("postgresql-03", "${PRIVATE_IP_NODE_3}", "${PRIVATE_IP_NODE_1}", "${PRIVATE_IP_NODE_2}", "${PRIVATE_IP_NODE_3}", 3),
           owner: "postgres:postgres",
           permissions: "644",
         },
@@ -621,18 +596,17 @@ export function getClusterSteps(): StepDefinition[] {
       files: [],
     },
 
-    // ==================== PHASE 2: HAProxy ====================
+    // ==================== PHASE 2: HAProxy + Keepalived ====================
     {
       phase: "haproxy",
       stepNumber: 20,
-      name: "Install HAProxy and tools",
+      name: "Install HAProxy and keepalived",
       targetRole: "all_ha",
       commands: [
         {
           commands: [
             "sudo apt update",
-            "sudo apt -y install haproxy",
-            "sudo apt -y install curl jq socat",
+            "sudo apt -y install haproxy keepalived curl",
           ],
         },
       ],
@@ -647,8 +621,9 @@ export function getClusterSteps(): StepDefinition[] {
         {
           commands: [
             "sudo haproxy -c -f /etc/haproxy/haproxy.cfg",
+            "sudo systemctl enable haproxy",
             "sudo systemctl restart haproxy",
-            "echo '--- haproxy status ---'",
+            "echo '--- HAProxy status ---'",
             "sudo systemctl status haproxy --no-pager || true",
           ],
         },
@@ -657,19 +632,16 @@ export function getClusterSteps(): StepDefinition[] {
         {
           path: "/etc/haproxy/haproxy.cfg",
           content: `global
-    stats socket /run/haproxy/admin.sock mode 600 level user
     log /dev/log local0
-    log /dev/log local1 notice
-    maxconn 2000
+    maxconn 4096
 
 defaults
-    log     global
-    mode    tcp
-    option  tcplog
-    option  dontlognull
+    log global
+    mode tcp
+    retries 3
     timeout connect 5s
-    timeout client  30s
-    timeout server  30s
+    timeout client 30s
+    timeout server 30s
 
 ${haproxyConfigContent()}
 `,
@@ -679,21 +651,20 @@ ${haproxyConfigContent()}
     {
       phase: "haproxy",
       stepNumber: 22,
-      name: "Create failover script (HAProxy 1)",
-      targetRole: "haproxy_1",
+      name: "Create HAProxy health check script",
+      targetRole: "all_ha",
       commands: [
         {
           commands: [
-            "sudo chmod +x /etc/haproxy/hetzner-failover.sh",
-            "sudo touch /var/log/haproxy-failover.log",
-            "sudo chmod 644 /var/log/haproxy-failover.log",
+            "sudo mkdir -p /etc/keepalived",
+            "sudo chmod +x /etc/keepalived/check_haproxy.sh",
           ],
         },
       ],
       files: [
         {
-          path: "/etc/haproxy/hetzner-failover.sh",
-          content: failoverScriptContent("${SERVER_ID_1}", "${SERVER_ID_2} ${SERVER_ID_3}"),
+          path: "/etc/keepalived/check_haproxy.sh",
+          content: CHECK_HAPROXY_SCRIPT,
           permissions: "755",
         },
       ],
@@ -701,78 +672,68 @@ ${haproxyConfigContent()}
     {
       phase: "haproxy",
       stepNumber: 23,
-      name: "Create failover script (HAProxy 2)",
-      targetRole: "haproxy_2",
-      commands: [
-        {
-          commands: [
-            "sudo chmod +x /etc/haproxy/hetzner-failover.sh",
-            "sudo touch /var/log/haproxy-failover.log",
-            "sudo chmod 644 /var/log/haproxy-failover.log",
-          ],
-        },
-      ],
+      name: "Configure keepalived (HAProxy 1 - MASTER, priority 100)",
+      targetRole: "haproxy_1",
+      commands: [],
       files: [
         {
-          path: "/etc/haproxy/hetzner-failover.sh",
-          content: failoverScriptContent("${SERVER_ID_2}", "${SERVER_ID_3} ${SERVER_ID_1}"),
-          permissions: "755",
+          path: "/etc/keepalived/keepalived.conf",
+          content: keepalivedConfigContent("MASTER", 100, "${PRIVATE_IP_HAPROXY_1}", ["${PRIVATE_IP_HAPROXY_2}", "${PRIVATE_IP_HAPROXY_3}"]),
+        },
+        {
+          path: "/etc/keepalived/failover.sh",
+          content: failoverScriptContent("${SERVER_ID_1}"),
+          permissions: "700",
         },
       ],
     },
     {
       phase: "haproxy",
       stepNumber: 24,
-      name: "Create failover script (HAProxy 3)",
-      targetRole: "haproxy_3",
-      commands: [
-        {
-          commands: [
-            "sudo chmod +x /etc/haproxy/hetzner-failover.sh",
-            "sudo touch /var/log/haproxy-failover.log",
-            "sudo chmod 644 /var/log/haproxy-failover.log",
-          ],
-        },
-      ],
+      name: "Configure keepalived (HAProxy 2 - BACKUP, priority 90)",
+      targetRole: "haproxy_2",
+      commands: [],
       files: [
         {
-          path: "/etc/haproxy/hetzner-failover.sh",
-          content: failoverScriptContent("${SERVER_ID_3}", "${SERVER_ID_1} ${SERVER_ID_2}"),
-          permissions: "755",
+          path: "/etc/keepalived/keepalived.conf",
+          content: keepalivedConfigContent("BACKUP", 90, "${PRIVATE_IP_HAPROXY_2}", ["${PRIVATE_IP_HAPROXY_1}", "${PRIVATE_IP_HAPROXY_3}"]),
+        },
+        {
+          path: "/etc/keepalived/failover.sh",
+          content: failoverScriptContent("${SERVER_ID_2}"),
+          permissions: "700",
         },
       ],
     },
     {
       phase: "haproxy",
       stepNumber: 25,
-      name: "Create failover systemd service",
-      targetRole: "all_ha",
-      commands: [
-        {
-          commands: [
-            "sudo systemctl daemon-reload",
-            "sudo systemctl enable haproxy-failover",
-            "sudo systemctl start haproxy-failover",
-          ],
-        },
-      ],
+      name: "Configure keepalived (HAProxy 3 - BACKUP, priority 80)",
+      targetRole: "haproxy_3",
+      commands: [],
       files: [
         {
-          path: "/etc/systemd/system/haproxy-failover.service",
-          content: HAPROXY_FAILOVER_SERVICE,
+          path: "/etc/keepalived/keepalived.conf",
+          content: keepalivedConfigContent("BACKUP", 80, "${PRIVATE_IP_HAPROXY_3}", ["${PRIVATE_IP_HAPROXY_1}", "${PRIVATE_IP_HAPROXY_2}"]),
+        },
+        {
+          path: "/etc/keepalived/failover.sh",
+          content: failoverScriptContent("${SERVER_ID_3}"),
+          permissions: "700",
         },
       ],
     },
     {
       phase: "haproxy",
       stepNumber: 26,
-      name: "Restart all services",
-      targetRole: "all_ha",
+      name: "Assign Floating IP to HAProxy 1 via Hetzner API",
+      targetRole: "haproxy_1",
       commands: [
         {
           commands: [
-            "sudo systemctl reload haproxy",
-            "sudo systemctl restart haproxy-failover",
+            "echo 'Assigning Floating IP via Hetzner API to HAProxy 1...'",
+            "curl -s -X POST -H \"Authorization: Bearer ${HETZNER_API_TOKEN}\" -H \"Content-Type: application/json\" -d '{\"server\": ${SERVER_ID_1}}' \"https://api.hetzner.cloud/v1/floating_ips/${FLOATING_IP_ID}/actions/assign\" | python3 -c \"import sys,json; print(json.load(sys.stdin))\" || true",
+            "sleep 5",
           ],
         },
       ],
@@ -781,14 +742,59 @@ ${haproxyConfigContent()}
     {
       phase: "haproxy",
       stepNumber: 27,
-      name: "Verify HAProxy setup",
+      name: "Configure floating IP via netplan on all HAProxy nodes",
+      targetRole: "all_ha",
+      commands: [
+        {
+          commands: [
+            "echo 'Applying netplan to bind Floating IP...'",
+            "sudo netplan apply || true",
+            "echo '--- Network interfaces ---'",
+            "ip addr show eth0 | grep inet || true",
+          ],
+        },
+      ],
+      files: [
+        {
+          path: "/etc/netplan/60-floating-ip.yaml",
+          content: NETPLAN_FLOATING_IP,
+        },
+      ],
+    },
+    {
+      phase: "haproxy",
+      stepNumber: 28,
+      name: "Start keepalived on all HAProxy nodes",
+      targetRole: "all_ha",
+      commands: [
+        {
+          commands: [
+            "sudo systemctl enable keepalived",
+            "sudo systemctl start keepalived",
+            "sleep 3",
+            "echo '--- Keepalived status ---'",
+            "sudo systemctl status keepalived --no-pager || true",
+          ],
+        },
+      ],
+      files: [],
+    },
+    {
+      phase: "haproxy",
+      stepNumber: 29,
+      name: "Verify HAProxy + keepalived + floating IP",
       targetRole: "haproxy_1",
       commands: [
         {
           commands: [
+            "echo '=== HAProxy ==='",
             "sudo systemctl status haproxy | head -5",
-            "sudo systemctl status haproxy-failover | head -5",
-            `echo "show stat" | socat stdio /run/haproxy/admin.sock || true`,
+            "echo '=== Keepalived ==='",
+            "sudo systemctl status keepalived | head -5",
+            "echo '=== Floating IP on interface ==='",
+            "ip addr show eth0 | grep ${FLOATING_IP} || echo 'Floating IP NOT found on interface!'",
+            "echo '=== HAProxy backend check ==='",
+            "echo 'show stat' | sudo socat stdio /run/haproxy/admin.sock 2>/dev/null || echo 'Stats socket not available'",
           ],
         },
       ],

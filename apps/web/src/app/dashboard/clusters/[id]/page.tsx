@@ -38,6 +38,7 @@ interface ServerForm {
   sshUser: string;
   sshPort: number;
   hetznerServerId: string;
+  privateIpAddress: string;
 }
 
 export default function ClusterDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -52,14 +53,14 @@ export default function ClusterDetailPage({ params }: { params: Promise<{ id: st
   const [floatingIp, setFloatingIp] = useState("");
   const [floatingIpId, setFloatingIpId] = useState("");
   const [pgServers, setPgServers] = useState<Record<string, ServerForm>>({
-    postgresql_1: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "" },
-    postgresql_2: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "" },
-    postgresql_3: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "" },
+    postgresql_1: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
+    postgresql_2: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
+    postgresql_3: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
   });
   const [haServers, setHaServers] = useState<Record<string, ServerForm>>({
-    haproxy_1: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "" },
-    haproxy_2: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "" },
-    haproxy_3: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "" },
+    haproxy_1: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
+    haproxy_2: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
+    haproxy_3: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
   });
 
   const updateCluster = useMutation({
@@ -130,6 +131,7 @@ export default function ClusterDetailPage({ params }: { params: Promise<{ id: st
         sshPort: server.sshPort,
         role: server.role,
         hetznerServerId: server.hetznerServerId || undefined,
+        privateIpAddress: server.privateIpAddress || undefined,
       });
     }
 
@@ -227,9 +229,10 @@ export default function ClusterDetailPage({ params }: { params: Promise<{ id: st
               <CardContent className="grid gap-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
-                    <Label>IP Address</Label>
+                    <Label>Public IP Address</Label>
+                    <p className="text-xs text-muted-foreground">Used for SSH connection</p>
                     <Input
-                      placeholder="10.0.0.1"
+                      placeholder="1.2.3.4"
                       value={pgServers[r.role].ipAddress}
                       onChange={(e) =>
                         setPgServers((prev) => ({
@@ -239,6 +242,22 @@ export default function ClusterDetailPage({ params }: { params: Promise<{ id: st
                       }
                     />
                   </div>
+                  <div className="grid gap-2">
+                    <Label>Private IP Address</Label>
+                    <p className="text-xs text-muted-foreground">Hetzner private network (used by HAProxy for PG connections)</p>
+                    <Input
+                      placeholder="10.0.0.2"
+                      value={pgServers[r.role].privateIpAddress}
+                      onChange={(e) =>
+                        setPgServers((prev) => ({
+                          ...prev,
+                          [r.role]: { ...prev[r.role], privateIpAddress: e.target.value },
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label>SSH User</Label>
                     <Input
@@ -305,11 +324,12 @@ export default function ClusterDetailPage({ params }: { params: Promise<{ id: st
                 <CardTitle className="text-lg">{r.label}</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-4">
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
-                    <Label>IP Address</Label>
+                    <Label>Public IP Address</Label>
+                    <p className="text-xs text-muted-foreground">Used for SSH connection</p>
                     <Input
-                      placeholder="10.0.1.1"
+                      placeholder="1.2.3.4"
                       value={haServers[r.role].ipAddress}
                       onChange={(e) =>
                         setHaServers((prev) => ({
@@ -319,6 +339,22 @@ export default function ClusterDetailPage({ params }: { params: Promise<{ id: st
                       }
                     />
                   </div>
+                  <div className="grid gap-2">
+                    <Label>Private IP Address</Label>
+                    <p className="text-xs text-muted-foreground">Hetzner private network (used for ping-based failover)</p>
+                    <Input
+                      placeholder="10.0.0.2"
+                      value={haServers[r.role].privateIpAddress}
+                      onChange={(e) =>
+                        setHaServers((prev) => ({
+                          ...prev,
+                          [r.role]: { ...prev[r.role], privateIpAddress: e.target.value },
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label>SSH User</Label>
                     <Input
@@ -416,6 +452,9 @@ export default function ClusterDetailPage({ params }: { params: Promise<{ id: st
                   <div key={r.role} className="flex items-center gap-2 text-sm">
                     <Badge variant="outline">{r.label}</Badge>
                     <code>{pgServers[r.role].ipAddress}</code>
+                    {pgServers[r.role].privateIpAddress && (
+                      <span className="text-muted-foreground">(Private: {pgServers[r.role].privateIpAddress})</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -428,6 +467,9 @@ export default function ClusterDetailPage({ params }: { params: Promise<{ id: st
                   <div key={r.role} className="flex items-center gap-2 text-sm">
                     <Badge variant="outline">{r.label}</Badge>
                     <code>{haServers[r.role].ipAddress}</code>
+                    {haServers[r.role].privateIpAddress && (
+                      <span className="text-muted-foreground">(Private: {haServers[r.role].privateIpAddress})</span>
+                    )}
                     <span className="text-muted-foreground">(Hetzner ID: {haServers[r.role].hetznerServerId})</span>
                   </div>
                 ))}

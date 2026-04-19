@@ -24,6 +24,7 @@ export const serverRouter = router({
           "haproxy_3",
         ]),
         hetznerServerId: z.string().optional(),
+        privateIpAddress: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -47,6 +48,7 @@ export const serverRouter = router({
         sshUser: z.string().optional(),
         sshPrivateKey: z.string().optional(),
         hetznerServerId: z.string().optional(),
+        privateIpAddress: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {

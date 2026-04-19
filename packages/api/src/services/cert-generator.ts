@@ -12,6 +12,7 @@ export interface GeneratedCerts {
 
 export function generateClusterCertificates(
   pgNodeIps: [string, string, string],
+  pgNodePrivateIps?: [string, string, string],
 ): GeneratedCerts {
   const { pki, md } = forge;
 
@@ -41,9 +42,9 @@ export function generateClusterCertificates(
 
   // --- Generate etcd node certificates ---
   const etcdNodes = {
-    node1: generateNodeCert(caCert, caKeys.privateKey, "etcd-node1", pgNodeIps[0]),
-    node2: generateNodeCert(caCert, caKeys.privateKey, "etcd-node2", pgNodeIps[1]),
-    node3: generateNodeCert(caCert, caKeys.privateKey, "etcd-node3", pgNodeIps[2]),
+    node1: generateNodeCert(caCert, caKeys.privateKey, "etcd-node1", pgNodeIps[0], pgNodePrivateIps?.[0]),
+    node2: generateNodeCert(caCert, caKeys.privateKey, "etcd-node2", pgNodeIps[1], pgNodePrivateIps?.[1]),
+    node3: generateNodeCert(caCert, caKeys.privateKey, "etcd-node3", pgNodeIps[2], pgNodePrivateIps?.[2]),
   };
 
   // --- Generate PostgreSQL server certificate ---
@@ -57,16 +58,20 @@ export function generateClusterCertificates(
 
   pgCert.setSubject([{ name: "commonName", value: "postgresql-server" }]);
   pgCert.setIssuer(caCert.subject.attributes);
+  const pgSanIps = [
+    { type: 7, ip: "127.0.0.1" },
+    ...pgNodeIps.map((ip) => ({ type: 7 as const, ip })),
+  ];
+  if (pgNodePrivateIps) {
+    pgSanIps.push(...pgNodePrivateIps.map((ip) => ({ type: 7 as const, ip })));
+  }
   pgCert.setExtensions([
     { name: "basicConstraints", cA: false },
     { name: "keyUsage", digitalSignature: true, keyEncipherment: true },
     { name: "extKeyUsage", serverAuth: true, clientAuth: true },
     {
       name: "subjectAltName",
-      altNames: [
-        { type: 7, ip: "127.0.0.1" },
-        ...pgNodeIps.map((ip) => ({ type: 7 as const, ip })),
-      ],
+      altNames: pgSanIps,
     },
   ]);
   pgCert.sign(caKeys.privateKey, md.sha256.create());
@@ -97,6 +102,7 @@ function generateNodeCert(
   caPrivateKey: forge.pki.rsa.PrivateKey,
   commonName: string,
   ip: string,
+  privateIp?: string,
 ) {
   const { pki, md } = forge;
   const keys = pki.rsa.generateKeyPair(2048);
@@ -112,16 +118,21 @@ function generateNodeCert(
 
   cert.setSubject([{ name: "commonName", value: commonName }]);
   cert.setIssuer(caCert.subject.attributes);
+  const altNames: { type: number; ip?: string; value?: string }[] = [
+    { type: 7, ip: ip },
+    { type: 2, value: commonName },
+    { type: 7, ip: "127.0.0.1" },
+  ];
+  if (privateIp) {
+    altNames.push({ type: 7, ip: privateIp });
+  }
   cert.setExtensions([
     { name: "basicConstraints", cA: false },
     { name: "keyUsage", digitalSignature: true, keyEncipherment: true },
     { name: "extKeyUsage", serverAuth: true, clientAuth: true },
     {
       name: "subjectAltName",
-      altNames: [
-        { type: 7, ip: ip },
-        { type: 2, value: commonName },
-      ],
+      altNames,
     },
   ]);
   cert.sign(caPrivateKey, md.sha256.create());
