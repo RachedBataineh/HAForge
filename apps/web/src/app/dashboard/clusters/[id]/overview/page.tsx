@@ -12,13 +12,14 @@ import {
   Database,
   Globe,
   CheckCircle2,
-  Server,
   Trash2,
   RotateCcw,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import React from "react";
+import React, { useState } from "react";
 import { toast } from "sonner";
 
 import { trpc, trpcClient } from "@/utils/trpc";
@@ -47,6 +48,8 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
   const queryClient = useQueryClient();
 
   const cluster = useQuery(trpc.cluster.getById.queryOptions({ id: clusterId }));
+  const [showPassword, setShowPassword] = useState(false);
+
   const servers = cluster.data?.servers ?? [];
   const pgServers = servers.filter((s: any) => s.role?.startsWith("postgresql"));
   const haServers = servers.filter((s: any) => s.role?.startsWith("haproxy"));
@@ -194,25 +197,42 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
 
       {/* Connection Info */}
       {cluster.data.status === "running" && cluster.data.floatingIp && (
-        <Card className="border-green-500/30 bg-green-500/5">
-          <CardContent className="py-4">
-            <h3 className="font-semibold mb-2 flex items-center gap-2">
-              <CheckCircle2 className="size-4 text-green-500" />
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <CheckCircle2 className="size-4" />
               Connection Info
-            </h3>
-            <div className="text-sm space-y-1">
-              <p>
-                <span className="text-muted-foreground">Host:</span>{" "}
-                <code className="font-mono">{cluster.data.floatingIp}</code>
-              </p>
-              <p>
-                <span className="text-muted-foreground">Port:</span>{" "}
-                <code className="font-mono">5432</code>
-              </p>
-              <p>
-                <span className="text-muted-foreground">User:</span>{" "}
-                <code className="font-mono">postgres</code>
-              </p>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Host</span>
+                <p className="font-mono">{cluster.data.floatingIp}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Port</span>
+                <p className="font-mono">5432</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">User</span>
+                <p className="font-mono">postgres</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Password</span>
+                <div className="flex items-center gap-2">
+                  <p className="font-mono">
+                    {showPassword ? (cluster.data.superuserPassword || "N/A") : "••••••••"}
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                  </Button>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
