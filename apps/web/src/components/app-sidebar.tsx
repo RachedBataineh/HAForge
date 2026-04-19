@@ -3,6 +3,7 @@
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -24,7 +25,6 @@ const navItems = [
 
 const bottomItems = [
   { title: "Security", href: "/" as const, icon: Shield },
-  { title: "Settings", href: "/" as const, icon: Settings },
 ];
 
 export function AppSidebar() {
@@ -97,6 +97,21 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              render={<Link href="/" />}
+              isActive={false}
+              tooltip="Settings"
+            >
+              <Settings />
+              <span>Settings</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
 
       <SidebarRail />
     </Sidebar>
