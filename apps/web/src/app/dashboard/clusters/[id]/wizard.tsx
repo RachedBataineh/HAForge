@@ -166,7 +166,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
     onChange: (updated: ServerForm) => void,
     showHetznerId: boolean,
   ) => (
-    <Card>
+    <Card key={role}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base">{label}</CardTitle>
