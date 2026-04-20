@@ -25,6 +25,7 @@ import {
   Cloud,
   Database,
   Globe,
+  Network,
   Rocket,
   CheckCircle2,
   Loader2,
@@ -69,7 +70,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const clusterType = (cluster.data?.clusterType || "haproxy") as "haproxy" | "hetzner_lb";
   const isLb = clusterType === "hetzner_lb";
 
-  const stepIcons = isLb ? [Cloud, Globe, Database, Rocket] : [Cloud, Globe, Database, Rocket];
+  const stepIcons = [Cloud, Network, Database, Rocket];
   const stepTitles = isLb
     ? ["Hetzner Config", "Load Balancer", "PostgreSQL Nodes", "Review & Deploy"]
     : ["Hetzner Config", "HAProxy Nodes", "PostgreSQL Nodes", "Review & Deploy"];
@@ -694,7 +695,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Globe className="size-5" />
+              <Network className="size-5" />
               Hetzner Load Balancer
             </CardTitle>
             <CardDescription>
