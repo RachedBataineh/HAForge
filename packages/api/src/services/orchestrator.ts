@@ -183,6 +183,21 @@ export class Orchestrator extends EventEmitter {
 
       // Configure Hetzner Load Balancer if LB mode
       if (isLb && cluster.loadBalancerId) {
+        // Remove TLS from Patroni REST API (Hetzner LB health checks don't accept self-signed certs)
+        const pgServers2 = Array.from(serverMap.values()).filter((s: any) =>
+          s.role?.startsWith("postgresql"),
+        );
+        await Promise.all(
+          pgServers2.map(async (server: any) => {
+            const ssh = this.sshConnections.get(server.id);
+            if (ssh) {
+              await ssh.exec("sudo sed -i '/certfile:.*server.pem/d' /etc/patroni/config.yml && sudo systemctl restart patroni");
+            }
+          }),
+        );
+        // Wait for Patroni to restart
+        await new Promise((resolve) => setTimeout(resolve, 15000));
+
         await this.configureHetznerLoadBalancer(cluster, vars);
       }
 
