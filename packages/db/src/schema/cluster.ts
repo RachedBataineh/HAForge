@@ -243,3 +243,18 @@ export const executionLogRelations = relations(executionLogs, ({ one }) => ({
     references: [servers.id],
   }),
 }));
+
+export const sshKeys = pgTable("ssh_keys", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull(),
+  name: text("name").notNull(),
+  hetznerKeyId: text("hetzner_key_id").unique(),
+  publicKey: text("public_key").notNull(),
+  privateKey: text("private_key").notNull(),
+  fingerprint: text("fingerprint"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const sshKeyRelations = relations(sshKeys, ({ one }) => ({}));

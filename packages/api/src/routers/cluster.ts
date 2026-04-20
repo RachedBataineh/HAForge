@@ -1,5 +1,5 @@
 import { db } from "@HAForge/db";
-import { clusters, servers } from "@HAForge/db";
+import { clusters, servers, sshKeys } from "@HAForge/db";
 import { eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
@@ -412,7 +412,96 @@ export const clusterRouter = router({
         id: String(k.id),
         name: k.name,
         fingerprint: k.fingerprint,
+        publicKey: k.public_key || "",
       }));
+    }),
+
+  allHetznerSshKeys: protectedProcedure.query(async ({ ctx }) => {
+    const userClusters = await db.query.clusters.findMany({
+      where: eq(clusters.userId, ctx.session.user.id),
+    });
+    const tokens = [...new Set(userClusters.map((c) => c.hetznerApiToken).filter(Boolean))];
+    const allKeys: any[] = [];
+    const seen = new Set<string>();
+
+    for (const token of tokens) {
+      try {
+        const res = await fetch("https://api.hetzner.cloud/v1/ssh_keys", {
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        });
+        if (!res.ok) continue;
+        const data = await res.json();
+        for (const k of data.ssh_keys || []) {
+          const keyId = String(k.id);
+          if (seen.has(keyId)) continue;
+          seen.add(keyId);
+          allKeys.push({
+            id: keyId,
+            name: k.name,
+            fingerprint: k.fingerprint,
+            publicKey: k.public_key || "",
+            labels: k.labels || {},
+            createdAt: k.created || "",
+          });
+        }
+      } catch {
+        // Skip failed token
+      }
+    }
+    return allKeys;
+  }),
+
+  hetznerCreateSshKey: protectedProcedure
+    .input(z.object({
+      apiToken: z.string(),
+      name: z.string(),
+      publicKey: z.string(),
+      privateKey: z.string(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const res = await fetch("https://api.hetzner.cloud/v1/ssh_keys", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ name: input.name, public_key: input.publicKey }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || `Hetzner API error: ${res.status}`);
+      }
+      const data = await res.json();
+
+      // Save to DB with private key
+      await db.insert(sshKeys).values({
+        userId: ctx.session.user.id,
+        name: input.name,
+        hetznerKeyId: String(data.ssh_key.id),
+        publicKey: input.publicKey,
+        privateKey: input.privateKey,
+        fingerprint: data.ssh_key.fingerprint,
+      }).onConflictDoUpdate({
+        target: sshKeys.hetznerKeyId,
+        set: { name: input.name, publicKey: input.publicKey, privateKey: input.privateKey, fingerprint: data.ssh_key.fingerprint },
+      });
+
+      return {
+        id: String(data.ssh_key.id),
+        name: data.ssh_key.name,
+        fingerprint: data.ssh_key.fingerprint,
+      };
+    }),
+
+  hetznerDeleteSshKey: protectedProcedure
+    .input(z.object({ apiToken: z.string(), keyId: z.string() }))
+    .mutation(async ({ input }) => {
+      const res = await fetch(`https://api.hetzner.cloud/v1/ssh_keys/${input.keyId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || `Hetzner API error: ${res.status}`);
+      }
+      return { success: true };
     }),
 
   serverDetails: protectedProcedure

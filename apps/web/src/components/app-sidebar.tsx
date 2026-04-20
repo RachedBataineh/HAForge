@@ -14,7 +14,7 @@ import {
   SidebarRail,
   SidebarSeparator,
 } from "@HAForge/ui/components/sidebar";
-import { Database, Home, Server, HardDrive, Settings } from "lucide-react";
+import { Database, Home, Server, HardDrive, Settings, KeyRound } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -22,6 +22,7 @@ const navItems = [
   { title: "Dashboard", href: "/dashboard" as const, icon: Home },
   { title: "Clusters", href: "/dashboard/clusters" as const, icon: Server },
   { title: "Servers", href: "/dashboard/servers" as const, icon: HardDrive },
+  { title: "SSH Keys", href: "/dashboard/ssh-keys" as const, icon: KeyRound },
 ];
 
 export function AppSidebar() {
