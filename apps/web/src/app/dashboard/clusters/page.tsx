@@ -27,6 +27,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Globe,
+  Trash2,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -198,9 +199,27 @@ export default function ClusterListPage() {
                       </CardDescription>
                     </div>
                   </div>
-                  <Badge variant={statusColor[cluster.status] || "outline"}>
-                    {cluster.status}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    {cluster.status === "draft" && (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm("Delete this draft cluster?")) {
+                            trpcClient.cluster.delete.mutate({ id: cluster.id }).then(() => {
+                              queryClient.invalidateQueries(trpc.cluster.list.queryFilter());
+                            });
+                          }
+                        }}
+                      >
+                        <Trash2 className="size-4 text-muted-foreground hover:text-destructive" />
+                      </Button>
+                    )}
+                    <Badge variant={statusColor[cluster.status] || "outline"}>
+                      {cluster.status}
+                    </Badge>
+                  </div>
                 </CardHeader>
               </Card>
             );
