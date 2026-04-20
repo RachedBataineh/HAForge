@@ -568,6 +568,8 @@ export class Orchestrator extends EventEmitter {
       SERVER_ID_2: ha2?.hetznerServerId || pg2?.hetznerServerId || "",
       SERVER_ID_3: ha3?.hetznerServerId || pg3?.hetznerServerId || "",
       SUPERUSER_PASSWORD: cluster.superuserPassword || "",
+      SUPERUSER_USERNAME: cluster.superuserUsername || "postgres",
+      INITIAL_DATABASE: cluster.initialDatabase || "postgres",
       REPLICATION_PASSWORD: cluster.replicationPassword || "",
     };
   }

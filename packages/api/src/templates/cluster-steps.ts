@@ -114,7 +114,7 @@ postgresql:
   bin_dir: /usr/lib/postgresql/17/bin
   authentication:
     superuser:
-      username: postgres
+      username: \${SUPERUSER_USERNAME}
       password: \${SUPERUSER_PASSWORD}
     replication:
       username: replicator

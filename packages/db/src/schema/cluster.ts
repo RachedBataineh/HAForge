@@ -75,6 +75,8 @@ export const clusters = pgTable("cluster", {
   // Auto-generated credentials (stored encrypted at app level)
   superuserPassword: text("superuser_password"),
   replicationPassword: text("replication_password"),
+  superuserUsername: text("superuser_username").default("postgres"),
+  initialDatabase: text("initial_database").default("postgres"),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")

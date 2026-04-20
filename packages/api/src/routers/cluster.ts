@@ -190,6 +190,8 @@ export const clusterRouter = router({
         loadBalancerId: z.string().optional(),
         loadBalancerIp: z.string().optional(),
         wizardStep: z.number().optional(),
+        superuserUsername: z.string().optional(),
+        initialDatabase: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {

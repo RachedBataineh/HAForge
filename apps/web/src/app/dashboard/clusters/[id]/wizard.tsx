@@ -115,6 +115,8 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
 
   const [selectedLbId, setSelectedLbId] = useState("");
   const [createLbName, setCreateLbName] = useState("");
+  const [superuserUsername, setSuperuserUsername] = useState("postgres");
+  const [initialDatabase, setInitialDatabase] = useState("postgres");
 
   const [pgServers, setPgServers] = useState<Record<string, ServerForm>>({
     postgresql_1: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
@@ -162,6 +164,8 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
     if (c.floatingIp) setFloatingIp(c.floatingIp);
     if (c.floatingIpId) setFloatingIpId(c.floatingIpId);
     if (c.loadBalancerId) setSelectedLbId(c.loadBalancerId);
+    if (c.superuserUsername) setSuperuserUsername(c.superuserUsername);
+    if (c.initialDatabase) setInitialDatabase(c.initialDatabase);
 
     const servers = c.servers ?? [];
     if (servers.length > 0) {
@@ -236,6 +240,10 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       const lb = hetznerLbList.find((l: any) => l.id === selectedLbId);
       clusterData.loadBalancerId = selectedLbId;
       clusterData.loadBalancerIp = lb?.publicIp || "";
+    }
+    if (currentStep >= 2) {
+      clusterData.superuserUsername = superuserUsername;
+      clusterData.initialDatabase = initialDatabase;
     }
     await updateCluster.mutateAsync(clusterData);
 
@@ -776,6 +784,34 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       {/* Step 2: PostgreSQL Nodes */}
       {step === 2 && (
         <div className="grid gap-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Database Settings</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Superuser Username</Label>
+                  <Input
+                    placeholder="postgres"
+                    value={superuserUsername}
+                    onChange={(e) => setSuperuserUsername(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Initial Database</Label>
+                  <Input
+                    placeholder="postgres"
+                    value={initialDatabase}
+                    onChange={(e) => setInitialDatabase(e.target.value)}
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                A secure password will be auto-generated. Both fields default to "postgres" — change only if needed.
+              </p>
+            </CardContent>
+          </Card>
           {hetznerServers.isLoading && hetznerToken.length > 10 && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
               <Loader2 className="size-4 animate-spin" />

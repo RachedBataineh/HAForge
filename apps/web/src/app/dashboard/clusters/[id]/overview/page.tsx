@@ -119,7 +119,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
           </h2>
           <Card>
             <CardContent className="py-4">
-              <div className="grid grid-cols-4 gap-4 text-sm">
+              <div className="grid grid-cols-5 gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">Host</span>
                   <p className="font-mono">{connectionHost}</p>
@@ -130,7 +130,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                 </div>
                 <div>
                   <span className="text-muted-foreground">User</span>
-                  <p className="font-mono">postgres</p>
+                  <p className="font-mono">{cluster.data.superuserUsername || "postgres"}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Password</span>
@@ -156,6 +156,10 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                       <Copy className="size-3.5" />
                     </Button>
                   </div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Database</span>
+                  <p className="font-mono">{cluster.data.initialDatabase || "postgres"}</p>
                 </div>
               </div>
             </CardContent>

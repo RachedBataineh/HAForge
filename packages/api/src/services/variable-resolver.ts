@@ -29,6 +29,8 @@ export interface VariableMap {
   SERVER_ID_3: string;
   // Passwords
   SUPERUSER_PASSWORD: string;
+  SUPERUSER_USERNAME: string;
+  INITIAL_DATABASE: string;
   REPLICATION_PASSWORD: string;
 }
 
