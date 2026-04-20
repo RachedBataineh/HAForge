@@ -5,6 +5,28 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../index";
 
 export const clusterRouter = router({
+  hetznerFloatingIps: protectedProcedure
+    .input(z.object({ apiToken: z.string() }))
+    .query(async ({ input }) => {
+      const res = await fetch("https://api.hetzner.cloud/v1/floating_ips", {
+        headers: {
+          Authorization: `Bearer ${input.apiToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!res.ok) {
+        throw new Error(`Hetzner API error: ${res.status}`);
+      }
+      const data = await res.json();
+      return data.floating_ips.map((ip: any) => ({
+        id: String(ip.id),
+        ip: ip.ip,
+        name: ip.name || "",
+        type: ip.type,
+        homeLocation: ip.home_location?.name || "",
+      }));
+    }),
+
   create: protectedProcedure
     .input(z.object({ name: z.string().min(1).max(100) }))
     .mutation(async ({ ctx, input }) => {

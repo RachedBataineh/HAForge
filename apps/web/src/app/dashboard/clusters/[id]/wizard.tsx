@@ -11,6 +11,13 @@ import {
 } from "@HAForge/ui/components/card";
 import { Input } from "@HAForge/ui/components/input";
 import { Label } from "@HAForge/ui/components/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@HAForge/ui/components/select";
 import { Progress } from "@HAForge/ui/components/progress";
 import { Separator } from "@HAForge/ui/components/separator";
 import { Textarea } from "@HAForge/ui/components/textarea";
@@ -66,6 +73,16 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const [hetznerToken, setHetznerToken] = useState("");
   const [floatingIp, setFloatingIp] = useState("");
   const [floatingIpId, setFloatingIpId] = useState("");
+
+  const floatingIps = useQuery(
+    trpc.cluster.hetznerFloatingIps.queryOptions(
+      { apiToken: hetznerToken },
+      { enabled: hetznerToken.length > 10 },
+    ),
+  );
+
+  const floatingIpList = (floatingIps.data ?? []) as any[];
+
   const [pgServers, setPgServers] = useState<Record<string, ServerForm>>({
     postgresql_1: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
     postgresql_2: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
@@ -279,7 +296,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
               Hetzner Cloud Configuration
             </CardTitle>
             <CardDescription>
-              Provide your Hetzner Cloud API token and Floating IP details for automatic failover.
+              Enter your Hetzner Cloud API token. Floating IPs will be fetched automatically.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
@@ -289,27 +306,55 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                 type="password"
                 placeholder="hcloud_xxxxx..."
                 value={hetznerToken}
-                onChange={(e) => setHetznerToken(e.target.value)}
+                onChange={(e) => {
+                  setHetznerToken(e.target.value);
+                  setFloatingIp("");
+                  setFloatingIpId("");
+                }}
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-1.5">
-                <Label className="text-xs">Floating IP Address</Label>
-                <Input
-                  placeholder="1.2.3.4"
-                  value={floatingIp}
-                  onChange={(e) => setFloatingIp(e.target.value)}
-                />
+            {hetznerToken.length > 10 && floatingIps.isLoading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Fetching floating IPs...
               </div>
+            )}
+            {hetznerToken.length > 10 && floatingIps.isError && (
+              <p className="text-sm text-destructive">
+                Failed to fetch floating IPs. Check your API token.
+              </p>
+            )}
+            {floatingIpList.length > 0 && (
               <div className="grid gap-1.5">
-                <Label className="text-xs">Floating IP ID</Label>
-                <Input
-                  placeholder="12345"
+                <Label className="text-xs">Floating IP</Label>
+                <Select
                   value={floatingIpId}
-                  onChange={(e) => setFloatingIpId(e.target.value)}
-                />
+                  onValueChange={(val) => {
+                    const selected = floatingIpList.find((ip: any) => ip.id === val);
+                    if (selected) {
+                      setFloatingIpId(selected.id);
+                      setFloatingIp(selected.ip);
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a Floating IP" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {floatingIpList.map((ip: any) => (
+                      <SelectItem key={ip.id} value={ip.id}>
+                        {ip.ip} {ip.name ? `(${ip.name})` : ""} - {ip.homeLocation}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
+            )}
+            {floatingIpList.length === 0 && !floatingIps.isLoading && !floatingIps.isError && hetznerToken.length > 10 && (
+              <p className="text-sm text-muted-foreground">
+                No floating IPs found in your Hetzner account. Create one first.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
