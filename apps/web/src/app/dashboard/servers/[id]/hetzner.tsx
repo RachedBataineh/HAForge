@@ -76,8 +76,6 @@ export default function HetznerTab({ server }: { server: any }) {
   }
 
   const info = hetznerInfo.data!;
-  const trafficUsed = ((info.outgoingTraffic + info.ingoingTraffic) / 1024 / 1024 / 1024).toFixed(1);
-  const trafficLimit = (info.includedTraffic / 1024 / 1024 / 1024).toFixed(0);
 
   return (
     <div className="space-y-6">
@@ -128,25 +126,6 @@ export default function HetznerTab({ server }: { server: any }) {
             <div>
               <span className="text-muted-foreground">Backups</span>
               <p>{info.backupWindow ? `Window: ${info.backupWindow}` : "Disabled"}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Traffic */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Traffic</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <span className="text-muted-foreground">Used</span>
-              <p>{trafficUsed} GB</p>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Included</span>
-              <p>{trafficLimit === "0" ? "Unlimited" : `${trafficLimit} GB`}</p>
             </div>
           </div>
         </CardContent>

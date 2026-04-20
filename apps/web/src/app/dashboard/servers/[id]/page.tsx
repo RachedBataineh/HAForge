@@ -2,7 +2,7 @@
 
 import { Badge } from "@HAForge/ui/components/badge";
 import { Button } from "@HAForge/ui/components/button";
-import { HardDrive, ArrowLeft, Globe, HardDriveIcon, Wifi, Terminal, Loader2 } from "lucide-react";
+import { HardDrive, ArrowLeft, Globe, HardDriveIcon, Wifi, Terminal, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
@@ -40,6 +40,15 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
   const servers = useQuery(trpc.cluster.allServers.queryOptions());
   const server = ((servers.data ?? []) as any[]).find((s: any) => s.id === serverId);
 
+  const hetznerInfo = useQuery(
+    trpc.cluster.hetznerServerInfo.queryOptions(
+      { apiToken: server?.clusterHetznerToken || "", serverId: server?.hetznerServerId || "" },
+      { enabled: !!server?.hetznerServerId && !!server?.clusterHetznerToken },
+    ),
+  );
+
+  const serverIsOn = hetznerInfo.data?.status === "running";
+
   if (!server) {
     return (
       <div className="p-6">
@@ -51,19 +60,27 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="p-6 pb-4 flex items-center gap-3 border-b">
-        <Button variant="ghost" size="icon-sm" onClick={() => router.back()}>
-          <ArrowLeft className="size-4" />
-        </Button>
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold tracking-tight">{server.ipAddress}</h1>
-            <Badge variant="secondary">{roleLabel[server.role] || server.role}</Badge>
+      <div className="p-6 pb-4 flex items-center justify-between border-b">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon-sm" onClick={() => router.back()}>
+            <ArrowLeft className="size-4" />
+          </Button>
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold tracking-tight">{server.ipAddress}</h1>
+              <Badge variant="secondary">{roleLabel[server.role] || server.role}</Badge>
+            </div>
+            <p className="text-muted-foreground mt-1">
+              Cluster: <button onClick={() => router.push(`/dashboard/clusters/${server.clusterId}`)} className="underline hover:no-underline">{server.clusterName}</button>
+            </p>
           </div>
-          <p className="text-muted-foreground mt-1">
-            Cluster: <button onClick={() => router.push(`/dashboard/clusters/${server.clusterId}`)} className="underline hover:no-underline">{server.clusterName}</button>
-          </p>
         </div>
+        {hetznerInfo.data && (
+          <Badge variant={serverIsOn ? "default" : "destructive"} className="gap-1">
+            {serverIsOn ? <CheckCircle2 className="size-3" /> : <XCircle className="size-3" />}
+            {serverIsOn ? "Online" : "Offline"}
+          </Badge>
+        )}
       </div>
 
       {/* Body: Sidebar + Content */}
@@ -92,7 +109,7 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
 
         {/* Content */}
         <div className="flex-1 overflow-auto p-6">
-          {activeTab === "overview" && <OverviewTab server={server} />}
+          {activeTab === "overview" && <OverviewTab server={server} serverIsOn={serverIsOn} hetznerInfo={hetznerInfo.data} />}
           {activeTab === "services" && <ServicesTab server={server} />}
           {activeTab === "hetzner" && <HetznerTab server={server} />}
           {activeTab === "networking" && <NetworkingTab server={server} />}

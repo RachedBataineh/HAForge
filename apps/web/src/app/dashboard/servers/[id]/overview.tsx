@@ -10,12 +10,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@HAForge/ui/components/select";
-import { HardDrive, Loader2, Save, RotateCw, AlertCircle } from "lucide-react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, Save, RotateCw, AlertCircle } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import React, { useState, useEffect } from "react";
 import { toast } from "sonner";
 
-import { trpc, trpcClient } from "@/utils/trpc";
+import { trpcClient } from "@/utils/trpc";
 
 const COMMON_TIMEZONES = [
   "UTC",
@@ -38,41 +38,27 @@ const COMMON_TIMEZONES = [
   "Pacific/Auckland",
 ];
 
-export default function OverviewTab({ server }: { server: any }) {
+export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { server: any; serverIsOn?: boolean; hetznerInfo?: any }) {
   const queryClient = useQueryClient();
   const [selectedTz, setSelectedTz] = useState(server.cachedTimezone || "");
   const [refreshing, setRefreshing] = useState(false);
-  const [hetznerStatus, setHetznerStatus] = useState<string | null>(null);
 
-  // Check Hetzner server status in background
-  const hetznerInfo = useQuery(
-    trpc.cluster.hetznerServerInfo.queryOptions(
-      { apiToken: server.clusterHetznerToken || "", serverId: server.hetznerServerId || "" },
-      { enabled: !!server.hetznerServerId && !!server.clusterHetznerToken },
-    ),
-  );
-
-  useEffect(() => {
-    if (hetznerInfo.data) {
-      setHetznerStatus(hetznerInfo.data.status);
-    }
-  }, [hetznerInfo.data]);
+  const serverOff = serverIsOn === false;
 
   // Check if cached data is stale (>5 min) and server is running → auto-refresh
   const isStale = !server.lastFetchedAt || (Date.now() - new Date(server.lastFetchedAt).getTime() > 5 * 60 * 1000);
-  const serverIsRunning = hetznerStatus === "running";
 
   useEffect(() => {
-    if (isStale && serverIsRunning && !refreshing) {
+    if (isStale && !serverOff && !refreshing) {
       doRefresh();
     }
-  }, [serverIsRunning, isStale]);
+  }, [serverOff, isStale]);
 
   const doRefresh = async () => {
     setRefreshing(true);
     try {
       await trpcClient.cluster.refreshServerInfo.mutate({ serverId: server.id });
-      queryClient.invalidateQueries(trpc.cluster.allServers.queryFilter());
+      queryClient.invalidateQueries({ queryKey: [["cluster", "allServers"]] });
     } catch {
       // Silently fail — cached data is still shown
     } finally {
@@ -93,13 +79,12 @@ export default function OverviewTab({ server }: { server: any }) {
     },
     onSuccess: () => {
       toast.success("Timezone updated");
-      queryClient.invalidateQueries(trpc.cluster.allServers.queryFilter());
+      queryClient.invalidateQueries({ queryKey: [["cluster", "allServers"]] });
     },
     onError: (err) => toast.error(`Failed: ${err.message}`),
   });
 
   const hasCachedData = !!server.cachedHostname;
-  const serverOff = hetznerStatus && hetznerStatus !== "running";
   const lastFetched = server.lastFetchedAt
     ? new Date(server.lastFetchedAt).toLocaleString()
     : null;
@@ -129,24 +114,7 @@ export default function OverviewTab({ server }: { server: any }) {
         </CardContent>
       </Card>
 
-      {/* System Information */}
-      <div className="flex items-center justify-between">
-        <CardTitle className="text-base flex items-center gap-2">
-          <HardDrive className="size-4" />
-          System Information
-        </CardTitle>
-        <div className="flex items-center gap-2">
-          {lastFetched && (
-            <span className="text-xs text-muted-foreground">
-              Updated {lastFetched}
-            </span>
-          )}
-          <Button variant="outline" size="sm" onClick={doRefresh} disabled={refreshing}>
-            {refreshing ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCw className="size-3.5" />}
-          </Button>
-        </div>
-      </div>
-
+      {/* No cached data states */}
       {!hasCachedData && !refreshing && (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
@@ -166,13 +134,80 @@ export default function OverviewTab({ server }: { server: any }) {
 
       {hasCachedData && (
         <>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Hostname</span>
-                  <p className="font-mono">{server.cachedHostname}</p>
+          {/* Hetzner Plan Info (from API) */}
+          {hetznerInfo && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Hetzner Server Details</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Name</span>
+                    <p>{hetznerInfo.name}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Server Type</span>
+                    <p>{hetznerInfo.serverType}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Location</span>
+                    <p>{hetznerInfo.location} ({hetznerInfo.datacenter})</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">vCPUs</span>
+                    <p>{hetznerInfo.cores}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Memory</span>
+                    <p>{hetznerInfo.memory} GB</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Disk</span>
+                    <p>{hetznerInfo.disk} GB</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Created</span>
+                    <p>{new Date(hetznerInfo.created).toLocaleDateString()}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Rescue Mode</span>
+                    <p>{hetznerInfo.rescueEnabled ? "Enabled" : "Disabled"}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Backups</span>
+                    <p>{hetznerInfo.backupWindow ? `Enabled (${hetznerInfo.backupWindow})` : "Disabled"}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Traffic</span>
+                    <p>{hetznerInfo.includedTraffic === 0
+                      ? `${((hetznerInfo.outgoingTraffic + hetznerInfo.ingoingTraffic) / 1073741824).toFixed(1)} GB / Unlimited`
+                      : `${((hetznerInfo.outgoingTraffic + hetznerInfo.ingoingTraffic) / 1073741824).toFixed(1)} / ${(hetznerInfo.includedTraffic / 1073741824).toFixed(0)} GB`}</p>
+                  </div>
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Live System Info (from SSH) */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Live System Info</CardTitle>
+                <div className="flex items-center gap-2">
+                  {lastFetched && (
+                    <span className="text-xs text-muted-foreground">
+                      Updated {lastFetched}
+                    </span>
+                  )}
+                  <Button variant="outline" size="sm" onClick={doRefresh} disabled={refreshing}>
+                    {refreshing ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCw className="size-3.5" />}
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">Operating System</span>
                   <p>{server.cachedOs}</p>
@@ -180,14 +215,6 @@ export default function OverviewTab({ server }: { server: any }) {
                 <div>
                   <span className="text-muted-foreground">Architecture</span>
                   <p className="font-mono">{server.cachedArch}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">CPU Cores</span>
-                  <p>{server.cachedCpuCores}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">RAM</span>
-                  <p>{server.cachedRamMB && Number(server.cachedRamMB) >= 1024 ? `${(Number(server.cachedRamMB) / 1024).toFixed(1)} GB` : `${server.cachedRamMB} MB`}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Kernel</span>
@@ -203,7 +230,7 @@ export default function OverviewTab({ server }: { server: any }) {
                   <span className="text-muted-foreground">Disk Usage</span>
                   <p>{server.cachedDiskUsed} / {server.cachedDiskTotal} ({server.cachedDiskPercent} used)</p>
                 </div>
-              </div>
+                </div>
             </CardContent>
           </Card>
 
@@ -235,7 +262,7 @@ export default function OverviewTab({ server }: { server: any }) {
                   </div>
                   <Button
                     onClick={() => setTimezone.mutate(selectedTz)}
-                    disabled={selectedTz === server.cachedTimezone || setTimezone.isPending || !serverIsRunning}
+                    disabled={selectedTz === server.cachedTimezone || setTimezone.isPending}
                   >
                     {setTimezone.isPending ? <Loader2 className="size-4 animate-spin mr-2" /> : <Save className="size-4 mr-2" />}
                     Save
