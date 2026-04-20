@@ -3,7 +3,7 @@
 import { Badge } from "@HAForge/ui/components/badge";
 import { Button } from "@HAForge/ui/components/button";
 import { Switch } from "@HAForge/ui/components/switch";
-import { HardDrive, ArrowLeft, Globe, HardDriveIcon, Wifi, Terminal, Loader2, CheckCircle2, XCircle, RotateCw } from "lucide-react";
+import { HardDrive, ArrowLeft, Globe, Wifi, Loader2, RotateCw } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
@@ -12,7 +12,6 @@ import { toast } from "sonner";
 import { trpc, trpcClient } from "@/utils/trpc";
 import OverviewTab from "./overview";
 import ServicesTab from "./services";
-import HetznerTab from "./hetzner";
 import NetworkingTab from "./networking";
 import { PowerActionDialog } from "./power-action-dialog";
 
@@ -28,9 +27,7 @@ const roleLabel: Record<string, string> = {
 const tabs = [
   { id: "overview", label: "Overview", icon: HardDrive },
   { id: "services", label: "Services", icon: Globe },
-  { id: "hetzner", label: "Hetzner", icon: HardDriveIcon },
   { id: "networking", label: "Networking", icon: Wifi },
-  // { id: "terminal", label: "Terminal", icon: Terminal },
 ] as const;
 
 type TabId = typeof tabs[number]["id"];
@@ -164,7 +161,6 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
         <div className="flex-1 overflow-auto p-6">
           {activeTab === "overview" && <OverviewTab server={server} serverIsOn={serverIsOn} hetznerInfo={hetznerInfo.data} />}
           {activeTab === "services" && <ServicesTab server={server} />}
-          {activeTab === "hetzner" && <HetznerTab server={server} />}
           {activeTab === "networking" && <NetworkingTab server={server} />}
         </div>
       </div>

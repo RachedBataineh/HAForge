@@ -138,7 +138,7 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
           {hetznerInfo && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Hetzner Server Details</CardTitle>
+                <CardTitle className="text-base">Server Details</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
