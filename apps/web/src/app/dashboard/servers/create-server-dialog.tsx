@@ -181,23 +181,21 @@ export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: 
               </Select>
             </div>
 
-            {sshKeysData.length > 0 && (
-              <div className="grid gap-2">
-                <Label className="text-sm">SSH Key (optional)</Label>
-                <Select value={sshKeyId} onValueChange={(v) => setSshKeyId(v ?? "")}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select SSH key" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sshKeysData.map((k: any) => (
-                      <SelectItem key={k.id} value={k.id}>
-                        {k.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            <div className="grid gap-2">
+              <Label className="text-sm">SSH Key</Label>
+              <Select value={sshKeyId} onValueChange={(v) => setSshKeyId(v ?? "")}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select SSH key" />
+                </SelectTrigger>
+                <SelectContent>
+                  {sshKeysData.map((k: any) => (
+                    <SelectItem key={k.id} value={k.id}>
+                      {k.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         )}
 
@@ -207,7 +205,7 @@ export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: 
           </Button>
           <Button
             onClick={handleCreate}
-            disabled={!name || !serverType || !location || !image || creating || loading}
+            disabled={!name || !serverType || !location || !image || !sshKeyId || creating || loading}
           >
             {creating ? <Loader2 className="size-4 animate-spin mr-2" /> : <Plus className="size-4 mr-2" />}
             Create Server
