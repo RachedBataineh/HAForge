@@ -15,7 +15,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@HAForge/ui/components/select";
 import { Loader2, Plus } from "lucide-react";
 import { useState } from "react";
@@ -136,7 +135,9 @@ export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: 
                 }
               }}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select server type" />
+                  {serverType
+                    ? <span className="truncate">{serverTypesData.find((t: any) => t.name === serverType)?.description || serverType}</span>
+                    : <span className="text-muted-foreground">Select server type</span>}
                 </SelectTrigger>
                 <SelectContent className="max-h-64" side="bottom" align="start" alignItemWithTrigger={false}>
                   {serverTypesData.map((t: any) => (
@@ -153,7 +154,9 @@ export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: 
               <Label className="text-sm">Location</Label>
               <Select value={location} onValueChange={(v) => setLocation(v ?? "")}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select location" />
+                  {location
+                    ? <span className="truncate">{(() => { const l = locationsData.find((l: any) => l.name === location); return l ? `${l.city}, ${l.country} (${l.name})` : location; })()}</span>
+                    : <span className="text-muted-foreground">Select location</span>}
                 </SelectTrigger>
                 <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
                   {locationsData.map((l: any) => (
@@ -169,7 +172,9 @@ export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: 
               <Label className="text-sm">Image</Label>
               <Select value={image} onValueChange={(v) => setImage(v ?? "")}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select OS image" />
+                  {image
+                    ? <span className="truncate">{imagesData.find((i: any) => String(i.id) === image)?.description || imagesData.find((i: any) => String(i.id) === image)?.name || image}</span>
+                    : <span className="text-muted-foreground">Select OS image</span>}
                 </SelectTrigger>
                 <SelectContent className="max-h-64" side="bottom" align="start" alignItemWithTrigger={false}>
                   {imagesData.map((i: any) => (
@@ -185,7 +190,9 @@ export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: 
               <Label className="text-sm">SSH Key</Label>
               <Select value={sshKeyId} onValueChange={(v) => setSshKeyId(v ?? "")}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select SSH key" />
+                  {sshKeyId
+                    ? <span className="truncate">{sshKeysData.find((k: any) => k.id === sshKeyId)?.name || sshKeyId}</span>
+                    : <span className="text-muted-foreground">Select SSH key</span>}
                 </SelectTrigger>
                 <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
                   {sshKeysData.map((k: any) => (
