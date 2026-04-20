@@ -291,8 +291,119 @@ export const clusterRouter = router({
       }
     }
 
-    return allServers;
+    return { servers: allServers, apiToken: tokens[0] || "" };
   }),
+
+  hetznerServerTypes: protectedProcedure
+    .input(z.object({ apiToken: z.string() }))
+    .query(async ({ input }) => {
+      const res = await fetch("https://api.hetzner.cloud/v1/server_types", {
+        headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
+      });
+      if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
+      const data = await res.json();
+      return data.server_types.map((t: any) => ({
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        cores: t.cores,
+        memory: t.memory,
+        disk: t.disk,
+        price: parseFloat(t.prices?.[0]?.price_monthly?.gross || "0").toFixed(2),
+      }));
+    }),
+
+  hetznerLocations: protectedProcedure
+    .input(z.object({ apiToken: z.string() }))
+    .query(async ({ input }) => {
+      const res = await fetch("https://api.hetzner.cloud/v1/locations", {
+        headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
+      });
+      if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
+      const data = await res.json();
+      return data.locations.map((l: any) => ({
+        id: l.id,
+        name: l.name,
+        description: l.description,
+        country: l.country,
+        city: l.city,
+      }));
+    }),
+
+  hetznerImages: protectedProcedure
+    .input(z.object({ apiToken: z.string() }))
+    .query(async ({ input }) => {
+      const res = await fetch("https://api.hetzner.cloud/v1/images?type=system&per_page=50", {
+        headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
+      });
+      if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
+      const data = await res.json();
+      return data.images.map((i: any) => ({
+        id: i.id,
+        name: i.name,
+        description: i.description,
+        os: i.os_flavor,
+        version: i.os_version,
+      }));
+    }),
+
+  hetznerCreateServer: protectedProcedure
+    .input(z.object({
+      apiToken: z.string(),
+      name: z.string(),
+      serverType: z.string(),
+      location: z.string(),
+      image: z.string(),
+      sshKeyId: z.string().optional(),
+      networkId: z.number().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const body: any = {
+        name: input.name,
+        server_type: input.serverType,
+        location: input.location,
+        image: input.image,
+        start_after_create: true,
+      };
+      if (input.sshKeyId) {
+        body.ssh_keys = [Number(input.sshKeyId)];
+      }
+      if (input.networkId) {
+        body.networks = [input.networkId];
+      }
+      const res = await fetch("https://api.hetzner.cloud/v1/servers", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || `Hetzner API error: ${res.status}`);
+      }
+      const data = await res.json();
+      const srv = data.server;
+      return {
+        id: String(srv.id),
+        name: srv.name,
+        publicIp: srv.public_net?.ipv4?.ip || "",
+        status: srv.status,
+      };
+    }),
+
+  hetznerSshKeys: protectedProcedure
+    .input(z.object({ apiToken: z.string() }))
+    .query(async ({ input }) => {
+      const res = await fetch("https://api.hetzner.cloud/v1/ssh_keys", {
+        headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
+      });
+      if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
+      const data = await res.json();
+      return data.ssh_keys.map((k: any) => ({
+        id: String(k.id),
+        name: k.name,
+        fingerprint: k.fingerprint,
+      }));
+    }),
 
   serverDetails: protectedProcedure
     .input(z.object({

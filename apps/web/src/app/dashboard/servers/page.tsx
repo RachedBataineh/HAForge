@@ -1,13 +1,15 @@
 "use client";
 
 import { Badge } from "@HAForge/ui/components/badge";
+import { Button } from "@HAForge/ui/components/button";
 import { Card, CardContent } from "@HAForge/ui/components/card";
-import { HardDrive, Database, Server } from "lucide-react";
+import { HardDrive, Database, Server, Plus } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 
 import { trpc } from "@/utils/trpc";
+import { CreateServerDialog } from "./create-server-dialog";
 
 const roleLabel: Record<string, string> = {
   postgresql_1: "PostgreSQL Node 1",
@@ -30,6 +32,7 @@ const statusColor: Record<string, "default" | "secondary" | "destructive" | "out
 export default function ServersPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"cluster" | "hetzner">("cluster");
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
   const servers = useQuery(trpc.cluster.allServers.queryOptions());
   const serverList = (servers.data ?? []) as any[];
@@ -39,7 +42,9 @@ export default function ServersPage() {
   const assigned = serverList.filter((s: any) => s.clusterStatus === "running" || s.clusterStatus === "deploying");
   const draft = serverList.filter((s: any) => s.clusterStatus === "draft");
 
-  const hzServers = (hetznerServers.data ?? []) as any[];
+  const hzData = hetznerServers.data as { servers: any[]; apiToken: string } | undefined;
+  const hzServers = hzData?.servers ?? [];
+  const hzApiToken = hzData?.apiToken || "";
   const hzUsed = hzServers.filter((s) => s.used);
   const hzAvailable = hzServers.filter((s) => !s.used);
 
@@ -169,6 +174,15 @@ export default function ServersPage() {
       {/* Hetzner Servers Tab */}
       {activeTab === "hetzner" && (
         <>
+          {hzApiToken && (
+            <div className="flex justify-end">
+              <Button className="gap-2" onClick={() => setCreateDialogOpen(true)}>
+                <Plus className="size-4" />
+                Create Server
+              </Button>
+            </div>
+          )}
+
           {hetznerServers.isLoading && (
             <Card>
               <CardContent className="py-8 text-center text-muted-foreground">
@@ -223,6 +237,12 @@ export default function ServersPage() {
           )}
         </>
       )}
+      <CreateServerDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        apiToken={hzApiToken}
+        onCreated={() => hetznerServers.refetch()}
+      />
     </div>
   );
 }
