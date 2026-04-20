@@ -18,6 +18,7 @@ import {
   EyeOff,
   Copy,
   Plug,
+  Cloud,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -52,6 +53,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
   const cluster = useQuery(trpc.cluster.getById.queryOptions({ id: clusterId }));
   const [showPassword, setShowPassword] = useState(false);
 
+  const isLb = cluster.data?.clusterType === "hetzner_lb";
   const servers = cluster.data?.servers ?? [];
   const pgServers = servers.filter((s: any) => s.role?.startsWith("postgresql"));
   const haServers = servers.filter((s: any) => s.role?.startsWith("haproxy"));
@@ -76,6 +78,12 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
     );
   }
 
+  const connectionHost = isLb
+    ? cluster.data.loadBalancerId
+      ? "Load Balancer IP"
+      : ""
+    : cluster.data.floatingIp || "";
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -84,6 +92,9 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
             <h1 className="text-2xl font-bold tracking-tight">{cluster.data.name}</h1>
             <Badge variant={statusColor[cluster.data.status] || "outline"}>
               {cluster.data.status}
+            </Badge>
+            <Badge variant="outline" className="text-xs">
+              {isLb ? "Hetzner LB" : "HAProxy"}
             </Badge>
           </div>
           <p className="text-muted-foreground mt-1">
@@ -102,7 +113,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
       </div>
 
       {/* Connection Info */}
-      {cluster.data.status === "running" && cluster.data.floatingIp && (
+      {cluster.data.status === "running" && connectionHost && (
         <div>
           <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
             <Plug className="size-5" />
@@ -113,7 +124,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
               <div className="grid grid-cols-4 gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">Host</span>
-                  <p className="font-mono">{cluster.data.floatingIp}</p>
+                  <p className="font-mono">{connectionHost}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Port</span>
@@ -188,44 +199,80 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
         </div>
       </div>
 
-      {/* HAProxy Servers */}
-      <div>
-        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-          <Globe className="size-5" />
-          HAProxy Nodes
-        </h2>
-        <div className="grid gap-3">
-          {haServers.map((server: any) => {
-            const roleInfo = ROLE_LABELS[server.role] || { label: server.role, type: "" };
-            return (
-              <Card key={server.id}>
-                <CardContent className="flex items-center justify-between py-3">
-                  <div className="flex items-center gap-3">
-                    <CheckCircle2 className="size-4 text-green-500" />
-                    <div>
-                      <p className="font-medium text-sm">{roleInfo.label}</p>
-                      <p className="text-xs text-muted-foreground font-mono">{server.ipAddress}</p>
-                    </div>
+      {/* HAProxy Servers or Load Balancer */}
+      {isLb ? (
+        <div>
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <Cloud className="size-5" />
+            Hetzner Load Balancer
+          </h2>
+          {cluster.data.loadBalancerId ? (
+            <Card>
+              <CardContent className="py-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Load Balancer ID</span>
+                    <p className="font-mono">{cluster.data.loadBalancerId}</p>
                   </div>
-                  <div className="flex items-center gap-3">
-                    {server.privateIpAddress && (
-                      <span className="text-xs text-muted-foreground">
-                        Private: <code>{server.privateIpAddress}</code>
-                      </span>
-                    )}
-                    {server.hetznerServerId && (
-                      <span className="text-xs text-muted-foreground">
-                        Hetzner ID: <code>{server.hetznerServerId}</code>
-                      </span>
-                    )}
-                    <Badge variant="secondary" className="text-xs">{roleInfo.type}</Badge>
+                  <div>
+                    <span className="text-muted-foreground">Service</span>
+                    <p className="font-mono">TCP :5432 → :5432</p>
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                </div>
+                <div className="mt-3 text-xs text-muted-foreground">
+                  Targets: {pgServers.length} PostgreSQL nodes with Patroni health checks
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="py-4">
+                <p className="text-sm text-muted-foreground">
+                  Load Balancer will be configured during deployment.
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
-      </div>
+      ) : (
+        <div>
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <Globe className="size-5" />
+            HAProxy Nodes
+          </h2>
+          <div className="grid gap-3">
+            {haServers.map((server: any) => {
+              const roleInfo = ROLE_LABELS[server.role] || { label: server.role, type: "" };
+              return (
+                <Card key={server.id}>
+                  <CardContent className="flex items-center justify-between py-3">
+                    <div className="flex items-center gap-3">
+                      <CheckCircle2 className="size-4 text-green-500" />
+                      <div>
+                        <p className="font-medium text-sm">{roleInfo.label}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{server.ipAddress}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {server.privateIpAddress && (
+                        <span className="text-xs text-muted-foreground">
+                          Private: <code>{server.privateIpAddress}</code>
+                        </span>
+                      )}
+                      {server.hetznerServerId && (
+                        <span className="text-xs text-muted-foreground">
+                          Hetzner ID: <code>{server.hetznerServerId}</code>
+                        </span>
+                      )}
+                      <Badge variant="secondary" className="text-xs">{roleInfo.type}</Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

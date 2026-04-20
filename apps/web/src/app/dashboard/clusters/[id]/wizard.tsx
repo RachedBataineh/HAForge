@@ -59,15 +59,20 @@ interface ServerForm {
   privateIpAddress: string;
 }
 
-const stepIcons = [Cloud, Globe, Database, Rocket];
-const stepTitles = ["Hetzner Config", "HAProxy Nodes", "PostgreSQL Nodes", "Review & Deploy"];
-
 export default function ClusterSetupWizard({ params }: { params: Promise<{ id: string }> }) {
   const { id: clusterId } = React.use(params);
   const router = useRouter();
   const queryClient = useQueryClient();
 
   const cluster = useQuery(trpc.cluster.getById.queryOptions({ id: clusterId }));
+
+  const clusterType = (cluster.data?.clusterType || "haproxy") as "haproxy" | "hetzner_lb";
+  const isLb = clusterType === "hetzner_lb";
+
+  const stepIcons = isLb ? [Cloud, Globe, Database, Rocket] : [Cloud, Globe, Database, Rocket];
+  const stepTitles = isLb
+    ? ["Hetzner Config", "Load Balancer", "PostgreSQL Nodes", "Review & Deploy"]
+    : ["Hetzner Config", "HAProxy Nodes", "PostgreSQL Nodes", "Review & Deploy"];
 
   const [step, setStep] = useState(0);
   const [testingRole, setTestingRole] = useState<string | null>(null);
@@ -92,6 +97,17 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   );
 
   const hetznerServerList = (hetznerServers.data ?? []) as any[];
+
+  const hetznerLoadBalancers = useQuery(
+    trpc.cluster.hetznerLoadBalancers.queryOptions(
+      { apiToken: hetznerToken },
+      { enabled: isLb && hetznerToken.length > 10 },
+    ),
+  );
+  const hetznerLbList = (hetznerLoadBalancers.data ?? []) as any[];
+
+  const [selectedLbId, setSelectedLbId] = useState("");
+  const [createLbName, setCreateLbName] = useState("");
 
   const [pgServers, setPgServers] = useState<Record<string, ServerForm>>({
     postgresql_1: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
@@ -133,17 +149,27 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   });
 
   const handleSaveAndDeploy = async () => {
-    await updateCluster.mutateAsync({ id: clusterId, hetznerApiToken: hetznerToken, floatingIp, floatingIpId });
+    if (isLb) {
+      await updateCluster.mutateAsync({
+        id: clusterId,
+        hetznerApiToken: hetznerToken,
+        loadBalancerId: selectedLbId,
+      });
+    } else {
+      await updateCluster.mutateAsync({ id: clusterId, hetznerApiToken: hetznerToken, floatingIp, floatingIpId });
+    }
 
     const existingServers = cluster.data?.servers || [];
     for (const s of existingServers) {
       await trpcClient.server.remove.mutate({ id: s.id });
     }
 
-    const allServers = [
-      ...PG_ROLES.map((r) => ({ ...pgServers[r.role], role: r.role })),
-      ...HA_ROLES.map((r) => ({ ...haServers[r.role], role: r.role })),
-    ];
+    const allServers = isLb
+      ? PG_ROLES.map((r) => ({ ...pgServers[r.role], role: r.role }))
+      : [
+          ...PG_ROLES.map((r) => ({ ...pgServers[r.role], role: r.role })),
+          ...HA_ROLES.map((r) => ({ ...haServers[r.role], role: r.role })),
+        ];
 
     for (const server of allServers) {
       await addServer.mutateAsync({
@@ -162,6 +188,12 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   };
 
   const canProceed = () => {
+    if (isLb) {
+      if (step === 0) return !!hetznerToken;
+      if (step === 1) return !!selectedLbId;
+      if (step === 2) return PG_ROLES.every((r) => pgServers[r.role].ipAddress && pgServers[r.role].sshPrivateKey);
+      return true;
+    }
     if (step === 0) return !!(hetznerToken && floatingIp && floatingIpId);
     if (step === 1) return HA_ROLES.every((r) => haServers[r.role].ipAddress && haServers[r.role].sshPrivateKey && haServers[r.role].hetznerServerId);
     if (step === 2) return PG_ROLES.every((r) => pgServers[r.role].ipAddress && pgServers[r.role].sshPrivateKey);
@@ -310,7 +342,9 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
               Hetzner Cloud Configuration
             </CardTitle>
             <CardDescription>
-              Enter your Hetzner Cloud API token. Floating IPs will be fetched automatically.
+              {isLb
+                ? "Enter your Hetzner Cloud API token."
+                : "Enter your Hetzner Cloud API token. Floating IPs will be fetched automatically."}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
@@ -327,56 +361,60 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                 }}
               />
             </div>
-            {hetznerToken.length > 10 && floatingIps.isLoading && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                Fetching floating IPs...
-              </div>
-            )}
-            {hetznerToken.length > 10 && floatingIps.isError && (
-              <p className="text-sm text-destructive">
-                Failed to fetch floating IPs. Check your API token.
-              </p>
-            )}
-            {floatingIpList.length > 0 && (
-              <div className="grid gap-1.5">
-                <Label className="text-xs">Floating IP</Label>
-                <Select
-                  value={floatingIpId}
-                  onValueChange={(val) => {
-                    const selected = floatingIpList.find((ip: any) => ip.id === val);
-                    if (selected) {
-                      setFloatingIpId(selected.id);
-                      setFloatingIp(selected.ip);
-                    }
-                  }}
-                >
-                  <SelectTrigger>
-                    {floatingIpId
-                      ? floatingIpList.find((ip: any) => ip.id === floatingIpId)?.ip || floatingIpId
-                      : "Select a Floating IP"}
-                  </SelectTrigger>
-                  <SelectContent className="!w-auto min-w-[300px]" side="bottom">
-                    {floatingIpList.map((ip: any) => (
-                      <SelectItem key={ip.id} value={ip.id}>
-                        {ip.ip} {ip.name ? `(${ip.name})` : ""} - {ip.homeLocation}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            {floatingIpList.length === 0 && !floatingIps.isLoading && !floatingIps.isError && hetznerToken.length > 10 && (
-              <p className="text-sm text-muted-foreground">
-                No floating IPs found in your Hetzner account. Create one first.
-              </p>
+            {!isLb && (
+              <>
+                {hetznerToken.length > 10 && floatingIps.isLoading && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    Fetching floating IPs...
+                  </div>
+                )}
+                {hetznerToken.length > 10 && floatingIps.isError && (
+                  <p className="text-sm text-destructive">
+                    Failed to fetch floating IPs. Check your API token.
+                  </p>
+                )}
+                {floatingIpList.length > 0 && (
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">Floating IP</Label>
+                    <Select
+                      value={floatingIpId}
+                      onValueChange={(val) => {
+                        const selected = floatingIpList.find((ip: any) => ip.id === val);
+                        if (selected) {
+                          setFloatingIpId(selected.id);
+                          setFloatingIp(selected.ip);
+                        }
+                      }}
+                    >
+                      <SelectTrigger>
+                        {floatingIpId
+                          ? floatingIpList.find((ip: any) => ip.id === floatingIpId)?.ip || floatingIpId
+                          : "Select a Floating IP"}
+                      </SelectTrigger>
+                      <SelectContent className="!w-auto min-w-[300px]" side="bottom">
+                        {floatingIpList.map((ip: any) => (
+                          <SelectItem key={ip.id} value={ip.id}>
+                            {ip.ip} {ip.name ? `(${ip.name})` : ""} - {ip.homeLocation}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {floatingIpList.length === 0 && !floatingIps.isLoading && !floatingIps.isError && hetznerToken.length > 10 && (
+                  <p className="text-sm text-muted-foreground">
+                    No floating IPs found in your Hetzner account. Create one first.
+                  </p>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
       )}
 
-      {/* Step 1: HAProxy Nodes */}
-      {step === 1 && (
+      {/* Step 1: HAProxy Nodes (HAProxy mode only) */}
+      {step === 1 && !isLb && (
         <div className="grid gap-4">
           {hetznerServers.isLoading && hetznerToken.length > 10 && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
@@ -513,6 +551,94 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
         </div>
       )}
 
+      {/* Step 1: Load Balancer (LB mode only) */}
+      {step === 1 && isLb && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Globe className="size-5" />
+              Hetzner Load Balancer
+            </CardTitle>
+            <CardDescription>
+              Select an existing Load Balancer or create a new one for your PostgreSQL cluster.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            {hetznerLoadBalancers.isLoading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Fetching Load Balancers...
+              </div>
+            )}
+            {hetznerLoadBalancers.isError && (
+              <p className="text-sm text-destructive">
+                Failed to fetch Load Balancers. Check your API token.
+              </p>
+            )}
+            {hetznerLbList.length > 0 && (
+              <div className="grid gap-1.5">
+                <Label className="text-xs">Existing Load Balancer</Label>
+                <Select
+                  value={selectedLbId}
+                  onValueChange={(val: string | null) => {
+                    setSelectedLbId(val ?? "");
+                    setCreateLbName("");
+                  }}
+                >
+                  <SelectTrigger>
+                    {selectedLbId
+                      ? hetznerLbList.find((lb: any) => lb.id === selectedLbId)?.name || selectedLbId
+                      : "Select a Load Balancer"}
+                  </SelectTrigger>
+                  <SelectContent className="!w-auto min-w-[300px]" side="bottom">
+                    {hetznerLbList.map((lb: any) => (
+                      <SelectItem key={lb.id} value={lb.id}>
+                        {lb.name} ({lb.publicIp}) - {lb.location}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedLbId && (
+                  <div className="grid grid-cols-2 gap-4 text-sm bg-muted/50 rounded-lg p-3">
+                    <div>
+                      <span className="text-muted-foreground">Public IP</span>
+                      <p className="font-mono">{hetznerLbList.find((l: any) => l.id === selectedLbId)?.publicIp || "N/A"}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Location</span>
+                      <p>{hetznerLbList.find((l: any) => l.id === selectedLbId)?.location || "N/A"}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {hetznerLbList.length === 0 && !hetznerLoadBalancers.isLoading && !hetznerLoadBalancers.isError && (
+              <div className="grid gap-3">
+                <p className="text-sm text-muted-foreground">
+                  No Load Balancers found. Create one:
+                </p>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Load Balancer Name</Label>
+                  <Input
+                    placeholder="my-pg-lb"
+                    value={createLbName}
+                    onChange={(e) => {
+                      setCreateLbName(e.target.value);
+                      setSelectedLbId("");
+                    }}
+                  />
+                </div>
+                {createLbName && (
+                  <p className="text-xs text-muted-foreground">
+                    A new LB will be created with TCP service on port 5432 and Patroni health checks during deployment.
+                  </p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Step 2: PostgreSQL Nodes */}
       {step === 2 && (
         <div className="grid gap-4">
@@ -538,44 +664,68 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
               Review Configuration
             </CardTitle>
             <CardDescription>
-              Verify your cluster setup before deploying. This will execute commands on all 6 servers.
+              {isLb
+                ? "Verify your cluster setup before deploying. This will execute commands on 3 PostgreSQL servers and configure the Hetzner Load Balancer."
+                : "Verify your cluster setup before deploying. This will execute commands on all 6 servers."}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-6">
             <div>
               <h3 className="text-sm font-medium mb-3">Hetzner Config</h3>
-              <div className="grid grid-cols-3 gap-4 text-sm bg-muted/50 rounded-lg p-3">
-                <div>
-                  <span className="text-muted-foreground">Floating IP</span>
-                  <p className="font-mono">{floatingIp}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">IP ID</span>
-                  <p className="font-mono">{floatingIpId}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">API Token</span>
-                  <p className="font-mono">****</p>
-                </div>
+              <div className={`grid ${isLb ? "grid-cols-2" : "grid-cols-3"} gap-4 text-sm bg-muted/50 rounded-lg p-3`}>
+                {isLb ? (
+                  <>
+                    <div>
+                      <span className="text-muted-foreground">Load Balancer</span>
+                      <p className="font-mono">
+                        {hetznerLbList.find((lb: any) => lb.id === selectedLbId)?.name || createLbName || "New LB"}
+                        {selectedLbId && ` (${hetznerLbList.find((lb: any) => lb.id === selectedLbId)?.publicIp || "N/A"})`}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">API Token</span>
+                      <p className="font-mono">****</p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <span className="text-muted-foreground">Floating IP</span>
+                      <p className="font-mono">{floatingIp}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">IP ID</span>
+                      <p className="font-mono">{floatingIpId}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">API Token</span>
+                      <p className="font-mono">****</p>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
             <Separator />
-            <div>
-              <h3 className="text-sm font-medium mb-3">HAProxy Nodes</h3>
-              <div className="grid gap-2">
-                {HA_ROLES.map((r) => (
-                  <div key={r.role} className="flex items-center gap-2 text-sm bg-muted/50 rounded-lg p-2.5">
-                    <Globe className="size-4 text-muted-foreground" />
-                    <Badge variant="secondary" className="text-xs">{r.sublabel}</Badge>
-                    <span className="font-mono">{haServers[r.role].ipAddress}</span>
-                    <span className="text-muted-foreground text-xs">
-                      (Private: {haServers[r.role].privateIpAddress || "N/A"}, Hetzner ID: {haServers[r.role].hetznerServerId})
-                    </span>
+            {!isLb && (
+              <>
+                <div>
+                  <h3 className="text-sm font-medium mb-3">HAProxy Nodes</h3>
+                  <div className="grid gap-2">
+                    {HA_ROLES.map((r) => (
+                      <div key={r.role} className="flex items-center gap-2 text-sm bg-muted/50 rounded-lg p-2.5">
+                        <Globe className="size-4 text-muted-foreground" />
+                        <Badge variant="secondary" className="text-xs">{r.sublabel}</Badge>
+                        <span className="font-mono">{haServers[r.role].ipAddress}</span>
+                        <span className="text-muted-foreground text-xs">
+                          (Private: {haServers[r.role].privateIpAddress || "N/A"}, Hetzner ID: {haServers[r.role].hetznerServerId})
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-            <Separator />
+                </div>
+                <Separator />
+              </>
+            )}
             <div>
               <h3 className="text-sm font-medium mb-3">PostgreSQL Nodes</h3>
               <div className="grid gap-2">

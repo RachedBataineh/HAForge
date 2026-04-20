@@ -55,17 +55,19 @@ export default function ClusterListPage() {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newClusterName, setNewClusterName] = useState("");
+  const [newClusterType, setNewClusterType] = useState<"haproxy" | "hetzner_lb">("haproxy");
 
   const clusters = useQuery(trpc.cluster.list.queryOptions());
 
   const createCluster = useMutation({
-    mutationFn: async (name: string) => {
-      return await trpcClient.cluster.create.mutate({ name });
+    mutationFn: async ({ name, type }: { name: string; type: "haproxy" | "hetzner_lb" }) => {
+      return await trpcClient.cluster.create.mutate({ name, clusterType: type });
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries(trpc.cluster.list.queryFilter());
       setDialogOpen(false);
       setNewClusterName("");
+      setNewClusterType("haproxy");
       router.push(`/dashboard/clusters/${data.id}`);
     },
   });
@@ -93,11 +95,33 @@ export default function ClusterListPage() {
             <DialogHeader>
               <DialogTitle>Create New Cluster</DialogTitle>
               <DialogDescription>
-                Enter a name for your new PostgreSQL HA cluster. You&apos;ll configure
-                the 6 servers (3 PostgreSQL + 3 HAProxy) in the next step.
+                Choose your cluster type and enter a name.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label>Cluster Type</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <Card
+                    className={`cursor-pointer transition-colors ${newClusterType === "haproxy" ? "border-primary ring-1 ring-primary" : "hover:border-primary/50"}`}
+                    onClick={() => setNewClusterType("haproxy")}
+                  >
+                    <CardContent className="py-3 text-center">
+                      <p className="font-medium text-sm">HAProxy</p>
+                      <p className="text-xs text-muted-foreground mt-1">3 PG + 3 HAProxy</p>
+                    </CardContent>
+                  </Card>
+                  <Card
+                    className={`cursor-pointer transition-colors ${newClusterType === "hetzner_lb" ? "border-primary ring-1 ring-primary" : "hover:border-primary/50"}`}
+                    onClick={() => setNewClusterType("hetzner_lb")}
+                  >
+                    <CardContent className="py-3 text-center">
+                      <p className="font-medium text-sm">Hetzner LB</p>
+                      <p className="text-xs text-muted-foreground mt-1">3 PG + Load Balancer</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
               <div className="grid gap-2">
                 <Label htmlFor="name">Cluster Name</Label>
                 <Input
@@ -108,7 +132,7 @@ export default function ClusterListPage() {
                 />
               </div>
               <Button
-                onClick={() => createCluster.mutate(newClusterName)}
+                onClick={() => createCluster.mutate({ name: newClusterName, type: newClusterType })}
                 disabled={!newClusterName.trim() || createCluster.isPending}
               >
                 {createCluster.isPending ? "Creating..." : "Create Cluster"}

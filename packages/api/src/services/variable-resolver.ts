@@ -23,6 +23,7 @@ export interface VariableMap {
   FLOATING_IP: string;
   HETZNER_API_TOKEN: string;
   FLOATING_IP_ID: string;
+  LOAD_BALANCER_ID: string;
   SERVER_ID_1: string;
   SERVER_ID_2: string;
   SERVER_ID_3: string;

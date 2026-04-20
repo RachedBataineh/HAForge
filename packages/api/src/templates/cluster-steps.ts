@@ -256,6 +256,15 @@ const NETPLAN_FLOATING_IP = `network:
 `;
 
 export function getClusterSteps(): StepDefinition[] {
+  return getHaProxySteps();
+}
+
+export function getLbClusterSteps(): StepDefinition[] {
+  // Only PG steps (1-19) for Hetzner LB mode, no HAProxy/keepalived steps
+  return getHaProxySteps().filter((s) => s.phase === "postgres");
+}
+
+function getHaProxySteps(): StepDefinition[] {
   return [
     // ==================== PHASE 1: PostgreSQL ====================
     {

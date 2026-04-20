@@ -17,6 +17,11 @@ export const clusterStatusEnum = pgEnum("cluster_status", [
   "destroyed",
 ]);
 
+export const clusterTypeEnum = pgEnum("cluster_type", [
+  "haproxy",
+  "hetzner_lb",
+]);
+
 export const serverRoleEnum = pgEnum("server_role", [
   "postgresql_1",
   "postgresql_2",
@@ -56,13 +61,14 @@ export const clusters = pgTable("cluster", {
     .$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
   status: clusterStatusEnum("status").default("draft").notNull(),
-  userId: text("user_id")
-    .notNull(),
+  clusterType: clusterTypeEnum("cluster_type").default("haproxy").notNull(),
+  userId: text("user_id").notNull(),
 
   // Hetzner config
   floatingIp: text("floating_ip"),
   hetznerApiToken: text("hetzner_api_token"),
   floatingIpId: text("floating_ip_id"),
+  loadBalancerId: text("load_balancer_id"),
 
   // Auto-generated credentials (stored encrypted at app level)
   superuserPassword: text("superuser_password"),

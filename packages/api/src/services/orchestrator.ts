@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { SSHExecutor } from "./ssh-executor";
 import { generateClusterCertificates, type GeneratedCerts } from "./cert-generator";
 import { resolveVariables, type VariableMap } from "./variable-resolver";
-import { getClusterSteps, type StepDefinition, type TargetRole } from "../templates/cluster-steps";
+import { getClusterSteps, getLbClusterSteps, type StepDefinition, type TargetRole } from "../templates/cluster-steps";
 import { EventEmitter } from "events";
 import {
   initStep,
@@ -67,8 +67,12 @@ export class Orchestrator extends EventEmitter {
     });
 
     if (!cluster) throw new Error("Cluster not found");
-    if (!cluster.servers || cluster.servers.length < 6) {
-      throw new Error("Cluster must have 6 servers (3 PostgreSQL + 3 HAProxy)");
+    const isLb = cluster.clusterType === "hetzner_lb";
+    const minServers = isLb ? 3 : 6;
+    if (!cluster.servers || cluster.servers.length < minServers) {
+      throw new Error(isLb
+        ? "Cluster must have 3 PostgreSQL servers for Hetzner LB mode"
+        : "Cluster must have 6 servers (3 PostgreSQL + 3 HAProxy)");
     }
 
     // Auto-generate passwords if not set
@@ -108,7 +112,7 @@ export class Orchestrator extends EventEmitter {
     const vars = this.buildVariableMap(cluster, serverMap);
 
     // Create step records
-    const steps = getClusterSteps();
+    const steps = isLb ? getLbClusterSteps() : getClusterSteps();
     const stepRecords: (typeof executionSteps.$inferSelect)[] = [];
 
     for (const step of steps) {
@@ -129,7 +133,7 @@ export class Orchestrator extends EventEmitter {
     }
 
     // Run orchestration in background (catch to avoid unhandled rejection)
-    this.run(serverMap, vars, stepRecords).catch((err) => {
+    this.run(serverMap, vars, stepRecords, isLb, cluster).catch((err) => {
       console.error("Orchestrator failed:", err);
     });
 
@@ -140,6 +144,8 @@ export class Orchestrator extends EventEmitter {
     serverMap: Map<string, any>,
     vars: VariableMap,
     stepRecords: (typeof executionSteps.$inferSelect)[],
+    isLb: boolean,
+    cluster: any,
   ) {
     try {
       // Phase 0: Connect to all servers
@@ -168,10 +174,16 @@ export class Orchestrator extends EventEmitter {
           return;
         }
 
-        const stepDef = getClusterSteps().find((s) => s.stepNumber === stepRecord.stepNumber);
+        const steps = isLb ? getLbClusterSteps() : getClusterSteps();
+        const stepDef = steps.find((s) => s.stepNumber === stepRecord.stepNumber);
         if (!stepDef) continue;
 
         await this.executeStep(stepRecord, stepDef, serverMap, vars);
+      }
+
+      // Configure Hetzner Load Balancer if LB mode
+      if (isLb && cluster.loadBalancerId) {
+        await this.configureHetznerLoadBalancer(cluster, vars);
       }
 
       // Mark execution completed
@@ -422,6 +434,77 @@ export class Orchestrator extends EventEmitter {
     }
   }
 
+  private async configureHetznerLoadBalancer(cluster: any, vars: VariableMap) {
+    const lbId = cluster.loadBalancerId;
+    const token = vars.HETZNER_API_TOKEN;
+
+    if (!lbId || !token) {
+      throw new Error("Load Balancer ID and Hetzner API token are required for LB mode");
+    }
+
+    // Get PG server Hetzner IDs from servers table
+    const clusterData = await db.query.clusters.findFirst({
+      where: eq(clusters.id, this.clusterId),
+      with: { servers: true },
+    });
+
+    const pgServers = (clusterData?.servers || []).filter((s: any) =>
+      s.role?.startsWith("postgresql"),
+    );
+
+    // Add PG servers as targets to the LB
+    for (const server of pgServers) {
+      const hetznerServerId = server.hetznerServerId;
+      if (!hetznerServerId) continue;
+
+      await fetch(
+        `https://api.hetzner.cloud/v1/load_balancers/${lbId}/actions/add_target`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            type: "server",
+            server: { id: Number(hetznerServerId) },
+          }),
+        },
+      );
+    }
+
+    // Add TCP service on port 5432 with Patroni health check
+    await fetch(
+      `https://api.hetzner.cloud/v1/load_balancers/${lbId}/actions/add_service`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          protocol: "tcp",
+          listen_port: 5432,
+          destination_port: 5432,
+          proxyprotocol: false,
+          health_check: {
+            protocol: "http",
+            port: 8008,
+            interval: 5,
+            timeout: 3,
+            retries: 3,
+            http: {
+              domain: "",
+              path: "/leader",
+              statuses: [200],
+              tls: true,
+            },
+          },
+        }),
+      },
+    );
+  }
+
   private buildServerMap(serversList: any[]): Map<string, any> {
     const map = new Map<string, any>();
     for (const server of serversList) {
@@ -460,9 +543,10 @@ export class Orchestrator extends EventEmitter {
       FLOATING_IP: cluster.floatingIp || "",
       HETZNER_API_TOKEN: cluster.hetznerApiToken || "",
       FLOATING_IP_ID: cluster.floatingIpId || "",
-      SERVER_ID_1: ha1?.hetznerServerId || "",
-      SERVER_ID_2: ha2?.hetznerServerId || "",
-      SERVER_ID_3: ha3?.hetznerServerId || "",
+      LOAD_BALANCER_ID: cluster.loadBalancerId || "",
+      SERVER_ID_1: ha1?.hetznerServerId || pg1?.hetznerServerId || "",
+      SERVER_ID_2: ha2?.hetznerServerId || pg2?.hetznerServerId || "",
+      SERVER_ID_3: ha3?.hetznerServerId || pg3?.hetznerServerId || "",
       SUPERUSER_PASSWORD: cluster.superuserPassword || "",
       REPLICATION_PASSWORD: cluster.replicationPassword || "",
     };
