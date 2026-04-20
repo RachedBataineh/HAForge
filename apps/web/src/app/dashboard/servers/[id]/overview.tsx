@@ -147,14 +147,6 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
                     <p>{hetznerInfo.name}</p>
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Server Type</span>
-                    <p>{hetznerInfo.serverType}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Location</span>
-                    <p>{hetznerInfo.location} ({hetznerInfo.datacenter})</p>
-                  </div>
-                  <div>
                     <span className="text-muted-foreground">vCPUs</span>
                     <p>{hetznerInfo.cores}</p>
                   </div>
@@ -167,8 +159,22 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
                     <p>{hetznerInfo.disk} GB</p>
                   </div>
                   <div>
+                    <span className="text-muted-foreground">Server Type</span>
+                    <p>{hetznerInfo.serverType}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Location</span>
+                    <p>{hetznerInfo.location} ({hetznerInfo.datacenter})</p>
+                  </div>
+                  <div>
                     <span className="text-muted-foreground">Created</span>
                     <p>{new Date(hetznerInfo.created).toLocaleDateString()}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Traffic</span>
+                    <p>{hetznerInfo.includedTraffic === 0
+                      ? `${((hetznerInfo.outgoingTraffic + hetznerInfo.ingoingTraffic) / 1073741824).toFixed(1)} GB / Unlimited`
+                      : `${((hetznerInfo.outgoingTraffic + hetznerInfo.ingoingTraffic) / 1073741824).toFixed(1)} / ${(hetznerInfo.includedTraffic / 1073741824).toFixed(0)} GB`}</p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Rescue Mode</span>
@@ -177,12 +183,6 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
                   <div>
                     <span className="text-muted-foreground">Backups</span>
                     <p>{hetznerInfo.backupWindow ? `Enabled (${hetznerInfo.backupWindow})` : "Disabled"}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Traffic</span>
-                    <p>{hetznerInfo.includedTraffic === 0
-                      ? `${((hetznerInfo.outgoingTraffic + hetznerInfo.ingoingTraffic) / 1073741824).toFixed(1)} GB / Unlimited`
-                      : `${((hetznerInfo.outgoingTraffic + hetznerInfo.ingoingTraffic) / 1073741824).toFixed(1)} / ${(hetznerInfo.includedTraffic / 1073741824).toFixed(0)} GB`}</p>
                   </div>
                 </div>
               </CardContent>
