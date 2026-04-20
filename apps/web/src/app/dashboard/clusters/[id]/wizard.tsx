@@ -412,11 +412,19 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                       <SelectValue placeholder="Select a server" />
                     </SelectTrigger>
                     <SelectContent>
-                      {hetznerServerList.map((srv: any) => (
-                        <SelectItem key={srv.id} value={srv.id}>
-                          {srv.name} ({srv.publicIp})
-                        </SelectItem>
-                      ))}
+                      {hetznerServerList
+                        .filter((srv: any) => {
+                          const currentId = haServers[r.role].hetznerServerId;
+                          const otherIds = HA_ROLES.filter((hr) => hr.role !== r.role)
+                            .map((hr) => haServers[hr.role].hetznerServerId)
+                            .filter(Boolean);
+                          return srv.id === currentId || !otherIds.includes(srv.id);
+                        })
+                        .map((srv: any) => (
+                          <SelectItem key={srv.id} value={srv.id}>
+                            {srv.name} ({srv.publicIp})
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>
