@@ -217,8 +217,8 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
               <CardTitle className="text-base">Timezone</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex items-end gap-4">
-                <div className="grid gap-1.5 flex-1 max-w-xs">
+              <div className="flex items-end justify-between gap-4">
+                <div className="grid gap-1.5 max-w-xs">
                   <Label className="text-xs">Current Timezone</Label>
                   <Select value={selectedTz} onValueChange={(val: string | null) => setSelectedTz(val ?? "")}>
                     <SelectTrigger>
