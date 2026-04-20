@@ -138,7 +138,7 @@ export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: 
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select server type" />
                 </SelectTrigger>
-                <SelectContent className="max-h-64">
+                <SelectContent className="max-h-64" side="bottom" align="start" alignItemWithTrigger={false}>
                   {serverTypesData.map((t: any) => (
                     <SelectItem key={t.name} value={t.name}>
                       {t.description} ({t.architecture}) — {t.cores} vCPU, {t.memory}GB RAM, {t.disk}GB disk
@@ -155,7 +155,7 @@ export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: 
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select location" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
                   {locationsData.map((l: any) => (
                     <SelectItem key={l.name} value={l.name}>
                       {l.city}, {l.country} ({l.name})
@@ -171,7 +171,7 @@ export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: 
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select OS image" />
                 </SelectTrigger>
-                <SelectContent className="max-h-64">
+                <SelectContent className="max-h-64" side="bottom" align="start" alignItemWithTrigger={false}>
                   {imagesData.map((i: any) => (
                     <SelectItem key={String(i.id)} value={String(i.id)}>
                       {i.description || i.name}
@@ -187,7 +187,7 @@ export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: 
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select SSH key" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
                   {sshKeysData.map((k: any) => (
                     <SelectItem key={k.id} value={k.id}>
                       {k.name}
