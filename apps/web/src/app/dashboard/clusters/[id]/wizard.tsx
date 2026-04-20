@@ -70,6 +70,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const cluster = useQuery(trpc.cluster.getById.queryOptions({ id: clusterId }));
 
   const [step, setStep] = useState(0);
+  const [testingRole, setTestingRole] = useState<string | null>(null);
   const [hetznerToken, setHetznerToken] = useState("");
   const [floatingIp, setFloatingIp] = useState("");
   const [floatingIpId, setFloatingIpId] = useState("");
@@ -232,17 +233,21 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
         <Button
           variant="outline"
           size="sm"
-          onClick={() =>
-            testConnection.mutate({
-              ipAddress: form.ipAddress,
-              sshPort: form.sshPort,
-              sshUser: form.sshUser,
-              sshPrivateKey: form.sshPrivateKey,
-            })
-          }
+          onClick={() => {
+            setTestingRole(role);
+            testConnection.mutate(
+              {
+                ipAddress: form.ipAddress,
+                sshPort: form.sshPort,
+                sshUser: form.sshUser,
+                sshPrivateKey: form.sshPrivateKey,
+              },
+              { onSettled: () => setTestingRole(null) },
+            );
+          }}
           disabled={!form.ipAddress || !form.sshPrivateKey || testConnection.isPending}
         >
-          {testConnection.isPending ? (
+          {testConnection.isPending && testingRole === role ? (
             <>
               <Loader2 className="size-3 mr-1 animate-spin" />
               Testing...
@@ -479,17 +484,21 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() =>
-                    testConnection.mutate({
-                      ipAddress: haServers[r.role].ipAddress,
-                      sshPort: haServers[r.role].sshPort,
-                      sshUser: haServers[r.role].sshUser,
-                      sshPrivateKey: haServers[r.role].sshPrivateKey,
-                    })
-                  }
+                  onClick={() => {
+                    setTestingRole(r.role);
+                    testConnection.mutate(
+                      {
+                        ipAddress: haServers[r.role].ipAddress,
+                        sshPort: haServers[r.role].sshPort,
+                        sshUser: haServers[r.role].sshUser,
+                        sshPrivateKey: haServers[r.role].sshPrivateKey,
+                      },
+                      { onSettled: () => setTestingRole(null) },
+                    );
+                  }}
                   disabled={!haServers[r.role].ipAddress || !haServers[r.role].sshPrivateKey || testConnection.isPending}
                 >
-                  {testConnection.isPending ? (
+                  {testConnection.isPending && testingRole === r.role ? (
                     <>
                       <Loader2 className="size-3 mr-1 animate-spin" />
                       Testing...
