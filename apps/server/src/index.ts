@@ -6,8 +6,15 @@ import { trpcServer } from "@hono/trpc-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { createNodeWebSocket } from "@hono/node-ws";
+import { Client } from "ssh2";
+import { db } from "@HAForge/db";
+import { servers } from "@HAForge/db";
+import { eq } from "drizzle-orm";
 
 const app = new Hono();
+
+const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
 app.use(logger());
 app.use(
@@ -36,9 +43,123 @@ app.get("/", (c) => {
   return c.text("OK");
 });
 
+// WebSocket terminal endpoint
+app.get(
+  "/ws/terminal",
+  upgradeWebSocket((c) => {
+    return {
+      onOpen(event, ws) {
+        const url = new URL(c.req.url, `http://${c.req.header("host")}`);
+        const serverId = url.searchParams.get("serverId");
+
+        if (!serverId) {
+          ws.send(JSON.stringify({ type: "error", message: "Missing serverId" }));
+          ws.close();
+          return;
+        }
+
+        const ssh = new Client();
+        (ws as any).__ssh = ssh;
+
+        ssh
+          .on("ready", () => {
+            ssh.windowChanged = (rows: number, cols: number) => {
+              // Will be set up below
+            };
+            ssh.shell(
+              {
+                term: "xterm-256color",
+                cols: 80,
+                rows: 24,
+              },
+              (err, stream) => {
+                if (err) {
+                  ws.send(JSON.stringify({ type: "error", message: err.message }));
+                  ws.close();
+                  return;
+                }
+
+                (ws as any).__stream = stream;
+
+                stream.on("data", (data: Buffer) => {
+                  ws.send(data.toString("utf-8"));
+                });
+
+                stream.stderr.on("data", (data: Buffer) => {
+                  ws.send(data.toString("utf-8"));
+                });
+
+                stream.on("close", () => {
+                  ws.close();
+                });
+
+                ws.send(JSON.stringify({ type: "connected" }));
+              },
+            );
+          })
+          .on("error", (err) => {
+            ws.send(JSON.stringify({ type: "error", message: `SSH error: ${err.message}` }));
+            ws.close();
+          })
+          .on("close", () => {
+            ws.close();
+          });
+
+        // Fetch server from DB and connect
+        (async () => {
+          try {
+            const server = await db.query.servers.findFirst({
+              where: eq(servers.id, serverId),
+            });
+            if (!server) {
+              ws.send(JSON.stringify({ type: "error", message: "Server not found" }));
+              ws.close();
+              return;
+            }
+            ssh.connect({
+              host: server.ipAddress,
+              port: server.sshPort || 22,
+              username: server.sshUser || "root",
+              privateKey: server.sshPrivateKey,
+              readyTimeout: 10000,
+            });
+          } catch (err: any) {
+            ws.send(JSON.stringify({ type: "error", message: err.message }));
+            ws.close();
+          }
+        })();
+      },
+      onMessage(event, ws) {
+        const stream = (ws as any).__stream;
+        if (!stream) return;
+
+        const msg = event.data;
+        if (typeof msg === "string") {
+          try {
+            const parsed = JSON.parse(msg);
+            if (parsed.type === "resize" && parsed.cols && parsed.rows) {
+              stream.setWindow(parsed.rows, parsed.cols, 0, 0);
+              return;
+            }
+          } catch {
+            // Not JSON — treat as raw input
+          }
+          stream.write(msg);
+        }
+      },
+      onClose() {
+        const ssh = (ws as any).__ssh;
+        const stream = (ws as any).__stream;
+        if (stream) stream.close();
+        if (ssh) ssh.end();
+      },
+    };
+  }),
+);
+
 import { serve } from "@hono/node-server";
 
-serve(
+const server = serve(
   {
     fetch: app.fetch,
     port: 3000,
@@ -47,3 +168,5 @@ serve(
     console.log(`Server is running on http://localhost:${info.port}`);
   },
 );
+
+injectWebSocket(server);

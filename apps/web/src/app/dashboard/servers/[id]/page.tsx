@@ -11,6 +11,7 @@ import { toast } from "sonner";
 
 import { trpc, trpcClient } from "@/utils/trpc";
 import OverviewTab from "./overview";
+import Terminal from "./terminal";
 import { PowerActionDialog } from "./power-action-dialog";
 
 const roleLabel: Record<string, string> = {
@@ -123,8 +124,9 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-6 space-y-6">
         <OverviewTab server={server} serverIsOn={serverIsOn} hetznerInfo={hetznerInfo.data} />
+        <Terminal serverId={server.id} serverIsOn={serverIsOn} />
       </div>
 
       <PowerActionDialog
