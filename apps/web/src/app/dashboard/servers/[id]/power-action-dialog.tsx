@@ -56,7 +56,7 @@ export function PowerActionDialog({ open, onOpenChange, action, serverName, onCo
             placeholder={serverName}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && confirmed && onConfirm()}
+            onKeyDown={(e) => { if (e.key === "Enter" && confirmed) { onConfirm(); handleOpenChange(false); } }}
           />
         </div>
         <DialogFooter>
