@@ -59,8 +59,8 @@ interface ServerForm {
   privateIpAddress: string;
 }
 
-const stepIcons = [Cloud, Database, Globe, Rocket];
-const stepTitles = ["Hetzner Config", "PostgreSQL Nodes", "HAProxy Nodes", "Review & Deploy"];
+const stepIcons = [Cloud, Globe, Database, Rocket];
+const stepTitles = ["Hetzner Config", "HAProxy Nodes", "PostgreSQL Nodes", "Review & Deploy"];
 
 export default function ClusterSetupWizard({ params }: { params: Promise<{ id: string }> }) {
   const { id: clusterId } = React.use(params);
@@ -82,6 +82,15 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   );
 
   const floatingIpList = (floatingIps.data ?? []) as any[];
+
+  const hetznerServers = useQuery(
+    trpc.cluster.hetznerServers.queryOptions(
+      { apiToken: hetznerToken },
+      { enabled: hetznerToken.length > 10 },
+    ),
+  );
+
+  const hetznerServerList = (hetznerServers.data ?? []) as any[];
 
   const [pgServers, setPgServers] = useState<Record<string, ServerForm>>({
     postgresql_1: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
@@ -153,8 +162,8 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
 
   const canProceed = () => {
     if (step === 0) return !!(hetznerToken && floatingIp && floatingIpId);
-    if (step === 1) return PG_ROLES.every((r) => pgServers[r.role].ipAddress && pgServers[r.role].sshPrivateKey);
-    if (step === 2) return HA_ROLES.every((r) => haServers[r.role].ipAddress && haServers[r.role].sshPrivateKey && haServers[r.role].hetznerServerId);
+    if (step === 1) return HA_ROLES.every((r) => haServers[r.role].ipAddress && haServers[r.role].sshPrivateKey && haServers[r.role].hetznerServerId);
+    if (step === 2) return PG_ROLES.every((r) => pgServers[r.role].ipAddress && pgServers[r.role].sshPrivateKey);
     return true;
   };
 
@@ -359,8 +368,132 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
         </Card>
       )}
 
-      {/* Step 1: PostgreSQL Nodes */}
+      {/* Step 1: HAProxy Nodes */}
       {step === 1 && (
+        <div className="grid gap-4">
+          {hetznerServers.isLoading && hetznerToken.length > 10 && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+              <Loader2 className="size-4 animate-spin" />
+              Fetching servers from Hetzner...
+            </div>
+          )}
+          {hetznerServers.isError && (
+            <p className="text-sm text-destructive py-4">Failed to fetch servers. Check your API token.</p>
+          )}
+          {HA_ROLES.map((r) => (
+            <Card key={r.role}>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">{r.label}</CardTitle>
+                  <Badge variant="secondary">{r.sublabel}</Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="grid gap-4">
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Hetzner Server</Label>
+                  <Select
+                    value={haServers[r.role].hetznerServerId}
+                    onValueChange={(val) => {
+                      const srv = hetznerServerList.find((s: any) => s.id === val);
+                      if (srv) {
+                        setHaServers((prev) => ({
+                          ...prev,
+                          [r.role]: {
+                            ...prev[r.role],
+                            hetznerServerId: srv.id,
+                            ipAddress: srv.publicIp,
+                            privateIpAddress: srv.privateIps?.[0]?.ip || "",
+                          },
+                        }));
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a server" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {hetznerServerList.map((srv: any) => (
+                        <SelectItem key={srv.id} value={srv.id}>
+                          {srv.name} ({srv.publicIp})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {haServers[r.role].hetznerServerId && (
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <span className="text-muted-foreground text-xs">Public IP</span>
+                      <p className="font-mono">{haServers[r.role].ipAddress}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground text-xs">Private IP</span>
+                      <p className="font-mono">{haServers[r.role].privateIpAddress || "N/A"}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground text-xs">Server ID</span>
+                      <p className="font-mono">{haServers[r.role].hetznerServerId}</p>
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">SSH User</Label>
+                    <Input
+                      value={haServers[r.role].sshUser}
+                      onChange={(e) =>
+                        setHaServers((prev) => ({
+                          ...prev,
+                          [r.role]: { ...prev[r.role], sshUser: e.target.value },
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">SSH Private Key</Label>
+                  <Textarea
+                    placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                    rows={3}
+                    value={haServers[r.role].sshPrivateKey}
+                    onChange={(e) =>
+                      setHaServers((prev) => ({
+                        ...prev,
+                        [r.role]: { ...prev[r.role], sshPrivateKey: e.target.value },
+                      }))
+                    }
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    testConnection.mutate({
+                      ipAddress: haServers[r.role].ipAddress,
+                      sshPort: haServers[r.role].sshPort,
+                      sshUser: haServers[r.role].sshUser,
+                      sshPrivateKey: haServers[r.role].sshPrivateKey,
+                    })
+                  }
+                  disabled={!haServers[r.role].ipAddress || !haServers[r.role].sshPrivateKey || testConnection.isPending}
+                >
+                  {testConnection.isPending ? (
+                    <>
+                      <Loader2 className="size-3 mr-1 animate-spin" />
+                      Testing...
+                    </>
+                  ) : (
+                    "Test Connection"
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Step 2: PostgreSQL Nodes */}
+      {step === 2 && (
         <div className="grid gap-4">
           {PG_ROLES.map((r) =>
             renderServerCard(
@@ -370,22 +503,6 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
               pgServers[r.role],
               (updated) => setPgServers((prev) => ({ ...prev, [r.role]: updated })),
               false,
-            )
-          )}
-        </div>
-      )}
-
-      {/* Step 2: HAProxy Nodes */}
-      {step === 2 && (
-        <div className="grid gap-4">
-          {HA_ROLES.map((r) =>
-            renderServerCard(
-              r.role,
-              r.label,
-              r.sublabel,
-              haServers[r.role],
-              (updated) => setHaServers((prev) => ({ ...prev, [r.role]: updated })),
-              true,
             )
           )}
         </div>
@@ -423,22 +540,6 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
             </div>
             <Separator />
             <div>
-              <h3 className="text-sm font-medium mb-3">PostgreSQL Nodes</h3>
-              <div className="grid gap-2">
-                {PG_ROLES.map((r) => (
-                  <div key={r.role} className="flex items-center gap-2 text-sm bg-muted/50 rounded-lg p-2.5">
-                    <Database className="size-4 text-muted-foreground" />
-                    <Badge variant="secondary" className="text-xs">{r.sublabel}</Badge>
-                    <span className="font-mono">{pgServers[r.role].ipAddress}</span>
-                    <span className="text-muted-foreground text-xs">
-                      (Private: {pgServers[r.role].privateIpAddress || "N/A"})
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <Separator />
-            <div>
               <h3 className="text-sm font-medium mb-3">HAProxy Nodes</h3>
               <div className="grid gap-2">
                 {HA_ROLES.map((r) => (
@@ -448,6 +549,22 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                     <span className="font-mono">{haServers[r.role].ipAddress}</span>
                     <span className="text-muted-foreground text-xs">
                       (Private: {haServers[r.role].privateIpAddress || "N/A"}, Hetzner ID: {haServers[r.role].hetznerServerId})
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <Separator />
+            <div>
+              <h3 className="text-sm font-medium mb-3">PostgreSQL Nodes</h3>
+              <div className="grid gap-2">
+                {PG_ROLES.map((r) => (
+                  <div key={r.role} className="flex items-center gap-2 text-sm bg-muted/50 rounded-lg p-2.5">
+                    <Database className="size-4 text-muted-foreground" />
+                    <Badge variant="secondary" className="text-xs">{r.sublabel}</Badge>
+                    <span className="font-mono">{pgServers[r.role].ipAddress}</span>
+                    <span className="text-muted-foreground text-xs">
+                      (Private: {pgServers[r.role].privateIpAddress || "N/A"})
                     </span>
                   </div>
                 ))}

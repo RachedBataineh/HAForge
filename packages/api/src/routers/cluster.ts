@@ -27,6 +27,32 @@ export const clusterRouter = router({
       }));
     }),
 
+  hetznerServers: protectedProcedure
+    .input(z.object({ apiToken: z.string() }))
+    .query(async ({ input }) => {
+      const res = await fetch("https://api.hetzner.cloud/v1/servers", {
+        headers: {
+          Authorization: `Bearer ${input.apiToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!res.ok) {
+        throw new Error(`Hetzner API error: ${res.status}`);
+      }
+      const data = await res.json();
+      return data.servers.map((srv: any) => ({
+        id: String(srv.id),
+        name: srv.name,
+        publicIp: srv.public_net?.ipv4?.ip || "",
+        privateIps: (srv.private_net || []).map((net: any) => ({
+          networkId: String(net.network),
+          ip: net.ip,
+        })),
+        status: srv.status,
+        location: srv.datacenter?.location?.name || "",
+      }));
+    }),
+
   create: protectedProcedure
     .input(z.object({ name: z.string().min(1).max(100) }))
     .mutation(async ({ ctx, input }) => {
