@@ -200,6 +200,9 @@ export default function ClusterListPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    <Badge variant={statusColor[cluster.status] || "outline"}>
+                      {cluster.status}
+                    </Badge>
                     {cluster.status === "draft" && (
                       <Button
                         variant="ghost"
@@ -216,9 +219,6 @@ export default function ClusterListPage() {
                         <Trash2 className="size-4 text-muted-foreground hover:text-destructive" />
                       </Button>
                     )}
-                    <Badge variant={statusColor[cluster.status] || "outline"}>
-                      {cluster.status}
-                    </Badge>
                   </div>
                 </CardHeader>
               </Card>
