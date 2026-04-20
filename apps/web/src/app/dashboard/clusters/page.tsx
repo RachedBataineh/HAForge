@@ -28,6 +28,7 @@ import {
   AlertCircle,
   Globe,
   Trash2,
+  Cloud,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -192,10 +193,17 @@ export default function ClusterListPage() {
                           <Database className="size-3" />
                           {pg} PostgreSQL
                         </span>
-                        <span className="flex items-center gap-1">
-                          <Globe className="size-3" />
-                          {ha} HAProxy
-                        </span>
+                        {cluster.clusterType === "hetzner_lb" ? (
+                          <span className="flex items-center gap-1">
+                            <Cloud className="size-3" />
+                            {cluster.loadBalancerId ? "1" : "0"} Load Balancer
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1">
+                            <Globe className="size-3" />
+                            {ha} HAProxy
+                          </span>
+                        )}
                       </CardDescription>
                     </div>
                   </div>
