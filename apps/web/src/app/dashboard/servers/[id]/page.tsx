@@ -3,7 +3,7 @@
 import { Badge } from "@HAForge/ui/components/badge";
 import { Button } from "@HAForge/ui/components/button";
 import { Switch } from "@HAForge/ui/components/switch";
-import { HardDrive, ArrowLeft, Globe, Wifi, Loader2, RotateCw } from "lucide-react";
+import { ArrowLeft, Loader2, RotateCw } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
@@ -11,8 +11,6 @@ import { toast } from "sonner";
 
 import { trpc, trpcClient } from "@/utils/trpc";
 import OverviewTab from "./overview";
-import ServicesTab from "./services";
-import NetworkingTab from "./networking";
 import { PowerActionDialog } from "./power-action-dialog";
 
 const roleLabel: Record<string, string> = {
@@ -24,19 +22,10 @@ const roleLabel: Record<string, string> = {
   haproxy_3: "HAProxy Node 3",
 };
 
-const tabs = [
-  { id: "overview", label: "Overview", icon: HardDrive },
-  { id: "services", label: "Services", icon: Globe },
-  { id: "networking", label: "Networking", icon: Wifi },
-] as const;
-
-type TabId = typeof tabs[number]["id"];
-
 export default function ServerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: serverId } = React.use(params);
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [dialogAction, setDialogAction] = useState<"poweroff" | "reboot" | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -133,36 +122,9 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
-      {/* Body: Sidebar + Content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Vertical Tabs */}
-        <div className="w-44 border-r p-3 flex flex-col gap-1">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
-                  isActive
-                    ? "bg-accent text-accent-foreground font-medium"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                }`}
-              >
-                <Icon className="size-4" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-auto p-6">
-          {activeTab === "overview" && <OverviewTab server={server} serverIsOn={serverIsOn} hetznerInfo={hetznerInfo.data} />}
-          {activeTab === "services" && <ServicesTab server={server} />}
-          {activeTab === "networking" && <NetworkingTab server={server} />}
-        </div>
+      {/* Content */}
+      <div className="flex-1 overflow-auto p-6">
+        <OverviewTab server={server} serverIsOn={serverIsOn} hetznerInfo={hetznerInfo.data} />
       </div>
 
       <PowerActionDialog
