@@ -14,6 +14,7 @@ import OverviewTab from "./overview";
 import ServicesTab from "./services";
 import HetznerTab from "./hetzner";
 import NetworkingTab from "./networking";
+import { PowerActionDialog } from "./power-action-dialog";
 
 const roleLabel: Record<string, string> = {
   postgresql_1: "PostgreSQL Node 1",
@@ -39,6 +40,8 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
   const router = useRouter();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const [dialogAction, setDialogAction] = useState<"poweroff" | "reboot" | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   const servers = useQuery(trpc.cluster.allServers.queryOptions());
   const server = ((servers.data ?? []) as any[]).find((s: any) => s.id === serverId);
@@ -99,7 +102,7 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => serverAction.mutate("reboot")}
+                onClick={() => { setDialogAction("reboot"); setDialogOpen(true); }}
                 disabled={!serverIsOn || serverAction.isPending}
               >
                 {serverAction.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCw className="size-3.5" />}
@@ -108,7 +111,14 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
                 <Switch
                   checked={serverIsOn}
                   disabled={serverAction.isPending}
-                  onCheckedChange={(checked) => serverAction.mutate(checked ? "poweron" : "poweroff")}
+                  onCheckedChange={(checked) => {
+                    if (checked) {
+                      serverAction.mutate("poweron");
+                    } else {
+                      setDialogAction("poweroff");
+                      setDialogOpen(true);
+                    }
+                  }}
                 />
                 <span className="text-sm">{serverIsOn ? "On" : "Off"}</span>
               </div>
@@ -149,6 +159,14 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
           {activeTab === "networking" && <NetworkingTab server={server} />}
         </div>
       </div>
+
+      <PowerActionDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        action={dialogAction ?? "poweroff"}
+        serverName={hetznerInfo.data?.name || server.ipAddress}
+        onConfirm={() => serverAction.mutate(dialogAction ?? "poweroff")}
+      />
     </div>
   );
 }
