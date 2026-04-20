@@ -104,7 +104,7 @@ export default function ServersPage() {
           })}
         </div>
         <div className="ml-auto">
-          {hzApiToken && activeTab === "hetzner" && (
+          {hzApiToken && (
             <Button size="sm" className="gap-2 mb-1" onClick={() => setCreateDialogOpen(true)}>
               <Plus className="size-4" />
               Create Server
