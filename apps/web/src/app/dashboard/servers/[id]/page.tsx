@@ -3,7 +3,7 @@
 import { Badge } from "@HAForge/ui/components/badge";
 import { Button } from "@HAForge/ui/components/button";
 import { Switch } from "@HAForge/ui/components/switch";
-import { ArrowLeft, Loader2, RotateCw } from "lucide-react";
+import { ArrowLeft, Loader2, RotateCw, HardDrive, Terminal as TerminalIcon } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
@@ -29,6 +29,7 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
   const queryClient = useQueryClient();
   const [dialogAction, setDialogAction] = useState<"poweroff" | "reboot" | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"overview" | "terminal">("overview");
 
   const servers = useQuery(trpc.cluster.allServers.queryOptions());
   const server = ((servers.data ?? []) as any[]).find((s: any) => s.id === serverId);
@@ -123,10 +124,35 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
+      {/* Tab Bar */}
+      <div className="flex border-b px-6 gap-1">
+        {([
+          { id: "overview" as const, label: "Overview", icon: HardDrive },
+          { id: "terminal" as const, label: "Terminal", icon: TerminalIcon },
+        ]).map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                isActive
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Icon className="size-4" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Content */}
-      <div className="flex-1 overflow-auto p-6 space-y-6">
-        <OverviewTab server={server} serverIsOn={serverIsOn} hetznerInfo={hetznerInfo.data} />
-        <Terminal serverId={server.id} serverIsOn={serverIsOn} />
+      <div className="flex-1 overflow-auto p-6">
+        {activeTab === "overview" && <OverviewTab server={server} serverIsOn={serverIsOn} hetznerInfo={hetznerInfo.data} />}
+        {activeTab === "terminal" && <Terminal serverId={server.id} serverIsOn={serverIsOn} />}
       </div>
 
       <PowerActionDialog

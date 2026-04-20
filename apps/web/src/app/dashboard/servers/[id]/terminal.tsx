@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Loader2, Terminal as TerminalIcon, X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import { Button } from "@HAForge/ui/components/button";
 import { env } from "@HAForge/env/web";
 
@@ -18,7 +18,6 @@ export default function Terminal({ serverId, serverIsOn }: TerminalProps) {
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
 
   const disconnect = useCallback(() => {
     if (wsRef.current) {
@@ -78,10 +77,17 @@ export default function Terminal({ serverId, serverIsOn }: TerminalProps) {
       term.loadAddon(fitAddon);
       term.open(terminalRef.current);
 
-      // Wait a frame for the DOM to settle, then fit
-      requestAnimationFrame(() => {
+      // Wait for CSS + DOM to settle, then fit and snap container to exact row height
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      fitAddon.fit();
+
+      // Snap container height to exact row multiple to prevent ghost lines
+      const xtermEl = terminalRef.current.querySelector(".xterm-screen");
+      if (xtermEl) {
+        const renderedHeight = (xtermEl as HTMLElement).offsetHeight;
+        terminalRef.current.style.height = `${renderedHeight}px`;
         fitAddon.fit();
-      });
+      }
 
       xtermRef.current = term;
       fitAddonRef.current = fitAddon;
@@ -102,8 +108,7 @@ export default function Terminal({ serverId, serverIsOn }: TerminalProps) {
           if (parsed.type === "connected") {
             setConnected(true);
             setLoading(false);
-            // Fit again once connected
-            requestAnimationFrame(() => fitAddon.fit());
+            requestAnimationFrame(() => requestAnimationFrame(() => fitAddon.fit()));
             return;
           }
         } catch {
@@ -149,12 +154,12 @@ export default function Terminal({ serverId, serverIsOn }: TerminalProps) {
     }
   }, [serverId, serverIsOn, disconnect]);
 
-  // Auto-connect when opened
+  // Auto-connect when mounted and server is on
   useEffect(() => {
-    if (open && serverIsOn) {
+    if (serverIsOn) {
       connect();
     }
-  }, [open]);
+  }, []);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -163,17 +168,11 @@ export default function Terminal({ serverId, serverIsOn }: TerminalProps) {
     };
   }, [disconnect]);
 
-  if (!open) {
+  if (!serverIsOn) {
     return (
-      <Button
-        variant="outline"
-        onClick={() => setOpen(true)}
-        disabled={!serverIsOn}
-        className="gap-2"
-      >
-        <TerminalIcon className="size-4" />
-        Open Terminal
-      </Button>
+      <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
+        Server must be running to use the terminal.
+      </div>
     );
   }
 
@@ -181,7 +180,6 @@ export default function Terminal({ serverId, serverIsOn }: TerminalProps) {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <TerminalIcon className="size-4" />
           <span className="text-sm font-medium">
             {connected ? "Connected" : loading ? "Connecting..." : "Disconnected"}
           </span>
@@ -196,7 +194,7 @@ export default function Terminal({ serverId, serverIsOn }: TerminalProps) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => { disconnect(); setOpen(false); setError(null); }}
+            onClick={() => { disconnect(); setError(null); }}
           >
             <X className="size-4" />
           </Button>
@@ -205,8 +203,8 @@ export default function Terminal({ serverId, serverIsOn }: TerminalProps) {
 
       <div
         ref={terminalRef}
-        className="rounded-lg overflow-hidden border bg-[#0d1117]"
-        style={{ height: 400 }}
+        className="overflow-hidden border bg-[#0d1117]"
+        style={{ height: 400, padding: 0 }}
       />
     </div>
   );
