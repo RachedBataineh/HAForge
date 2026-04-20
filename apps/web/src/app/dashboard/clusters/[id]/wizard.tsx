@@ -411,7 +411,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                     <SelectTrigger>
                       <SelectValue placeholder="Select a server" />
                     </SelectTrigger>
-                    <SelectContent className="!w-auto min-w-[300px]">
+                    <SelectContent className="!w-auto min-w-[300px]" side="bottom">
                       {hetznerServerList
                         .filter((srv: any) => {
                           const currentId = haServers[r.role].hetznerServerId;
