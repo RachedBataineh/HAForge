@@ -28,7 +28,7 @@ import {
   AlertCircle,
   Globe,
   Trash2,
-  Cloud,
+  Network,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -195,7 +195,7 @@ export default function ClusterListPage() {
                         </span>
                         {cluster.clusterType === "hetzner_lb" ? (
                           <span className="flex items-center gap-1">
-                            <Cloud className="size-3" />
+                            <Network className="size-3" />
                             {cluster.loadBalancerId ? "1" : "0"} Load Balancer
                           </span>
                         ) : (
