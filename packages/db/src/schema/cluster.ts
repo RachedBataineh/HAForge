@@ -70,6 +70,7 @@ export const clusters = pgTable("cluster", {
   floatingIpId: text("floating_ip_id"),
   loadBalancerId: text("load_balancer_id"),
   loadBalancerIp: text("load_balancer_ip"),
+  wizardStep: integer("wizard_step"),
 
   // Auto-generated credentials (stored encrypted at app level)
   superuserPassword: text("superuser_password"),

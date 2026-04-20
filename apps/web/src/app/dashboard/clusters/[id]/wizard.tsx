@@ -79,6 +79,8 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const [hetznerToken, setHetznerToken] = useState("");
   const [floatingIp, setFloatingIp] = useState("");
   const [floatingIpId, setFloatingIpId] = useState("");
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [draftSaving, setDraftSaving] = useState(false);
 
   const floatingIps = useQuery(
     trpc.cluster.hetznerFloatingIps.queryOptions(
@@ -124,7 +126,6 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
     mutationFn: async (data: any) => trpcClient.cluster.update.mutate(data),
     onSuccess: () => {
       queryClient.invalidateQueries(trpc.cluster.getById.queryFilter());
-      toast.success("Cluster updated");
     },
   });
 
@@ -147,6 +148,94 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       router.push(`/dashboard/clusters/${clusterId}/deploy?executionId=${data.executionId}`);
     },
   });
+
+  // Load saved draft data from cluster + servers
+  React.useEffect(() => {
+    if (draftLoaded || !cluster.data) return;
+    const c = cluster.data;
+    if (c.hetznerApiToken) setHetznerToken(c.hetznerApiToken);
+    if (c.floatingIp) setFloatingIp(c.floatingIp);
+    if (c.floatingIpId) setFloatingIpId(c.floatingIpId);
+    if (c.loadBalancerId) setSelectedLbId(c.loadBalancerId);
+
+    const servers = c.servers ?? [];
+    if (servers.length > 0) {
+      const newPg: Record<string, ServerForm> = { ...pgServers };
+      const newHa: Record<string, ServerForm> = { ...haServers };
+      for (const s of servers) {
+        const form: ServerForm = {
+          ipAddress: s.ipAddress || "",
+          sshPrivateKey: s.sshPrivateKey || "",
+          sshUser: s.sshUser || "root",
+          sshPort: s.sshPort || 22,
+          hetznerServerId: s.hetznerServerId || "",
+          privateIpAddress: s.privateIpAddress || "",
+        };
+        if (s.role?.startsWith("postgresql")) newPg[s.role] = form;
+        else if (s.role?.startsWith("haproxy")) newHa[s.role] = form;
+      }
+      setPgServers(newPg);
+      setHaServers(newHa);
+    }
+    if (c.wizardStep != null && c.wizardStep > 0) {
+      setStep(c.wizardStep);
+    }
+    setDraftLoaded(true);
+  }, [cluster.data, draftLoaded]);
+
+  const saveDraft = async (currentStep: number) => {
+    setDraftSaving(true);
+    try {
+    // Save cluster-level config
+    const clusterData: any = { id: clusterId, wizardStep: currentStep + 1 };
+    if (currentStep >= 0) {
+      clusterData.hetznerApiToken = hetznerToken;
+      if (!isLb) {
+        clusterData.floatingIp = floatingIp;
+        clusterData.floatingIpId = floatingIpId;
+      }
+    }
+    if (isLb && currentStep >= 1) {
+      const lb = hetznerLbList.find((l: any) => l.id === selectedLbId);
+      clusterData.loadBalancerId = selectedLbId;
+      clusterData.loadBalancerIp = lb?.publicIp || "";
+    }
+    await updateCluster.mutateAsync(clusterData);
+
+    // Save servers
+    const existing = cluster.data?.servers ?? [];
+    for (const s of existing) {
+      await trpcClient.server.remove.mutate({ id: s.id });
+    }
+
+    if (!isLb && currentStep >= 1) {
+      for (const r of HA_ROLES) {
+        const srv = haServers[r.role];
+        if (srv.ipAddress || srv.hetznerServerId) {
+          await addServer.mutateAsync({
+            clusterId, ...srv, role: r.role,
+            hetznerServerId: srv.hetznerServerId || undefined,
+            privateIpAddress: srv.privateIpAddress || undefined,
+          });
+        }
+      }
+    }
+    if (currentStep >= 2) {
+      for (const r of PG_ROLES) {
+        const srv = pgServers[r.role];
+        if (srv.ipAddress || srv.hetznerServerId) {
+          await addServer.mutateAsync({
+            clusterId, ...srv, role: r.role,
+            hetznerServerId: srv.hetznerServerId || undefined,
+            privateIpAddress: srv.privateIpAddress || undefined,
+          });
+        }
+      }
+    }
+    } finally {
+      setDraftSaving(false);
+    }
+  };
 
   const handleSaveAndDeploy = async () => {
     if (isLb) {
@@ -915,7 +1004,13 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
           Back
         </Button>
         {step < 3 ? (
-          <Button onClick={() => setStep((s) => s + 1)} disabled={!canProceed()}>
+          <Button
+            onClick={async () => {
+              await saveDraft(step);
+              setStep((s) => s + 1);
+            }}
+            disabled={!canProceed() || draftSaving}
+          >
             Next
             <ArrowRight className="size-4 ml-1" />
           </Button>

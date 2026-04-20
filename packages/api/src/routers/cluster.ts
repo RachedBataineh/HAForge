@@ -172,6 +172,7 @@ export const clusterRouter = router({
         clusterType: z.enum(["haproxy", "hetzner_lb"]).optional(),
         loadBalancerId: z.string().optional(),
         loadBalancerIp: z.string().optional(),
+        wizardStep: z.number().optional(),
       }),
     )
     .mutation(async ({ input }) => {
