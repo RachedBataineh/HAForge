@@ -65,7 +65,16 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
     },
     onSuccess: (_, action) => {
       toast.success(`Server ${action === "poweron" ? "power on" : action === "poweroff" ? "power off" : "reboot"} initiated`);
-      setTimeout(() => queryClient.invalidateQueries(trpc.cluster.hetznerServerInfo.queryFilter()), 3000);
+      const poll = () => {
+        let attempts = 0;
+        const maxAttempts = 15;
+        const interval = setInterval(() => {
+          attempts++;
+          queryClient.invalidateQueries(trpc.cluster.hetznerServerInfo.queryFilter());
+          if (attempts >= maxAttempts) clearInterval(interval);
+        }, 2000);
+      };
+      poll();
     },
     onError: (err) => toast.error(`Failed: ${err.message}`),
   });
