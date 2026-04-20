@@ -2,22 +2,16 @@
 
 import { Badge } from "@HAForge/ui/components/badge";
 import { Button } from "@HAForge/ui/components/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@HAForge/ui/components/card";
-import { Label } from "@HAForge/ui/components/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@HAForge/ui/components/select";
-import { HardDrive, ArrowLeft, Loader2, Save } from "lucide-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { HardDrive, ArrowLeft, Globe, HardDriveIcon, Wifi, Terminal, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import React, { useState, useEffect } from "react";
-import { toast } from "sonner";
+import React, { useState } from "react";
 
-import { trpc, trpcClient } from "@/utils/trpc";
+import { trpc } from "@/utils/trpc";
+import OverviewTab from "./overview";
+import ServicesTab from "./services";
+import HetznerTab from "./hetzner";
+import NetworkingTab from "./networking";
 
 const roleLabel: Record<string, string> = {
   postgresql_1: "PostgreSQL Node 1",
@@ -28,73 +22,23 @@ const roleLabel: Record<string, string> = {
   haproxy_3: "HAProxy Node 3",
 };
 
-const COMMON_TIMEZONES = [
-  "UTC",
-  "America/New_York",
-  "America/Chicago",
-  "America/Denver",
-  "America/Los_Angeles",
-  "America/Sao_Paulo",
-  "Europe/London",
-  "Europe/Berlin",
-  "Europe/Amsterdam",
-  "Europe/Paris",
-  "Europe/Helsinki",
-  "Asia/Dubai",
-  "Asia/Kolkata",
-  "Asia/Singapore",
-  "Asia/Tokyo",
-  "Asia/Seoul",
-  "Australia/Sydney",
-  "Pacific/Auckland",
-];
+const tabs = [
+  { id: "overview", label: "Overview", icon: HardDrive },
+  { id: "services", label: "Services", icon: Globe },
+  { id: "hetzner", label: "Hetzner", icon: HardDriveIcon },
+  { id: "networking", label: "Networking", icon: Wifi },
+  // { id: "terminal", label: "Terminal", icon: Terminal },
+] as const;
+
+type TabId = typeof tabs[number]["id"];
 
 export default function ServerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: serverId } = React.use(params);
   const router = useRouter();
-  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<TabId>("overview");
 
   const servers = useQuery(trpc.cluster.allServers.queryOptions());
   const server = ((servers.data ?? []) as any[]).find((s: any) => s.id === serverId);
-
-  const [selectedTz, setSelectedTz] = useState("");
-  const [detailsLoaded, setDetailsLoaded] = useState(false);
-
-  const details = useQuery(
-    trpc.cluster.serverDetails.queryOptions(
-      {
-        ipAddress: server?.ipAddress || "",
-        sshPort: server?.sshPort || 22,
-        sshUser: server?.sshUser || "root",
-        sshPrivateKey: server?.sshPrivateKey || "",
-      },
-      { enabled: !!server && !!server.sshPrivateKey && server.clusterStatus !== "draft" },
-    ),
-  );
-
-  useEffect(() => {
-    if (details.data && !detailsLoaded) {
-      setSelectedTz(details.data.timezone);
-      setDetailsLoaded(true);
-    }
-  }, [details.data, detailsLoaded]);
-
-  const setTimezone = useMutation({
-    mutationFn: async (timezone: string) => {
-      return await trpcClient.cluster.serverSetTimezone.mutate({
-        ipAddress: server.ipAddress,
-        sshPort: server.sshPort || 22,
-        sshUser: server.sshUser || "root",
-        sshPrivateKey: server.sshPrivateKey,
-        timezone,
-      });
-    },
-    onSuccess: () => {
-      toast.success("Timezone updated");
-      queryClient.invalidateQueries(trpc.cluster.serverDetails.queryFilter());
-    },
-    onError: (err) => toast.error(`Failed: ${err.message}`),
-  });
 
   if (!server) {
     return (
@@ -104,11 +48,10 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
     );
   }
 
-  const info = details.data;
-
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center gap-3">
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="p-6 pb-4 flex items-center gap-3 border-b">
         <Button variant="ghost" size="icon-sm" onClick={() => router.back()}>
           <ArrowLeft className="size-4" />
         </Button>
@@ -123,126 +66,38 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
-      {/* Connection Info */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Connection Info</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-3 gap-4 text-sm">
-            <div>
-              <span className="text-muted-foreground">Public IP</span>
-              <p className="font-mono">{server.ipAddress}</p>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Private IP</span>
-              <p className="font-mono">{server.privateIpAddress || "N/A"}</p>
-            </div>
-            <div>
-              <span className="text-muted-foreground">SSH User / Port</span>
-              <p className="font-mono">{server.sshUser || "root"} : {server.sshPort || 22}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Body: Sidebar + Content */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Vertical Tabs */}
+        <div className="w-44 border-r p-3 flex flex-col gap-1">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+                  isActive
+                    ? "bg-accent text-accent-foreground font-medium"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                }`}
+              >
+                <Icon className="size-4" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
 
-      {/* Server Details */}
-      {details.isLoading && (
-        <Card>
-          <CardContent className="py-8 flex items-center justify-center gap-2 text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            Fetching server details via SSH...
-          </CardContent>
-        </Card>
-      )}
-
-      {details.isError && (
-        <Card>
-          <CardContent className="py-8 text-center text-destructive">
-            Failed to fetch server details. Make sure SSH is accessible.
-          </CardContent>
-        </Card>
-      )}
-
-      {info && (
-        <>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <HardDrive className="size-4" />
-                System Information
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Hostname</span>
-                  <p className="font-mono">{info.hostname}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Operating System</span>
-                  <p>{info.os}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Architecture</span>
-                  <p className="font-mono">{info.arch}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">CPU Cores</span>
-                  <p>{info.cpuCores}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">RAM</span>
-                  <p>{Number(info.ramMB) >= 1024 ? `${(Number(info.ramMB) / 1024).toFixed(1)} GB` : `${info.ramMB} MB`}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Kernel</span>
-                  <p className="font-mono">{info.kernel}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Uptime</span>
-                  <p>{info.uptime}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Disk Usage</span>
-                  <p>{info.diskUsed} / {info.diskTotal} ({info.diskPercent} used)</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Timezone */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Timezone</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-end justify-between gap-4">
-                <div className="grid gap-1.5 max-w-xs">
-                  <Label className="text-xs">Current Timezone</Label>
-                  <Select value={selectedTz} onValueChange={(val: string | null) => setSelectedTz(val ?? "")}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="!w-auto min-w-[260px]" side="bottom">
-                      {COMMON_TIMEZONES.map((tz) => (
-                        <SelectItem key={tz} value={tz}>{tz}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button
-                  onClick={() => setTimezone.mutate(selectedTz)}
-                  disabled={selectedTz === info.timezone || setTimezone.isPending}
-                >
-                  {setTimezone.isPending ? <Loader2 className="size-4 animate-spin mr-2" /> : <Save className="size-4 mr-2" />}
-                  Save
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </>
-      )}
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-6">
+          {activeTab === "overview" && <OverviewTab server={server} />}
+          {activeTab === "services" && <ServicesTab server={server} />}
+          {activeTab === "hetzner" && <HetznerTab server={server} />}
+          {activeTab === "networking" && <NetworkingTab server={server} />}
+        </div>
+      </div>
     </div>
   );
 }

@@ -238,7 +238,7 @@ export const clusterRouter = router({
     const servers: any[] = [];
     for (const cluster of result) {
       for (const server of cluster.servers) {
-        servers.push({ ...server, clusterId: cluster.id, clusterName: cluster.name, clusterStatus: cluster.status });
+        servers.push({ ...server, clusterId: cluster.id, clusterName: cluster.name, clusterStatus: cluster.status, clusterHetznerToken: cluster.hetznerApiToken || "", clusterType: cluster.clusterType });
       }
     }
     return servers;
@@ -320,6 +320,84 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
         const result = await ssh.exec(`sudo timedatectl set-timezone ${input.timezone}`);
         if (result.exitCode !== 0) throw new Error(result.stderr);
         return { success: true };
+      } finally {
+        await ssh.disconnect();
+      }
+    }),
+
+  hetznerServerInfo: protectedProcedure
+    .input(z.object({ apiToken: z.string(), serverId: z.string() }))
+    .query(async ({ input }) => {
+      const res = await fetch(`https://api.hetzner.cloud/v1/servers/${input.serverId}`, {
+        headers: {
+          Authorization: `Bearer ${input.apiToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
+      const data = await res.json();
+      const s = data.server;
+      return {
+        id: String(s.id),
+        name: s.name,
+        status: s.status,
+        serverType: s.server_type?.description || s.server_type?.name || "",
+        cores: s.server_type?.cores || 0,
+        memory: s.server_type?.memory || 0,
+        disk: s.server_type?.disk || 0,
+        location: s.datacenter?.location?.name || "",
+        datacenter: s.datacenter?.name || "",
+        publicIp: s.public_net?.ipv4?.ip || "",
+        privateIps: (s.private_net || []).map((n: any) => n.ip),
+        created: s.created || "",
+        rescueEnabled: s.rescue_enabled || false,
+        backupWindow: s.backup_window || null,
+        locked: s.locked || false,
+        outgoingTraffic: s.outgoing_traffic || 0,
+        ingoingTraffic: s.ingoing_traffic || 0,
+        includedTraffic: s.included_traffic || 0,
+        labels: s.labels || {},
+      };
+    }),
+
+  hetznerServerAction: protectedProcedure
+    .input(z.object({ apiToken: z.string(), serverId: z.string(), action: z.enum(["poweron", "poweroff", "reboot"]) }))
+    .mutation(async ({ input }) => {
+      const res = await fetch(`https://api.hetzner.cloud/v1/servers/${input.serverId}/actions/${input.action}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${input.apiToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || `Action failed: ${res.status}`);
+      }
+      return { success: true };
+    }),
+
+  sshExec: protectedProcedure
+    .input(z.object({
+      host: z.string(),
+      port: z.number(),
+      username: z.string(),
+      privateKey: z.string(),
+      command: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const { SSHExecutor } = await import("../services/ssh-executor");
+      const ssh = new SSHExecutor({
+        host: input.host,
+        port: input.port,
+        username: input.username,
+        privateKey: input.privateKey,
+      });
+      await ssh.connect();
+      try {
+        const result = await ssh.exec(input.command);
+        if (result.exitCode !== 0) throw new Error(result.stderr || `Exit code ${result.exitCode}`);
+        return { success: true, stdout: result.stdout, stderr: result.stderr };
       } finally {
         await ssh.disconnect();
       }
