@@ -34,6 +34,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { trpc, trpcClient } from "@/utils/trpc";
+import { DeleteClusterDialog } from "./delete-cluster-dialog";
 
 const statusColor: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   draft: "secondary",
@@ -54,6 +55,7 @@ const statusIcon: Record<string, typeof CheckCircle2> = {
 function ClusterCard({ cluster }: { cluster: any }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const Icon = statusIcon[cluster.status] || Server;
   const clusterServers = cluster.servers ?? [];
   const pg = clusterServers.filter((s: any) => s.role?.startsWith("postgresql")).length;
@@ -98,11 +100,7 @@ function ClusterCard({ cluster }: { cluster: any }) {
               size="icon-sm"
               onClick={(e) => {
                 e.stopPropagation();
-                if (confirm("Delete this draft cluster?")) {
-                  trpcClient.cluster.delete.mutate({ id: cluster.id }).then(() => {
-                    queryClient.invalidateQueries(trpc.cluster.list.queryFilter());
-                  });
-                }
+                setDeleteOpen(true);
               }}
             >
               <Trash2 className="size-4 text-muted-foreground hover:text-destructive" />
@@ -110,6 +108,19 @@ function ClusterCard({ cluster }: { cluster: any }) {
           )}
         </div>
       </CardHeader>
+
+      <div onClick={(e) => e.stopPropagation()}>
+        <DeleteClusterDialog
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+          clusterName={cluster.name}
+          onConfirm={() => {
+            trpcClient.cluster.delete.mutate({ id: cluster.id }).then(() => {
+              queryClient.invalidateQueries(trpc.cluster.list.queryFilter());
+            });
+          }}
+        />
+      </div>
     </Card>
   );
 }
