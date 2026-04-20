@@ -39,9 +39,9 @@ import { toast } from "sonner";
 import { trpc, trpcClient } from "@/utils/trpc";
 
 const PG_ROLES = [
-  { role: "postgresql_1" as const, label: "PostgreSQL Node 1", sublabel: "Primary", num: 1 },
-  { role: "postgresql_2" as const, label: "PostgreSQL Node 2", sublabel: "Replica", num: 2 },
-  { role: "postgresql_3" as const, label: "PostgreSQL Node 3", sublabel: "Replica", num: 3 },
+  { role: "postgresql_1" as const, label: "PostgreSQL", sublabel: "Node 1", num: 1 },
+  { role: "postgresql_2" as const, label: "PostgreSQL", sublabel: "Node 2", num: 2 },
+  { role: "postgresql_3" as const, label: "PostgreSQL", sublabel: "Node 3", num: 3 },
 ];
 
 const HA_ROLES = [
