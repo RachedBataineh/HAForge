@@ -347,9 +347,11 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                   }}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a Floating IP" />
+                    {floatingIpId
+                      ? floatingIpList.find((ip: any) => ip.id === floatingIpId)?.ip || floatingIpId
+                      : "Select a Floating IP"}
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="!w-auto min-w-[300px]" side="bottom">
                     {floatingIpList.map((ip: any) => (
                       <SelectItem key={ip.id} value={ip.id}>
                         {ip.ip} {ip.name ? `(${ip.name})` : ""} - {ip.homeLocation}
