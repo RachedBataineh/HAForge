@@ -409,7 +409,9 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                     }}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select a server" />
+                      {haServers[r.role].hetznerServerId
+                        ? hetznerServerList.find((s: any) => s.id === haServers[r.role].hetznerServerId)?.name || haServers[r.role].hetznerServerId
+                        : "Select a server"}
                     </SelectTrigger>
                     <SelectContent className="!w-auto min-w-[300px]" side="bottom">
                       {hetznerServerList
