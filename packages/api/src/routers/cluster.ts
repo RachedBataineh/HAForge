@@ -309,6 +309,7 @@ export const clusterRouter = router({
         cores: t.cores,
         memory: t.memory,
         disk: t.disk,
+        architecture: t.architecture || "x86",
         price: parseFloat(t.prices?.[0]?.price_monthly?.gross || "0").toFixed(2),
       }));
     }),
@@ -331,20 +332,29 @@ export const clusterRouter = router({
     }),
 
   hetznerImages: protectedProcedure
-    .input(z.object({ apiToken: z.string() }))
+    .input(z.object({ apiToken: z.string(), architecture: z.string().optional() }))
     .query(async ({ input }) => {
+      const arch = input.architecture || "x86";
       const res = await fetch("https://api.hetzner.cloud/v1/images?type=system&per_page=50", {
         headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
       });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
       const data = await res.json();
-      return data.images.map((i: any) => ({
-        id: i.id,
-        name: i.name,
-        description: i.description,
-        os: i.os_flavor,
-        version: i.os_version,
-      }));
+      const seen = new Set<string>();
+      return data.images
+        .filter((i: any) => i.architecture === arch)
+        .filter((i: any) => {
+          if (seen.has(i.name)) return false;
+          seen.add(i.name);
+          return true;
+        })
+        .map((i: any) => ({
+          id: i.id,
+          name: i.name,
+          description: i.description,
+          os: i.os_flavor,
+          version: i.os_version,
+        }));
     }),
 
   hetznerCreateServer: protectedProcedure

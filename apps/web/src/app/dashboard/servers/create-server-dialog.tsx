@@ -37,6 +37,7 @@ export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: 
   const [location, setLocation] = useState("");
   const [image, setImage] = useState("");
   const [sshKeyId, setSshKeyId] = useState("");
+  const [selectedArch, setSelectedArch] = useState("x86");
 
   const enabled = !!apiToken;
 
@@ -47,7 +48,7 @@ export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: 
     trpc.cluster.hetznerLocations.queryOptions({ apiToken }, { enabled }),
   );
   const images = useQuery(
-    trpc.cluster.hetznerImages.queryOptions({ apiToken }, { enabled }),
+    trpc.cluster.hetznerImages.queryOptions({ apiToken, architecture: selectedArch }, { enabled }),
   );
   const sshKeys = useQuery(
     trpc.cluster.hetznerSshKeys.queryOptions({ apiToken }, { enabled }),
@@ -67,6 +68,7 @@ export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: 
       setLocation("");
       setImage("");
       setSshKeyId("");
+      setSelectedArch("x86");
     }
     onOpenChange(val);
   };
@@ -125,14 +127,21 @@ export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: 
 
             <div className="grid gap-2">
               <Label className="text-sm">Server Type</Label>
-              <Select value={serverType} onValueChange={(v) => setServerType(v ?? "")}>
+              <Select value={serverType} onValueChange={(v) => {
+                setServerType(v ?? "");
+                const selected = serverTypesData.find((t: any) => t.name === v);
+                if (selected?.architecture) {
+                  setSelectedArch(selected.architecture);
+                  setImage("");
+                }
+              }}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select server type" />
                 </SelectTrigger>
                 <SelectContent className="max-h-64">
                   {serverTypesData.map((t: any) => (
                     <SelectItem key={t.name} value={t.name}>
-                      {t.description} — {t.cores} vCPU, {t.memory}GB RAM, {t.disk}GB disk
+                      {t.description} ({t.architecture}) — {t.cores} vCPU, {t.memory}GB RAM, {t.disk}GB disk
                       {t.price && ` (€${t.price}/mo)`}
                     </SelectItem>
                   ))}
