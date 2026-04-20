@@ -79,28 +79,38 @@ export default function ServersPage() {
       </div>
 
       {/* Tab Bar */}
-      <div className="flex border-b gap-1">
-        {([
-          { id: "cluster" as const, label: "Cluster Servers", icon: Database },
-          { id: "hetzner" as const, label: "Hetzner Servers", icon: HardDrive },
-        ]).map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                isActive
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Icon className="size-4" />
-              {tab.label}
-            </button>
-          );
-        })}
+      <div className="flex items-center border-b gap-1">
+        <div className="flex gap-1">
+          {([
+            { id: "cluster" as const, label: "Cluster Servers", icon: Database },
+            { id: "hetzner" as const, label: "Hetzner Servers", icon: HardDrive },
+          ]).map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                  isActive
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon className="size-4" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="ml-auto">
+          {hzApiToken && activeTab === "hetzner" && (
+            <Button size="sm" className="gap-2 mb-1" onClick={() => setCreateDialogOpen(true)}>
+              <Plus className="size-4" />
+              Create Server
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Cluster Servers Tab */}
@@ -174,15 +184,6 @@ export default function ServersPage() {
       {/* Hetzner Servers Tab */}
       {activeTab === "hetzner" && (
         <>
-          {hzApiToken && (
-            <div className="flex justify-end">
-              <Button className="gap-2" onClick={() => setCreateDialogOpen(true)}>
-                <Plus className="size-4" />
-                Create Server
-              </Button>
-            </div>
-          )}
-
           {hetznerServers.isLoading && (
             <Card>
               <CardContent className="py-8 text-center text-muted-foreground">
