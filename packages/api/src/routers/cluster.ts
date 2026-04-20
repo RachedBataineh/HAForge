@@ -1,6 +1,6 @@
 import { db } from "@HAForge/db";
 import { clusters } from "@HAForge/db";
-import { eq } from "drizzle-orm";
+import { eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
 
@@ -25,6 +25,23 @@ export const clusterRouter = router({
         type: ip.type,
         homeLocation: ip.home_location?.name || "",
       }));
+    }),
+
+  usedServerIds: protectedProcedure
+    .input(z.object({ excludeClusterId: z.string().optional() }))
+    .query(async ({ input }) => {
+      const allClusters = await db.query.clusters.findMany({
+        where: ne(clusters.status, "draft"),
+        with: { servers: true },
+      });
+      const ids = new Set<string>();
+      for (const c of allClusters) {
+        if (c.id === input.excludeClusterId) continue;
+        for (const s of c.servers) {
+          if (s.hetznerServerId) ids.add(s.hetznerServerId);
+        }
+      }
+      return Array.from(ids);
     }),
 
   hetznerServers: protectedProcedure

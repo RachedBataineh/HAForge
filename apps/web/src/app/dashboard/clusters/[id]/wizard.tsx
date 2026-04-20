@@ -100,6 +100,11 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
 
   const hetznerServerList = (hetznerServers.data ?? []) as any[];
 
+  const usedServerIds = useQuery(
+    trpc.cluster.usedServerIds.queryOptions({ excludeClusterId: clusterId }),
+  );
+  const usedIds = new Set((usedServerIds.data ?? []) as string[]);
+
   const hetznerLoadBalancers = useQuery(
     trpc.cluster.hetznerLoadBalancers.queryOptions(
       { apiToken: hetznerToken },
@@ -182,6 +187,38 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
     }
     setDraftLoaded(true);
   }, [cluster.data, draftLoaded]);
+
+  // Detect conflicts: if saved servers are now used by other clusters, clear them
+  React.useEffect(() => {
+    if (!draftLoaded || !usedServerIds.data) return;
+    const used = new Set(usedServerIds.data as string[]);
+    let hasConflict = false;
+
+    const checkAndClear = (servers: Record<string, ServerForm>, setter: React.Dispatch<React.SetStateAction<Record<string, ServerForm>>>, roles: readonly { role: string }[]) => {
+      const updated = { ...servers };
+      for (const r of roles) {
+        const srv = updated[r.role];
+        if (srv.hetznerServerId && used.has(srv.hetznerServerId)) {
+          updated[r.role] = { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" };
+          hasConflict = true;
+        }
+      }
+      setter(updated);
+      return hasConflict;
+    };
+
+    let conflict = false;
+    conflict = checkAndClear(haServers, setHaServers, HA_ROLES) || conflict;
+    conflict = checkAndClear(pgServers, setPgServers, PG_ROLES) || conflict;
+
+    // If any servers were cleared, go back to the first step that needs re-selection
+    if (conflict) {
+      const haStep = HA_ROLES.some((r) => !haServers[r.role]?.hetznerServerId);
+      const pgStep = PG_ROLES.some((r) => !pgServers[r.role]?.hetznerServerId);
+      if (haStep && !isLb) setStep(1);
+      else if (pgStep) setStep(2);
+    }
+  }, [usedServerIds.data, draftLoaded]);
 
   const saveDraft = async (currentStep: number) => {
     setDraftSaving(true);
@@ -553,6 +590,8 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                       {hetznerServerList
                         .filter((srv: any) => {
                           const currentId = haServers[r.role].hetznerServerId;
+                          // Exclude servers already in use by other (non-draft) clusters
+                          if (usedIds.has(srv.id) && srv.id !== currentId) return false;
                           const otherIds = HA_ROLES.filter((hr) => hr.role !== r.role)
                             .map((hr) => haServers[hr.role].hetznerServerId)
                             .filter(Boolean);
@@ -786,14 +825,16 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                         {hetznerServerList
                           .filter((srv: any) => {
                             const currentId = pgServers[r.role].hetznerServerId;
+                            // Exclude servers already in use by other (non-draft) clusters
+                            if (usedIds.has(srv.id) && srv.id !== currentId) return false;
                             // Exclude servers already picked for other PG roles
                             const otherPgIds = PG_ROLES.filter((pr) => pr.role !== r.role)
                               .map((pr) => pgServers[pr.role].hetznerServerId)
                               .filter(Boolean);
                             // Exclude servers already picked for HAProxy roles (if HAProxy mode)
                             const haIds = HA_ROLES.map((hr) => haServers[hr.role].hetznerServerId).filter(Boolean);
-                            const usedIds = [...otherPgIds, ...haIds];
-                            return srv.id === currentId || !usedIds.includes(srv.id);
+                            const clusterIds = [...otherPgIds, ...haIds];
+                            return srv.id === currentId || !clusterIds.includes(srv.id);
                           })
                           .map((srv: any) => (
                             <SelectItem key={srv.id} value={srv.id}>
