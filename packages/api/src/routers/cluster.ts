@@ -244,6 +244,56 @@ export const clusterRouter = router({
     return servers;
   }),
 
+  allHetznerServers: protectedProcedure.query(async ({ ctx }) => {
+    // Get all unique API tokens from user's clusters
+    const userClusters = await db.query.clusters.findMany({
+      where: eq(clusters.userId, ctx.session.user.id),
+      with: { servers: true },
+    });
+
+    // Collect used Hetzner server IDs
+    const usedServerIds = new Set<string>();
+    for (const c of userClusters) {
+      if (c.status === "draft") continue;
+      for (const s of c.servers) {
+        if (s.hetznerServerId) usedServerIds.add(s.hetznerServerId);
+      }
+    }
+
+    // Fetch from all unique tokens
+    const tokens = [...new Set(userClusters.map((c) => c.hetznerApiToken).filter(Boolean))];
+    const allServers: any[] = [];
+
+    for (const token of tokens) {
+      try {
+        const res = await fetch("https://api.hetzner.cloud/v1/servers", {
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        });
+        if (!res.ok) continue;
+        const data = await res.json();
+        for (const srv of data.servers || []) {
+          const hetznerId = String(srv.id);
+          if (allServers.find((s) => s.id === hetznerId)) continue; // deduplicate
+          allServers.push({
+            id: hetznerId,
+            name: srv.name,
+            publicIp: srv.public_net?.ipv4?.ip || "",
+            privateIps: (srv.private_net || []).map((net: any) => net.ip),
+            status: srv.status,
+            serverType: srv.server_type?.name || "",
+            location: srv.datacenter?.location?.name || "",
+            created: srv.created || "",
+            used: usedServerIds.has(hetznerId),
+          });
+        }
+      } catch {
+        // Skip failed token
+      }
+    }
+
+    return allServers;
+  }),
+
   serverDetails: protectedProcedure
     .input(z.object({
       ipAddress: z.string(),
