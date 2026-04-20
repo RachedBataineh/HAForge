@@ -599,10 +599,14 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                   </SelectContent>
                 </Select>
                 {selectedLbId && (
-                  <div className="grid grid-cols-2 gap-4 text-sm bg-muted/50 rounded-lg p-3">
+                  <div className="grid grid-cols-3 gap-4 text-sm bg-muted/50 rounded-lg p-3">
                     <div>
                       <span className="text-muted-foreground">Public IP</span>
                       <p className="font-mono">{hetznerLbList.find((l: any) => l.id === selectedLbId)?.publicIp || "N/A"}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Private IP</span>
+                      <p className="font-mono">{hetznerLbList.find((l: any) => l.id === selectedLbId)?.privateIp || "N/A"}</p>
                     </div>
                     <div>
                       <span className="text-muted-foreground">Location</span>
@@ -642,14 +646,167 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       {/* Step 2: PostgreSQL Nodes */}
       {step === 2 && (
         <div className="grid gap-4">
-          {PG_ROLES.map((r) =>
-            renderServerCard(
-              r.role,
-              r.label,
-              r.sublabel,
-              pgServers[r.role],
-              (updated) => setPgServers((prev) => ({ ...prev, [r.role]: updated })),
-              false,
+          {hetznerServers.isLoading && hetznerToken.length > 10 && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+              <Loader2 className="size-4 animate-spin" />
+              Fetching servers from Hetzner...
+            </div>
+          )}
+          {hetznerServers.isError && (
+            <p className="text-sm text-destructive py-4">Failed to fetch servers. Check your API token.</p>
+          )}
+          {hetznerServerList.length > 0 ? (
+            PG_ROLES.map((r) => (
+              <Card key={r.role}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base">{r.label}</CardTitle>
+                    <Badge variant="secondary">{r.sublabel}</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="grid gap-4">
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">Hetzner Server</Label>
+                    <Select
+                      value={pgServers[r.role].hetznerServerId}
+                      onValueChange={(val: string | null) => {
+                        const srv = hetznerServerList.find((s: any) => s.id === val);
+                        if (srv) {
+                          const key = r.role;
+                          setPgServers((prev) => {
+                            const updated = { ...prev };
+                            updated[key] = {
+                              ...prev[key],
+                              hetznerServerId: srv.id,
+                              ipAddress: srv.publicIp,
+                              privateIpAddress: srv.privateIps?.[0]?.ip || "",
+                            };
+                            return updated;
+                          });
+                        }
+                      }}
+                    >
+                      <SelectTrigger>
+                        {pgServers[r.role].hetznerServerId
+                          ? hetznerServerList.find((s: any) => s.id === pgServers[r.role].hetznerServerId)?.name || pgServers[r.role].hetznerServerId
+                          : "Select a server"}
+                      </SelectTrigger>
+                      <SelectContent className="!w-auto min-w-[300px]" side="bottom">
+                        {hetznerServerList
+                          .filter((srv: any) => {
+                            const currentId = pgServers[r.role].hetznerServerId;
+                            // Exclude servers already picked for other PG roles
+                            const otherPgIds = PG_ROLES.filter((pr) => pr.role !== r.role)
+                              .map((pr) => pgServers[pr.role].hetznerServerId)
+                              .filter(Boolean);
+                            // Exclude servers already picked for HAProxy roles (if HAProxy mode)
+                            const haIds = HA_ROLES.map((hr) => haServers[hr.role].hetznerServerId).filter(Boolean);
+                            const usedIds = [...otherPgIds, ...haIds];
+                            return srv.id === currentId || !usedIds.includes(srv.id);
+                          })
+                          .map((srv: any) => (
+                            <SelectItem key={srv.id} value={srv.id}>
+                              {srv.name} ({srv.publicIp})
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {pgServers[r.role].hetznerServerId && (
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div>
+                        <span className="text-muted-foreground text-xs">Public IP</span>
+                        <p className="font-mono">{pgServers[r.role].ipAddress}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground text-xs">Private IP</span>
+                        <p className="font-mono">{pgServers[r.role].privateIpAddress || "N/A"}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground text-xs">Server ID</span>
+                        <p className="font-mono">{pgServers[r.role].hetznerServerId}</p>
+                      </div>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-1.5">
+                      <Label className="text-xs">SSH User</Label>
+                      <Input
+                        value={pgServers[r.role].sshUser}
+                        onChange={(e) =>
+                          setPgServers((prev) => ({
+                            ...prev,
+                            [r.role]: { ...prev[r.role], sshUser: e.target.value },
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label className="text-xs">SSH Port</Label>
+                      <Input
+                        value={pgServers[r.role].sshPort}
+                        onChange={(e) =>
+                          setPgServers((prev) => ({
+                            ...prev,
+                            [r.role]: { ...prev[r.role], sshPort: Number(e.target.value) },
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">SSH Private Key</Label>
+                    <Textarea
+                      placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                      rows={3}
+                      value={pgServers[r.role].sshPrivateKey}
+                      onChange={(e) =>
+                        setPgServers((prev) => ({
+                          ...prev,
+                          [r.role]: { ...prev[r.role], sshPrivateKey: e.target.value },
+                        }))
+                      }
+                    />
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setTestingRole(r.role);
+                      testConnection.mutate(
+                        {
+                          ipAddress: pgServers[r.role].ipAddress,
+                          sshPort: pgServers[r.role].sshPort,
+                          sshUser: pgServers[r.role].sshUser,
+                          sshPrivateKey: pgServers[r.role].sshPrivateKey,
+                        },
+                        { onSettled: () => setTestingRole(null) },
+                      );
+                    }}
+                    disabled={!pgServers[r.role].ipAddress || !pgServers[r.role].sshPrivateKey || testConnection.isPending}
+                  >
+                    {testConnection.isPending && testingRole === r.role ? (
+                      <>
+                        <Loader2 className="size-3 mr-1 animate-spin" />
+                        Testing...
+                      </>
+                    ) : (
+                      "Test Connection"
+                    )}
+                  </Button>
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            PG_ROLES.map((r) =>
+              renderServerCard(
+                r.role,
+                r.label,
+                r.sublabel,
+                pgServers[r.role],
+                (updated) => setPgServers((prev) => ({ ...prev, [r.role]: updated })),
+                false,
+              )
             )
           )}
         </div>

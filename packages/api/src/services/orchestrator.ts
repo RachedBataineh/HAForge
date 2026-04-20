@@ -468,41 +468,46 @@ export class Orchestrator extends EventEmitter {
           body: JSON.stringify({
             type: "server",
             server: { id: Number(hetznerServerId) },
+            use_private_ip: true,
           }),
         },
       );
     }
 
-    // Add TCP service on port 5432 with Patroni health check
-    await fetch(
-      `https://api.hetzner.cloud/v1/load_balancers/${lbId}/actions/add_service`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          protocol: "tcp",
-          listen_port: 5432,
-          destination_port: 5432,
-          proxyprotocol: false,
-          health_check: {
-            protocol: "http",
-            port: 8008,
-            interval: 5,
-            timeout: 3,
-            retries: 3,
-            http: {
-              domain: "",
-              path: "/leader",
-              statuses: [200],
-              tls: true,
-            },
+    // Add TCP service on port 5432 with Patroni health check (ignore if already exists)
+    try {
+      await fetch(
+        `https://api.hetzner.cloud/v1/load_balancers/${lbId}/actions/add_service`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
           },
-        }),
-      },
-    );
+          body: JSON.stringify({
+            protocol: "tcp",
+            listen_port: 5432,
+            destination_port: 5432,
+            proxyprotocol: false,
+            health_check: {
+              protocol: "http",
+              port: 8008,
+              interval: 5,
+              timeout: 3,
+              retries: 3,
+              http: {
+                domain: "",
+                path: "/leader",
+                statuses: [200],
+                tls: true,
+              },
+            },
+          }),
+        },
+      );
+    } catch {
+      // Service may already exist if user created it manually on Hetzner
+    }
   }
 
   private buildServerMap(serversList: any[]): Map<string, any> {

@@ -70,6 +70,7 @@ export const clusterRouter = router({
         id: String(lb.id),
         name: lb.name,
         publicIp: lb.public_net?.ipv4?.ip || "",
+        privateIp: lb.private_net?.[0]?.ip || "",
         location: lb.location?.name || "",
         type: lb.load_balancer_type?.name || "",
         targets: (lb.targets || []).map((t: any) => ({
