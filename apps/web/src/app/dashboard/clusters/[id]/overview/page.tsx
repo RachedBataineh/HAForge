@@ -79,9 +79,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
   }
 
   const connectionHost = isLb
-    ? cluster.data.loadBalancerId
-      ? "Load Balancer IP"
-      : ""
+    ? cluster.data.loadBalancerIp || ""
     : cluster.data.floatingIp || "";
 
   return (

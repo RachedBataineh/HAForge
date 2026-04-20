@@ -150,10 +150,12 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
 
   const handleSaveAndDeploy = async () => {
     if (isLb) {
+      const lb = hetznerLbList.find((l: any) => l.id === selectedLbId);
       await updateCluster.mutateAsync({
         id: clusterId,
         hetznerApiToken: hetznerToken,
         loadBalancerId: selectedLbId,
+        loadBalancerIp: lb?.publicIp || "",
       });
     } else {
       await updateCluster.mutateAsync({ id: clusterId, hetznerApiToken: hetznerToken, floatingIp, floatingIpId });

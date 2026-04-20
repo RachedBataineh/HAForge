@@ -69,6 +69,7 @@ export const clusters = pgTable("cluster", {
   hetznerApiToken: text("hetzner_api_token"),
   floatingIpId: text("floating_ip_id"),
   loadBalancerId: text("load_balancer_id"),
+  loadBalancerIp: text("load_balancer_ip"),
 
   // Auto-generated credentials (stored encrypted at app level)
   superuserPassword: text("superuser_password"),
