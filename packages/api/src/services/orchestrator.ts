@@ -1,10 +1,4 @@
-import { db } from "@HAForge/db";
-import {
-  clusters,
-  executions,
-  executionSteps,
-  executionLogs,
-} from "@HAForge/db";
+import { db, clusters, executions, executionSteps, executionLogs, servers } from "@HAForge/db";
 import { eq } from "drizzle-orm";
 import { SSHExecutor } from "./ssh-executor";
 import { generateClusterCertificates, type GeneratedCerts } from "./cert-generator";
@@ -200,6 +194,9 @@ export class Orchestrator extends EventEmitter {
 
         await this.configureHetznerLoadBalancer(cluster, vars);
       }
+
+      // Cache server info after successful deployment
+      await this.cacheServerInfo();
 
       // Mark execution completed
       await db
@@ -522,6 +519,54 @@ export class Orchestrator extends EventEmitter {
       );
     } catch {
       // Service may already exist if user created it manually on Hetzner
+    }
+  }
+
+  private async cacheServerInfo() {
+    const allServers = Array.from(this.sshConnections.keys());
+    for (const serverId of allServers) {
+      const ssh = this.sshConnections.get(serverId);
+      if (!ssh) continue;
+      try {
+        const script = [
+          "echo '---HOSTNAME---' && hostname && echo '---END---'",
+          "echo '---OS---' && cat /etc/os-release | grep PRETTY_NAME | cut -d'\"' -f2 && echo '---END---'",
+          "echo '---ARCH---' && uname -m && echo '---END---'",
+          "echo '---CPU---' && nproc && echo '---END---'",
+          "echo '---RAM---' && awk '/MemTotal/ {printf \"%.0f\", $2/1024}' /proc/meminfo && echo '---END---'",
+          "echo '---KERNEL---' && uname -r && echo '---END---'",
+          "echo '---UPTIME---' && uptime -p && echo '---END---'",
+          "echo '---TIMEZONE---' && timedatectl show -p Timezone --value && echo '---END---'",
+          "echo '---DISK---' && df -h / | awk 'NR==2{print $2 \"|\" $3 \"|\" $4 \"|\" $5}' && echo '---END---'",
+        ].join("\n");
+        const result = await ssh.exec(script);
+        if (result.exitCode !== 0) continue;
+
+        const extract = (tag: string) => {
+          const regex = new RegExp(`---${tag}---\\s*\\n([\\s\\S]*?)---END---`);
+          const match = result.stdout.match(regex);
+          return match ? match[1].trim() : "";
+        };
+        const diskParts = extract("DISK").split("|");
+
+        await db.update(servers).set({
+          cachedHostname: extract("HOSTNAME"),
+          cachedOs: extract("OS"),
+          cachedArch: extract("ARCH"),
+          cachedCpuCores: Number(extract("CPU")) || null,
+          cachedRamMB: Number(extract("RAM")) || null,
+          cachedKernel: extract("KERNEL"),
+          cachedUptime: extract("UPTIME"),
+          cachedTimezone: extract("TIMEZONE"),
+          cachedDiskTotal: diskParts[0] || null,
+          cachedDiskUsed: diskParts[1] || null,
+          cachedDiskFree: diskParts[2] || null,
+          cachedDiskPercent: diskParts[3] || null,
+          lastFetchedAt: new Date(),
+        }).where(eq(servers.id, serverId));
+      } catch {
+        // Silently skip if caching fails
+      }
     }
   }
 

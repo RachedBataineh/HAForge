@@ -1,5 +1,5 @@
 import { db } from "@HAForge/db";
-import { clusters } from "@HAForge/db";
+import { clusters, servers } from "@HAForge/db";
 import { eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
@@ -401,5 +401,80 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
       } finally {
         await ssh.disconnect();
       }
+    }),
+
+  refreshServerInfo: protectedProcedure
+    .input(z.object({ serverId: z.string() }))
+    .mutation(async ({ input }) => {
+      const server = await db.query.servers.findFirst({
+        where: eq(servers.id, input.serverId),
+        with: { cluster: true },
+      });
+      if (!server) throw new Error("Server not found");
+      if (!server.sshPrivateKey) throw new Error("No SSH key configured");
+
+      const { SSHExecutor } = await import("../services/ssh-executor");
+      const ssh = new SSHExecutor({
+        host: server.ipAddress,
+        port: server.sshPort || 22,
+        username: server.sshUser || "root",
+        privateKey: server.sshPrivateKey,
+      });
+      await ssh.connect();
+      try {
+        const script = [
+          "echo '---HOSTNAME---' && hostname && echo '---END---'",
+          "echo '---OS---' && cat /etc/os-release | grep PRETTY_NAME | cut -d'\"' -f2 && echo '---END---'",
+          "echo '---ARCH---' && uname -m && echo '---END---'",
+          "echo '---CPU---' && nproc && echo '---END---'",
+          "echo '---RAM---' && awk '/MemTotal/ {printf \"%.0f\", $2/1024}' /proc/meminfo && echo '---END---'",
+          "echo '---KERNEL---' && uname -r && echo '---END---'",
+          "echo '---UPTIME---' && uptime -p && echo '---END---'",
+          "echo '---TIMEZONE---' && timedatectl show -p Timezone --value && echo '---END---'",
+          "echo '---DISK---' && df -h / | awk 'NR==2{print $2 \"|\" $3 \"|\" $4 \"|\" $5}' && echo '---END---'",
+        ].join("\n");
+        const result = await ssh.exec(script);
+        if (result.exitCode !== 0) throw new Error(result.stderr);
+
+        const extract = (tag: string) => {
+          const regex = new RegExp(`---${tag}---\\s*\\n([\\s\\S]*?)---END---`);
+          const match = result.stdout.match(regex);
+          return match ? match[1].trim() : "";
+        };
+        const diskParts = extract("DISK").split("|");
+
+        await db.update(servers).set({
+          cachedHostname: extract("HOSTNAME"),
+          cachedOs: extract("OS"),
+          cachedArch: extract("ARCH"),
+          cachedCpuCores: Number(extract("CPU")) || null,
+          cachedRamMB: Number(extract("RAM")) || null,
+          cachedKernel: extract("KERNEL"),
+          cachedUptime: extract("UPTIME"),
+          cachedTimezone: extract("TIMEZONE"),
+          cachedDiskTotal: diskParts[0] || null,
+          cachedDiskUsed: diskParts[1] || null,
+          cachedDiskFree: diskParts[2] || null,
+          cachedDiskPercent: diskParts[3] || null,
+          lastFetchedAt: new Date(),
+        }).where(eq(servers.id, input.serverId));
+
+        return { success: true };
+      } finally {
+        await ssh.disconnect();
+      }
+    }),
+
+  updateServerCache: protectedProcedure
+    .input(z.object({
+      serverId: z.string(),
+      timezone: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      await db.update(servers).set({
+        ...(input.timezone ? { cachedTimezone: input.timezone } : {}),
+        lastFetchedAt: new Date(),
+      }).where(eq(servers.id, input.serverId));
+      return { success: true };
     }),
 });

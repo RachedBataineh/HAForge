@@ -106,6 +106,21 @@ export const servers = pgTable(
     privateIpAddress: text("private_ip_address"),
     status: serverStatusEnum("status").default("pending").notNull(),
 
+    // Cached server info (fetched via SSH)
+    cachedHostname: text("cached_hostname"),
+    cachedOs: text("cached_os"),
+    cachedArch: text("cached_arch"),
+    cachedCpuCores: integer("cached_cpu_cores"),
+    cachedRamMB: integer("cached_ram_mb"),
+    cachedKernel: text("cached_kernel"),
+    cachedUptime: text("cached_uptime"),
+    cachedTimezone: text("cached_timezone"),
+    cachedDiskTotal: text("cached_disk_total"),
+    cachedDiskUsed: text("cached_disk_used"),
+    cachedDiskFree: text("cached_disk_free"),
+    cachedDiskPercent: text("cached_disk_percent"),
+    lastFetchedAt: timestamp("last_fetched_at"),
+
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()
@@ -189,17 +204,17 @@ export const executionLogs = pgTable(
 );
 
 // Relations
-export const clusterRelations = relations(clusters, ({ many }) => ({
-  servers: many(servers),
-  executions: many(executions),
-}));
-
 export const serverRelations = relations(servers, ({ one, many }) => ({
   cluster: one(clusters, {
     fields: [servers.clusterId],
     references: [clusters.id],
   }),
   executionLogs: many(executionLogs),
+}));
+
+export const clusterRelations = relations(clusters, ({ many }) => ({
+  servers: many(servers),
+  executions: many(executions),
 }));
 
 export const executionRelations = relations(executions, ({ one, many }) => ({
