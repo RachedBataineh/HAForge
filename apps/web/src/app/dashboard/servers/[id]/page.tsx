@@ -2,12 +2,14 @@
 
 import { Badge } from "@HAForge/ui/components/badge";
 import { Button } from "@HAForge/ui/components/button";
-import { HardDrive, ArrowLeft, Globe, HardDriveIcon, Wifi, Terminal, Loader2, CheckCircle2, XCircle } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { Switch } from "@HAForge/ui/components/switch";
+import { HardDrive, ArrowLeft, Globe, HardDriveIcon, Wifi, Terminal, Loader2, CheckCircle2, XCircle, RotateCw } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
+import { toast } from "sonner";
 
-import { trpc } from "@/utils/trpc";
+import { trpc, trpcClient } from "@/utils/trpc";
 import OverviewTab from "./overview";
 import ServicesTab from "./services";
 import HetznerTab from "./hetzner";
@@ -35,6 +37,7 @@ type TabId = typeof tabs[number]["id"];
 export default function ServerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: serverId } = React.use(params);
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabId>("overview");
 
   const servers = useQuery(trpc.cluster.allServers.queryOptions());
@@ -48,6 +51,21 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
   );
 
   const serverIsOn = hetznerInfo.data?.status === "running";
+
+  const serverAction = useMutation({
+    mutationFn: async (action: "poweron" | "poweroff" | "reboot") => {
+      return await trpcClient.cluster.hetznerServerAction.mutate({
+        apiToken: server!.clusterHetznerToken,
+        serverId: server!.hetznerServerId,
+        action,
+      });
+    },
+    onSuccess: (_, action) => {
+      toast.success(`Server ${action === "poweron" ? "power on" : action === "poweroff" ? "power off" : "reboot"} initiated`);
+      setTimeout(() => queryClient.invalidateQueries(trpc.cluster.hetznerServerInfo.queryFilter()), 3000);
+    },
+    onError: (err) => toast.error(`Failed: ${err.message}`),
+  });
 
   if (!server) {
     return (
@@ -75,12 +93,28 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
             </p>
           </div>
         </div>
-        {hetznerInfo.data && (
-          <Badge variant={serverIsOn ? "default" : "destructive"} className="gap-1">
-            {serverIsOn ? <CheckCircle2 className="size-3" /> : <XCircle className="size-3" />}
-            {serverIsOn ? "Online" : "Offline"}
-          </Badge>
-        )}
+        <div className="flex items-center gap-3">
+          {hetznerInfo.data && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => serverAction.mutate("reboot")}
+                disabled={!serverIsOn || serverAction.isPending}
+              >
+                {serverAction.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCw className="size-3.5" />}
+              </Button>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={serverIsOn}
+                  disabled={serverAction.isPending}
+                  onCheckedChange={(checked) => serverAction.mutate(checked ? "poweron" : "poweroff")}
+                />
+                <span className="text-sm">{serverIsOn ? "On" : "Off"}</span>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Body: Sidebar + Content */}
