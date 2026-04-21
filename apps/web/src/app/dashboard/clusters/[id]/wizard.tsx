@@ -16,11 +16,9 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@HAForge/ui/components/select";
 import { Progress } from "@HAForge/ui/components/progress";
 import { Separator } from "@HAForge/ui/components/separator";
-import { Textarea } from "@HAForge/ui/components/textarea";
 import {
   Network,
   Database,
@@ -56,6 +54,7 @@ interface ServerForm {
   sshPort: number;
   hetznerServerId: string;
   privateIpAddress: string;
+  sshKeyId: string;
 }
 
 export default function ClusterSetupWizard({ params }: { params: Promise<{ id: string }> }) {
@@ -88,6 +87,10 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const userProfile = useQuery(trpc.settings.getProfile.queryOptions());
   const hetznerToken = userProfile.data?.hetznerApiToken || "";
   const tokenReady = hetznerToken.length > 10;
+
+  // Fetch SSH keys with private keys from DB
+  const dbSshKeys = useQuery(trpc.cluster.allHetznerSshKeys.queryOptions());
+  const sshKeyOptions = ((dbSshKeys.data ?? []) as any[]).filter((k: any) => k.privateKey);
 
   const floatingIps = useQuery(
     trpc.cluster.hetznerFloatingIps.queryOptions(
@@ -124,14 +127,14 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const [initialDatabase, setInitialDatabase] = useState("postgres");
 
   const [pgServers, setPgServers] = useState<Record<string, ServerForm>>({
-    postgresql_1: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
-    postgresql_2: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
-    postgresql_3: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
+    postgresql_1: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
+    postgresql_2: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
+    postgresql_3: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
   });
   const [haServers, setHaServers] = useState<Record<string, ServerForm>>({
-    haproxy_1: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
-    haproxy_2: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
-    haproxy_3: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" },
+    haproxy_1: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
+    haproxy_2: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
+    haproxy_3: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
   });
 
   const updateCluster = useMutation({
@@ -183,6 +186,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
           sshPort: s.sshPort || 22,
           hetznerServerId: s.hetznerServerId || "",
           privateIpAddress: s.privateIpAddress || "",
+          sshKeyId: (s as any).sshKeyId || "",
         };
         if (s.role?.startsWith("postgresql")) newPg[s.role] = form;
         else if (s.role?.startsWith("haproxy")) newHa[s.role] = form;
@@ -207,7 +211,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       for (const r of roles) {
         const srv = updated[r.role];
         if (srv.hetznerServerId && used.has(srv.hetznerServerId)) {
-          updated[r.role] = { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" };
+          updated[r.role] = { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" };
           conflict = true;
         }
       }
@@ -530,17 +534,30 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                 </div>
                 <div className="grid gap-1.5">
                   <Label className="text-xs">SSH Private Key</Label>
-                  <Textarea
-                    placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                    rows={3}
-                    value={haServers[r.role].sshPrivateKey}
-                    onChange={(e) =>
-                      setHaServers((prev) => ({
-                        ...prev,
-                        [r.role]: { ...prev[r.role], sshPrivateKey: e.target.value },
-                      }))
-                    }
-                  />
+                  <Select
+                    value={haServers[r.role].sshKeyId || ""}
+                    onValueChange={(v) => {
+                      const key = sshKeyOptions.find((k: any) => k.id === v);
+                      if (key) setHaServers((prev) => ({ ...prev, [r.role]: { ...prev[r.role], sshPrivateKey: key.privateKey, sshKeyId: key.id } }));
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      {haServers[r.role].sshKeyId
+                        ? <span className="truncate text-xs">{sshKeyOptions.find((k: any) => k.id === haServers[r.role].sshKeyId)?.name || "Key selected"}</span>
+                        : <span className="text-muted-foreground">Select SSH key</span>}
+                    </SelectTrigger>
+                    <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
+                      {sshKeyOptions.map((k: any) => (
+                        <SelectItem key={k.id} value={k.id}>{k.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {sshKeyOptions.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      No SSH keys with private keys found.{" "}
+                      <a href="/dashboard/ssh-keys" className="underline hover:no-underline" target="_blank">Add one</a>.
+                    </p>
+                  )}
                 </div>
                 <Button
                   variant="outline"
@@ -804,17 +821,30 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                   </div>
                   <div className="grid gap-1.5">
                     <Label className="text-xs">SSH Private Key</Label>
-                    <Textarea
-                      placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                      rows={3}
-                      value={pgServers[r.role].sshPrivateKey}
-                      onChange={(e) =>
-                        setPgServers((prev) => ({
-                          ...prev,
-                          [r.role]: { ...prev[r.role], sshPrivateKey: e.target.value },
-                        }))
-                      }
-                    />
+                    <Select
+                      value={pgServers[r.role].sshKeyId || ""}
+                      onValueChange={(v) => {
+                        const key = sshKeyOptions.find((k: any) => k.id === v);
+                        if (key) setPgServers((prev) => ({ ...prev, [r.role]: { ...prev[r.role], sshPrivateKey: key.privateKey, sshKeyId: key.id } }));
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        {pgServers[r.role].sshKeyId
+                          ? <span className="truncate text-xs">{sshKeyOptions.find((k: any) => k.id === pgServers[r.role].sshKeyId)?.name || "Key selected"}</span>
+                          : <span className="text-muted-foreground">Select SSH key</span>}
+                      </SelectTrigger>
+                      <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
+                        {sshKeyOptions.map((k: any) => (
+                          <SelectItem key={k.id} value={k.id}>{k.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {sshKeyOptions.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        No SSH keys with private keys found.{" "}
+                        <a href="/dashboard/ssh-keys" className="underline hover:no-underline" target="_blank">Add one</a>.
+                      </p>
+                    )}
                   </div>
                   <Button
                     variant="outline"
