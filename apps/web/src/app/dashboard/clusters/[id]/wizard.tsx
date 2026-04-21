@@ -22,10 +22,8 @@ import { Progress } from "@HAForge/ui/components/progress";
 import { Separator } from "@HAForge/ui/components/separator";
 import { Textarea } from "@HAForge/ui/components/textarea";
 import {
-  Cloud,
-  Database,
-  Globe,
   Network,
+  Database,
   Rocket,
   CheckCircle2,
   Loader2,
@@ -70,35 +68,41 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const clusterType = (cluster.data?.clusterType || "haproxy") as "haproxy" | "hetzner_lb";
   const isLb = clusterType === "hetzner_lb";
 
-  const stepIcons = [Cloud, Network, Database, Rocket];
+  // Steps: HAProxy mode = [HAProxy Nodes, PG Nodes, Review], LB mode = [Load Balancer, PG Nodes, Review]
+  const totalSteps = 3;
+  const stepIcons = isLb
+    ? [Network, Database, Rocket]
+    : [Network, Database, Rocket];
   const stepTitles = isLb
-    ? ["Hetzner Config", "Load Balancer", "PostgreSQL Nodes", "Review & Deploy"]
-    : ["Hetzner Config", "HAProxy Nodes", "PostgreSQL Nodes", "Review & Deploy"];
+    ? ["Load Balancer", "PostgreSQL Nodes", "Review & Deploy"]
+    : ["HAProxy Nodes", "PostgreSQL Nodes", "Review & Deploy"];
 
   const [step, setStep] = useState(0);
   const [testingRole, setTestingRole] = useState<string | null>(null);
-  const [hetznerToken, setHetznerToken] = useState("");
   const [floatingIp, setFloatingIp] = useState("");
   const [floatingIpId, setFloatingIpId] = useState("");
   const [draftLoaded, setDraftLoaded] = useState(false);
   const [draftSaving, setDraftSaving] = useState(false);
 
+  // Get Hetzner API token from user settings
+  const userProfile = useQuery(trpc.settings.getProfile.queryOptions());
+  const hetznerToken = userProfile.data?.hetznerApiToken || "";
+  const tokenReady = hetznerToken.length > 10;
+
   const floatingIps = useQuery(
     trpc.cluster.hetznerFloatingIps.queryOptions(
       { apiToken: hetznerToken },
-      { enabled: hetznerToken.length > 10 },
+      { enabled: tokenReady && !isLb },
     ),
   );
-
   const floatingIpList = (floatingIps.data ?? []) as any[];
 
   const hetznerServers = useQuery(
     trpc.cluster.hetznerServers.queryOptions(
       { apiToken: hetznerToken },
-      { enabled: hetznerToken.length > 10 },
+      { enabled: tokenReady },
     ),
   );
-
   const hetznerServerList = (hetznerServers.data ?? []) as any[];
 
   const usedServerIds = useQuery(
@@ -109,7 +113,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const hetznerLoadBalancers = useQuery(
     trpc.cluster.hetznerLoadBalancers.queryOptions(
       { apiToken: hetznerToken },
-      { enabled: isLb && hetznerToken.length > 10 },
+      { enabled: tokenReady && isLb },
     ),
   );
   const hetznerLbList = (hetznerLoadBalancers.data ?? []) as any[];
@@ -157,11 +161,10 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
     },
   });
 
-  // Load saved draft data from cluster + servers
+  // Load saved draft data
   React.useEffect(() => {
     if (draftLoaded || !cluster.data) return;
     const c = cluster.data;
-    if (c.hetznerApiToken) setHetznerToken(c.hetznerApiToken);
     if (c.floatingIp) setFloatingIp(c.floatingIp);
     if (c.floatingIpId) setFloatingIpId(c.floatingIpId);
     if (c.loadBalancerId) setSelectedLbId(c.loadBalancerId);
@@ -188,16 +191,16 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       setHaServers(newHa);
     }
     if (c.wizardStep != null && c.wizardStep > 0) {
-      setStep(c.wizardStep);
+      setStep(Math.min(c.wizardStep - 1, totalSteps - 1));
     }
     setDraftLoaded(true);
   }, [cluster.data, draftLoaded]);
 
-  // Detect conflicts: if saved servers are now used by other clusters, clear them
+  // Detect conflicts
   React.useEffect(() => {
     if (!draftLoaded || !usedServerIds.data) return;
     const used = new Set(usedServerIds.data as string[]);
-    let hasConflict = false;
+    let conflict = false;
 
     const checkAndClear = (servers: Record<string, ServerForm>, setter: React.Dispatch<React.SetStateAction<Record<string, ServerForm>>>, roles: readonly { role: string }[]) => {
       const updated = { ...servers };
@@ -205,79 +208,69 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
         const srv = updated[r.role];
         if (srv.hetznerServerId && used.has(srv.hetznerServerId)) {
           updated[r.role] = { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "" };
-          hasConflict = true;
+          conflict = true;
         }
       }
       setter(updated);
-      return hasConflict;
     };
 
-    let conflict = false;
-    conflict = checkAndClear(haServers, setHaServers, HA_ROLES) || conflict;
-    conflict = checkAndClear(pgServers, setPgServers, PG_ROLES) || conflict;
+    if (!isLb) checkAndClear(haServers, setHaServers, HA_ROLES);
+    checkAndClear(pgServers, setPgServers, PG_ROLES);
 
-    // If any servers were cleared, go back to the first step that needs re-selection
     if (conflict) {
-      const haStep = HA_ROLES.some((r) => !haServers[r.role]?.hetznerServerId);
-      const pgStep = PG_ROLES.some((r) => !pgServers[r.role]?.hetznerServerId);
-      if (haStep && !isLb) setStep(1);
-      else if (pgStep) setStep(2);
+      if (!isLb && HA_ROLES.some((r) => !haServers[r.role]?.hetznerServerId)) setStep(0);
+      else if (PG_ROLES.some((r) => !pgServers[r.role]?.hetznerServerId)) setStep(isLb ? 1 : 1);
     }
   }, [usedServerIds.data, draftLoaded]);
 
   const saveDraft = async (currentStep: number) => {
     setDraftSaving(true);
     try {
-    // Save cluster-level config
-    const clusterData: any = { id: clusterId, wizardStep: currentStep + 1 };
-    if (currentStep >= 0) {
-      clusterData.hetznerApiToken = hetznerToken;
+      const clusterData: any = { id: clusterId, wizardStep: currentStep + 1, hetznerApiToken: hetznerToken };
       if (!isLb) {
         clusterData.floatingIp = floatingIp;
         clusterData.floatingIpId = floatingIpId;
       }
-    }
-    if (isLb && currentStep >= 1) {
-      const lb = hetznerLbList.find((l: any) => l.id === selectedLbId);
-      clusterData.loadBalancerId = selectedLbId;
-      clusterData.loadBalancerIp = lb?.publicIp || "";
-    }
-    if (currentStep >= 2) {
-      clusterData.superuserUsername = superuserUsername;
-      clusterData.initialDatabase = initialDatabase;
-    }
-    await updateCluster.mutateAsync(clusterData);
+      if (isLb) {
+        const lb = hetznerLbList.find((l: any) => l.id === selectedLbId);
+        clusterData.loadBalancerId = selectedLbId;
+        clusterData.loadBalancerIp = lb?.publicIp || "";
+      }
+      if (currentStep >= 1) {
+        clusterData.superuserUsername = superuserUsername;
+        clusterData.initialDatabase = initialDatabase;
+      }
+      await updateCluster.mutateAsync(clusterData);
 
-    // Save servers
-    const existing = cluster.data?.servers ?? [];
-    for (const s of existing) {
-      await trpcClient.server.remove.mutate({ id: s.id });
-    }
+      const existing = cluster.data?.servers ?? [];
+      for (const s of existing) {
+        await trpcClient.server.remove.mutate({ id: s.id });
+      }
 
-    if (!isLb && currentStep >= 1) {
-      for (const r of HA_ROLES) {
-        const srv = haServers[r.role];
-        if (srv.ipAddress || srv.hetznerServerId) {
-          await addServer.mutateAsync({
-            clusterId, ...srv, role: r.role,
-            hetznerServerId: srv.hetznerServerId || undefined,
-            privateIpAddress: srv.privateIpAddress || undefined,
-          });
+      if (!isLb && currentStep >= 0) {
+        for (const r of HA_ROLES) {
+          const srv = haServers[r.role];
+          if (srv.ipAddress || srv.hetznerServerId) {
+            await addServer.mutateAsync({
+              clusterId, ...srv, role: r.role,
+              hetznerServerId: srv.hetznerServerId || undefined,
+              privateIpAddress: srv.privateIpAddress || undefined,
+            });
+          }
         }
       }
-    }
-    if (currentStep >= 2) {
-      for (const r of PG_ROLES) {
-        const srv = pgServers[r.role];
-        if (srv.ipAddress || srv.hetznerServerId) {
-          await addServer.mutateAsync({
-            clusterId, ...srv, role: r.role,
-            hetznerServerId: srv.hetznerServerId || undefined,
-            privateIpAddress: srv.privateIpAddress || undefined,
-          });
+      if (currentStep >= 1) {
+        for (const r of PG_ROLES) {
+          const srv = pgServers[r.role];
+          if (srv.ipAddress || srv.hetznerServerId) {
+            await addServer.mutateAsync({
+              clusterId, ...srv, role: r.role,
+              hetznerServerId: srv.hetznerServerId || undefined,
+              privateIpAddress: srv.privateIpAddress || undefined,
+            });
+          }
         }
       }
-    }
     } finally {
       setDraftSaving(false);
     }
@@ -325,109 +318,16 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   };
 
   const canProceed = () => {
+    if (!tokenReady) return false;
     if (isLb) {
-      if (step === 0) return !!hetznerToken;
-      if (step === 1) return !!selectedLbId;
-      if (step === 2) return PG_ROLES.every((r) => pgServers[r.role].ipAddress && pgServers[r.role].sshPrivateKey);
+      if (step === 0) return !!selectedLbId;
+      if (step === 1) return PG_ROLES.every((r) => pgServers[r.role].ipAddress && pgServers[r.role].sshPrivateKey);
       return true;
     }
-    if (step === 0) return !!(hetznerToken && floatingIp && floatingIpId);
-    if (step === 1) return HA_ROLES.every((r) => haServers[r.role].ipAddress && haServers[r.role].sshPrivateKey && haServers[r.role].hetznerServerId);
-    if (step === 2) return PG_ROLES.every((r) => pgServers[r.role].ipAddress && pgServers[r.role].sshPrivateKey);
+    if (step === 0) return !!(floatingIp && floatingIpId) && HA_ROLES.every((r) => haServers[r.role].ipAddress && haServers[r.role].sshPrivateKey && haServers[r.role].hetznerServerId);
+    if (step === 1) return PG_ROLES.every((r) => pgServers[r.role].ipAddress && pgServers[r.role].sshPrivateKey);
     return true;
   };
-
-  const renderServerCard = (
-    role: string,
-    label: string,
-    sublabel: string,
-    form: ServerForm,
-    onChange: (updated: ServerForm) => void,
-    showHetznerId: boolean,
-  ) => (
-    <Card key={role}>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base">{label}</CardTitle>
-          <Badge variant="secondary">{sublabel}</Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="grid gap-1.5">
-            <Label className="text-xs">Public IP Address</Label>
-            <Input
-              placeholder="1.2.3.4"
-              value={form.ipAddress}
-              onChange={(e) => onChange({ ...form, ipAddress: e.target.value })}
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label className="text-xs">Private IP Address</Label>
-            <Input
-              placeholder="10.0.0.2"
-              value={form.privateIpAddress}
-              onChange={(e) => onChange({ ...form, privateIpAddress: e.target.value })}
-            />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="grid gap-1.5">
-            <Label className="text-xs">SSH User</Label>
-            <Input
-              value={form.sshUser}
-              onChange={(e) => onChange({ ...form, sshUser: e.target.value })}
-            />
-          </div>
-          {showHetznerId && (
-            <div className="grid gap-1.5">
-              <Label className="text-xs">Hetzner Server ID</Label>
-              <Input
-                placeholder="98765"
-                value={form.hetznerServerId}
-                onChange={(e) => onChange({ ...form, hetznerServerId: e.target.value })}
-              />
-            </div>
-          )}
-        </div>
-        <div className="grid gap-1.5">
-          <Label className="text-xs">SSH Private Key</Label>
-          <Textarea
-            placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-            rows={3}
-            value={form.sshPrivateKey}
-            onChange={(e) => onChange({ ...form, sshPrivateKey: e.target.value })}
-          />
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setTestingRole(role);
-            testConnection.mutate(
-              {
-                ipAddress: form.ipAddress,
-                sshPort: form.sshPort,
-                sshUser: form.sshUser,
-                sshPrivateKey: form.sshPrivateKey,
-              },
-              { onSettled: () => setTestingRole(null) },
-            );
-          }}
-          disabled={!form.ipAddress || !form.sshPrivateKey || testConnection.isPending}
-        >
-          {testConnection.isPending && testingRole === role ? (
-            <>
-              <Loader2 className="size-3 mr-1 animate-spin" />
-              Testing...
-            </>
-          ) : (
-            "Test Connection"
-          )}
-        </Button>
-      </CardContent>
-    </Card>
-  );
 
   return (
     <div className="p-6 space-y-6">
@@ -435,12 +335,25 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
         <h1 className="text-2xl font-bold tracking-tight">
           {cluster.data?.name || "Cluster Setup"}
         </h1>
-        <p className="text-muted-foreground">Configure your 6-server HA cluster</p>
+        <p className="text-muted-foreground">
+          {isLb ? "Configure your 3-server PostgreSQL cluster with Hetzner Load Balancer" : "Configure your 6-server HA cluster with HAProxy"}
+        </p>
       </div>
+
+      {/* No API token warning */}
+      {!tokenReady && (
+        <Card className="border-destructive/50">
+          <CardContent className="py-4">
+            <p className="text-sm text-destructive">
+              No Hetzner API token found. Please add one in <a href="/dashboard/settings" className="underline">Settings</a> before continuing.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Progress bar */}
       <div className="space-y-3">
-        <Progress value={((step + 1) / stepTitles.length) * 100} className="h-1.5" />
+        <Progress value={(step / (totalSteps - 1)) * 100} className="h-1.5" />
         <div className="flex items-center justify-between">
           {stepTitles.map((title, i) => {
             const Icon = stepIcons[i];
@@ -470,98 +383,70 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
         </div>
       </div>
 
-      {/* Step 0: Hetzner Config */}
-      {step === 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Cloud className="size-5" />
-              Hetzner Cloud Configuration
-            </CardTitle>
-            <CardDescription>
-              {isLb
-                ? "Enter your Hetzner Cloud API token."
-                : "Enter your Hetzner Cloud API token. Floating IPs will be fetched automatically."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            <div className="grid gap-1.5">
-              <Label className="text-xs">Hetzner API Token</Label>
-              <Input
-                type="password"
-                placeholder="hcloud_xxxxx..."
-                value={hetznerToken}
-                onChange={(e) => {
-                  setHetznerToken(e.target.value);
-                  setFloatingIp("");
-                  setFloatingIpId("");
-                }}
-              />
-            </div>
-            {!isLb && (
-              <>
-                {hetznerToken.length > 10 && floatingIps.isLoading && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="size-4 animate-spin" />
-                    Fetching floating IPs...
-                  </div>
-                )}
-                {hetznerToken.length > 10 && floatingIps.isError && (
-                  <p className="text-sm text-destructive">
-                    Failed to fetch floating IPs. Check your API token.
-                  </p>
-                )}
-                {floatingIpList.length > 0 && (
-                  <div className="grid gap-1.5">
-                    <Label className="text-xs">Floating IP</Label>
-                    <Select
-                      value={floatingIpId}
-                      onValueChange={(val) => {
-                        const selected = floatingIpList.find((ip: any) => ip.id === val);
-                        if (selected) {
-                          setFloatingIpId(selected.id);
-                          setFloatingIp(selected.ip);
-                        }
-                      }}
-                    >
-                      <SelectTrigger>
-                        {floatingIpId
-                          ? floatingIpList.find((ip: any) => ip.id === floatingIpId)?.ip || floatingIpId
-                          : "Select a Floating IP"}
-                      </SelectTrigger>
-                      <SelectContent className="!w-auto min-w-[300px]" side="bottom">
-                        {floatingIpList.map((ip: any) => (
-                          <SelectItem key={ip.id} value={ip.id}>
-                            {ip.ip} {ip.name ? `(${ip.name})` : ""} - {ip.homeLocation}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                {floatingIpList.length === 0 && !floatingIps.isLoading && !floatingIps.isError && hetznerToken.length > 10 && (
-                  <p className="text-sm text-muted-foreground">
-                    No floating IPs found in your Hetzner account. Create one first.
-                  </p>
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Step 1: HAProxy Nodes (HAProxy mode only) */}
-      {step === 1 && !isLb && (
+      {/* Step 0: HAProxy Nodes (HAProxy mode) */}
+      {step === 0 && !isLb && tokenReady && (
         <div className="grid gap-4">
-          {hetznerServers.isLoading && hetznerToken.length > 10 && (
+          {/* Floating IP Card */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Floating IP</CardTitle>
+              <CardDescription>Select a floating IP for HAProxy failover.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              {floatingIps.isLoading && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" />
+                  Fetching floating IPs...
+                </div>
+              )}
+              {floatingIps.isError && (
+                <p className="text-sm text-destructive">Failed to fetch floating IPs. Check your API token in Settings.</p>
+              )}
+              {floatingIpList.length > 0 && (
+                <Select
+                  value={floatingIpId}
+                  onValueChange={(val) => {
+                    const selected = floatingIpList.find((ip: any) => ip.id === val);
+                    if (selected) {
+                      setFloatingIpId(selected.id);
+                      setFloatingIp(selected.ip);
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    {floatingIpId
+                      ? floatingIpList.find((ip: any) => ip.id === floatingIpId)?.ip || floatingIpId
+                      : "Select a Floating IP"}
+                  </SelectTrigger>
+                  <SelectContent className="!w-auto min-w-[300px]" side="bottom">
+                    {floatingIpList.map((ip: any) => (
+                      <SelectItem key={ip.id} value={ip.id}>
+                        {ip.ip} {ip.name ? `(${ip.name})` : ""} - {ip.homeLocation}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {floatingIpList.length === 0 && !floatingIps.isLoading && !floatingIps.isError && (
+                <p className="text-sm text-muted-foreground">
+                  No floating IPs found in your Hetzner account. Create one first.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Server fetching status */}
+          {hetznerServers.isLoading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
               <Loader2 className="size-4 animate-spin" />
               Fetching servers from Hetzner...
             </div>
           )}
           {hetznerServers.isError && (
-            <p className="text-sm text-destructive py-4">Failed to fetch servers. Check your API token.</p>
+            <p className="text-sm text-destructive py-4">Failed to fetch servers. Check your API token in Settings.</p>
           )}
+
+          {/* HAProxy Server Cards */}
           {HA_ROLES.map((r) => (
             <Card key={r.role}>
               <CardHeader className="pb-3">
@@ -599,7 +484,6 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                       {hetznerServerList
                         .filter((srv: any) => {
                           const currentId = haServers[r.role].hetznerServerId;
-                          // Exclude servers already in use by other (non-draft) clusters
                           if (usedIds.has(srv.id) && srv.id !== currentId) return false;
                           const otherIds = HA_ROLES.filter((hr) => hr.role !== r.role)
                             .map((hr) => haServers[hr.role].hetznerServerId)
@@ -690,8 +574,8 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
         </div>
       )}
 
-      {/* Step 1: Load Balancer (LB mode only) */}
-      {step === 1 && isLb && (
+      {/* Step 0: Load Balancer (LB mode) */}
+      {step === 0 && isLb && tokenReady && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -711,7 +595,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
             )}
             {hetznerLoadBalancers.isError && (
               <p className="text-sm text-destructive">
-                Failed to fetch Load Balancers. Check your API token.
+                Failed to fetch Load Balancers. Check your API token in Settings.
               </p>
             )}
             {hetznerLbList.length > 0 && (
@@ -782,8 +666,8 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
         </Card>
       )}
 
-      {/* Step 2: PostgreSQL Nodes */}
-      {step === 2 && (
+      {/* Step 1: PostgreSQL Nodes */}
+      {step === 1 && tokenReady && (
         <div className="grid gap-4">
           <Card>
             <CardHeader className="pb-3">
@@ -813,14 +697,14 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
               </p>
             </CardContent>
           </Card>
-          {hetznerServers.isLoading && hetznerToken.length > 10 && (
+          {hetznerServers.isLoading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
               <Loader2 className="size-4 animate-spin" />
               Fetching servers from Hetzner...
             </div>
           )}
           {hetznerServers.isError && (
-            <p className="text-sm text-destructive py-4">Failed to fetch servers. Check your API token.</p>
+            <p className="text-sm text-destructive py-4">Failed to fetch servers. Check your API token in Settings.</p>
           )}
           {hetznerServerList.length > 0 ? (
             PG_ROLES.map((r) => (
@@ -839,17 +723,15 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                       onValueChange={(val: string | null) => {
                         const srv = hetznerServerList.find((s: any) => s.id === val);
                         if (srv) {
-                          const key = r.role;
-                          setPgServers((prev) => {
-                            const updated = { ...prev };
-                            updated[key] = {
-                              ...prev[key],
+                          setPgServers((prev) => ({
+                            ...prev,
+                            [r.role]: {
+                              ...prev[r.role],
                               hetznerServerId: srv.id,
                               ipAddress: srv.publicIp,
                               privateIpAddress: srv.privateIps?.[0]?.ip || "",
-                            };
-                            return updated;
-                          });
+                            },
+                          }));
                         }
                       }}
                     >
@@ -862,13 +744,10 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                         {hetznerServerList
                           .filter((srv: any) => {
                             const currentId = pgServers[r.role].hetznerServerId;
-                            // Exclude servers already in use by other (non-draft) clusters
                             if (usedIds.has(srv.id) && srv.id !== currentId) return false;
-                            // Exclude servers already picked for other PG roles
                             const otherPgIds = PG_ROLES.filter((pr) => pr.role !== r.role)
                               .map((pr) => pgServers[pr.role].hetznerServerId)
                               .filter(Boolean);
-                            // Exclude servers already picked for HAProxy roles (if HAProxy mode)
                             const haIds = HA_ROLES.map((hr) => haServers[hr.role].hetznerServerId).filter(Boolean);
                             const clusterIds = [...otherPgIds, ...haIds];
                             return srv.id === currentId || !clusterIds.includes(srv.id);
@@ -967,22 +846,13 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
               </Card>
             ))
           ) : (
-            PG_ROLES.map((r) =>
-              renderServerCard(
-                r.role,
-                r.label,
-                r.sublabel,
-                pgServers[r.role],
-                (updated) => setPgServers((prev) => ({ ...prev, [r.role]: updated })),
-                false,
-              )
-            )
+            <p className="text-sm text-muted-foreground py-4">No servers found. Create servers in the Servers page first.</p>
           )}
         </div>
       )}
 
-      {/* Step 3: Review & Deploy */}
-      {step === 3 && (
+      {/* Step 2: Review & Deploy */}
+      {step === 2 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -996,57 +866,57 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-6">
-            <div>
-              <h3 className="text-sm font-medium mb-3">Hetzner Config</h3>
-              <div className={`grid ${isLb ? "grid-cols-2" : "grid-cols-3"} gap-4 text-sm bg-muted/50 rounded-lg p-3`}>
-                {isLb ? (
-                  <>
+            {!isLb && (
+              <>
+                <div>
+                  <h3 className="text-sm font-medium mb-3">Floating IP</h3>
+                  <div className="grid grid-cols-2 gap-4 text-sm bg-muted/50 rounded-lg p-3">
                     <div>
-                      <span className="text-muted-foreground">Load Balancer</span>
-                      <p className="font-mono">
-                        {hetznerLbList.find((lb: any) => lb.id === selectedLbId)?.name || createLbName || "New LB"}
-                        {selectedLbId && ` (${hetznerLbList.find((lb: any) => lb.id === selectedLbId)?.publicIp || "N/A"})`}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">API Token</span>
-                      <p className="font-mono">****</p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div>
-                      <span className="text-muted-foreground">Floating IP</span>
+                      <span className="text-muted-foreground">IP Address</span>
                       <p className="font-mono">{floatingIp}</p>
                     </div>
                     <div>
                       <span className="text-muted-foreground">IP ID</span>
                       <p className="font-mono">{floatingIpId}</p>
                     </div>
-                    <div>
-                      <span className="text-muted-foreground">API Token</span>
-                      <p className="font-mono">****</p>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-            <Separator />
-            {!isLb && (
-              <>
+                  </div>
+                </div>
+                <Separator />
                 <div>
                   <h3 className="text-sm font-medium mb-3">HAProxy Nodes</h3>
                   <div className="grid gap-2">
                     {HA_ROLES.map((r) => (
                       <div key={r.role} className="flex items-center gap-2 text-sm bg-muted/50 rounded-lg p-2.5">
-                        <Globe className="size-4 text-muted-foreground" />
+                        <Network className="size-4 text-muted-foreground" />
                         <Badge variant="secondary" className="text-xs">{r.sublabel}</Badge>
                         <span className="font-mono">{haServers[r.role].ipAddress}</span>
                         <span className="text-muted-foreground text-xs">
-                          (Private: {haServers[r.role].privateIpAddress || "N/A"}, Hetzner ID: {haServers[r.role].hetznerServerId})
+                          (Private: {haServers[r.role].privateIpAddress || "N/A"})
                         </span>
                       </div>
                     ))}
+                  </div>
+                </div>
+                <Separator />
+              </>
+            )}
+            {isLb && (
+              <>
+                <div>
+                  <h3 className="text-sm font-medium mb-3">Load Balancer</h3>
+                  <div className="grid grid-cols-2 gap-4 text-sm bg-muted/50 rounded-lg p-3">
+                    <div>
+                      <span className="text-muted-foreground">Name</span>
+                      <p className="font-mono">
+                        {hetznerLbList.find((lb: any) => lb.id === selectedLbId)?.name || createLbName || "New LB"}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Public IP</span>
+                      <p className="font-mono">
+                        {hetznerLbList.find((lb: any) => lb.id === selectedLbId)?.publicIp || "Pending creation"}
+                      </p>
+                    </div>
                   </div>
                 </div>
                 <Separator />
@@ -1081,7 +951,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
           <ArrowLeft className="size-4 mr-1" />
           Back
         </Button>
-        {step < 3 ? (
+        {step < 2 ? (
           <Button
             onClick={async () => {
               await saveDraft(step);
