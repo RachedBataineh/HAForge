@@ -6,13 +6,14 @@ import { Card, CardContent } from "@HAForge/ui/components/card";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@HAForge/ui/components/dialog";
 import { Input } from "@HAForge/ui/components/input";
 import { Label } from "@HAForge/ui/components/label";
-import { KeyRound, Plus, Trash2, Loader2, Eye, Copy, CheckCircle2 } from "lucide-react";
+import { KeyRound, Plus, Trash2, Loader2, Eye, Copy, CheckCircle2, AlertTriangle } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -26,6 +27,8 @@ export default function SshKeysPage() {
   const [addPrivateKeyOpen, setAddPrivateKeyOpen] = useState(false);
   const [addPrivateKeyValue, setAddPrivateKeyValue] = useState("");
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [deleteKey, setDeleteKey] = useState<any>(null);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
   const [newKeyName, setNewKeyName] = useState("");
   const [newPublicKey, setNewPublicKey] = useState("");
   const [newPrivateKey, setNewPrivateKey] = useState("");
@@ -56,16 +59,16 @@ export default function SshKeysPage() {
     onError: (err) => toast.error(err.message),
   });
 
-  const deleteKey = useMutation({
+  const deleteMutation = useMutation({
     mutationFn: async ({ keyId, hetznerKeyId, token }: { keyId: string; hetznerKeyId?: string; token: string }) => {
       if (hetznerKeyId) {
         await trpcClient.cluster.hetznerDeleteSshKey.mutate({ apiToken: token, keyId: hetznerKeyId });
       }
-      // DB record cleanup handled by the sync on next fetch
     },
     onSuccess: () => {
       toast.success("SSH key deleted");
       queryClient.invalidateQueries(trpc.cluster.allHetznerSshKeys.queryFilter());
+      setDeleteKey(null);
     },
     onError: (err) => toast.error(err.message),
   });
@@ -173,9 +176,8 @@ export default function SshKeysPage() {
                     size="icon-sm"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (confirm(`Delete SSH key "${key.name}"?`)) {
-                        deleteKey.mutate({ keyId: key.id, hetznerKeyId: key.hetznerKeyId || undefined, token: apiToken });
-                      }
+                      setDeleteKey(key);
+                      setDeleteConfirmInput("");
                     }}
                   >
                     <Trash2 className="size-4 text-muted-foreground hover:text-destructive" />
@@ -337,6 +339,49 @@ export default function SshKeysPage() {
             >
               {createKey.isPending ? <Loader2 className="size-4 animate-spin mr-2" /> : <Plus className="size-4 mr-2" />}
               Add Key
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteKey} onOpenChange={(open) => { if (!open) setDeleteKey(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="size-5 text-destructive" />
+              Delete SSH Key
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete the SSH key from both Hetzner and HAForge. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <Label className="text-sm">
+              Type <span className="font-mono font-semibold">{deleteKey?.name}</span> to confirm
+            </Label>
+            <Input
+              placeholder={deleteKey?.name}
+              value={deleteConfirmInput}
+              onChange={(e) => setDeleteConfirmInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && deleteConfirmInput === deleteKey?.name && deleteKey) {
+                  deleteMutation.mutate({ keyId: deleteKey.id, hetznerKeyId: deleteKey.hetznerKeyId || undefined, token: apiToken });
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteKey(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => { if (deleteKey) deleteMutation.mutate({ keyId: deleteKey.id, hetznerKeyId: deleteKey.hetznerKeyId || undefined, token: apiToken }); }}
+              disabled={deleteConfirmInput !== deleteKey?.name || deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? <Loader2 className="size-4 animate-spin mr-2" /> : <Trash2 className="size-4 mr-2" />}
+              Delete Key
             </Button>
           </DialogFooter>
         </DialogContent>
