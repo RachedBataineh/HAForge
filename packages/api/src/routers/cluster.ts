@@ -1,5 +1,5 @@
 import { db } from "@HAForge/db";
-import { clusters, servers, sshKeys } from "@HAForge/db";
+import { clusters, servers, sshKeys, user } from "@HAForge/db";
 import { eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
@@ -245,13 +245,16 @@ export const clusterRouter = router({
   }),
 
   allHetznerServers: protectedProcedure.query(async ({ ctx }) => {
-    // Get all unique API tokens from user's clusters
+    const u = await db.query.user.findFirst({
+      where: eq(user.id, ctx.session.user.id),
+    });
+    const token = u?.hetznerApiToken || "";
+
+    // Collect used Hetzner server IDs from clusters
     const userClusters = await db.query.clusters.findMany({
       where: eq(clusters.userId, ctx.session.user.id),
       with: { servers: true },
     });
-
-    // Collect used Hetzner server IDs
     const usedServerIds = new Set<string>();
     for (const c of userClusters) {
       if (c.status === "draft") continue;
@@ -260,38 +263,36 @@ export const clusterRouter = router({
       }
     }
 
-    // Fetch from all unique tokens
-    const tokens = [...new Set(userClusters.map((c) => c.hetznerApiToken).filter(Boolean))];
     const allServers: any[] = [];
 
-    for (const token of tokens) {
+    if (token) {
       try {
         const res = await fetch("https://api.hetzner.cloud/v1/servers", {
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         });
-        if (!res.ok) continue;
-        const data = await res.json();
-        for (const srv of data.servers || []) {
-          const hetznerId = String(srv.id);
-          if (allServers.find((s) => s.id === hetznerId)) continue; // deduplicate
-          allServers.push({
-            id: hetznerId,
-            name: srv.name,
-            publicIp: srv.public_net?.ipv4?.ip || "",
-            privateIps: (srv.private_net || []).map((net: any) => net.ip),
-            status: srv.status,
-            serverType: srv.server_type?.name || "",
-            location: srv.datacenter?.location?.name || "",
-            created: srv.created || "",
-            used: usedServerIds.has(hetznerId),
-          });
+        if (res.ok) {
+          const data = await res.json();
+          for (const srv of data.servers || []) {
+            const hetznerId = String(srv.id);
+            allServers.push({
+              id: hetznerId,
+              name: srv.name,
+              publicIp: srv.public_net?.ipv4?.ip || "",
+              privateIps: (srv.private_net || []).map((net: any) => net.ip),
+              status: srv.status,
+              serverType: srv.server_type?.name || "",
+              location: srv.datacenter?.location?.name || "",
+              created: srv.created || "",
+              used: usedServerIds.has(hetznerId),
+            });
+          }
         }
       } catch {
-        // Skip failed token
+        // Skip failed fetch
       }
     }
 
-    return { servers: allServers, apiToken: tokens[0] || "" };
+    return { servers: allServers, apiToken: token };
   }),
 
   hetznerServerTypes: protectedProcedure
@@ -417,26 +418,28 @@ export const clusterRouter = router({
     }),
 
   allHetznerSshKeys: protectedProcedure.query(async ({ ctx }) => {
-    const userClusters = await db.query.clusters.findMany({
-      where: eq(clusters.userId, ctx.session.user.id),
+    const u = await db.query.user.findFirst({
+      where: eq(user.id, ctx.session.user.id),
     });
-    const tokens = [...new Set(userClusters.map((c) => c.hetznerApiToken).filter(Boolean))];
+    const token = u?.hetznerApiToken;
+    if (!token) {
+      // No token saved — just return DB keys
+      return await db.query.sshKeys.findMany({
+        where: eq(sshKeys.userId, ctx.session.user.id),
+        orderBy: (sshKeys, { desc }) => [desc(sshKeys.createdAt)],
+      });
+    }
 
     // Sync Hetzner keys into DB
-    const seen = new Set<string>();
-    for (const token of tokens) {
-      try {
-        const res = await fetch("https://api.hetzner.cloud/v1/ssh_keys", {
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        });
-        if (!res.ok) continue;
+    try {
+      const res = await fetch("https://api.hetzner.cloud/v1/ssh_keys", {
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      if (res.ok) {
         const data = await res.json();
         for (const k of data.ssh_keys || []) {
           const hetznerId = String(k.id);
-          if (seen.has(hetznerId)) continue;
-          seen.add(hetznerId);
 
-          // Upsert into DB (without overwriting existing private key)
           const existing = await db.query.sshKeys.findFirst({
             where: eq(sshKeys.hetznerKeyId, hetznerId),
           });
@@ -457,12 +460,11 @@ export const clusterRouter = router({
             }).where(eq(sshKeys.id, existing.id));
           }
         }
-      } catch {
-        // Skip failed token
       }
+    } catch {
+      // Skip failed fetch
     }
 
-    // Return all keys from DB
     const dbKeys = await db.query.sshKeys.findMany({
       where: eq(sshKeys.userId, ctx.session.user.id),
       orderBy: (sshKeys, { desc }) => [desc(sshKeys.createdAt)],
