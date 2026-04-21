@@ -77,7 +77,7 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
-              render={<Link href="/" />}
+              render={<Link href="/dashboard/settings" />}
               isActive={false}
               tooltip="Settings"
               style={{ height: '40px' }}
