@@ -293,7 +293,9 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       await updateCluster.mutateAsync({ id: clusterId, hetznerApiToken: hetznerToken, floatingIp, floatingIpId });
     }
 
-    const existingServers = cluster.data?.servers || [];
+    // Refetch to get the latest servers list (draft may have added some)
+    const fresh = await queryClient.fetchQuery(trpc.cluster.getById.queryOptions({ id: clusterId }));
+    const existingServers = fresh?.servers || [];
     for (const s of existingServers) {
       await trpcClient.server.remove.mutate({ id: s.id });
     }
