@@ -421,9 +421,9 @@ export const clusterRouter = router({
       where: eq(clusters.userId, ctx.session.user.id),
     });
     const tokens = [...new Set(userClusters.map((c) => c.hetznerApiToken).filter(Boolean))];
-    const allKeys: any[] = [];
-    const seen = new Set<string>();
 
+    // Sync Hetzner keys into DB
+    const seen = new Set<string>();
     for (const token of tokens) {
       try {
         const res = await fetch("https://api.hetzner.cloud/v1/ssh_keys", {
@@ -432,31 +432,66 @@ export const clusterRouter = router({
         if (!res.ok) continue;
         const data = await res.json();
         for (const k of data.ssh_keys || []) {
-          const keyId = String(k.id);
-          if (seen.has(keyId)) continue;
-          seen.add(keyId);
-          allKeys.push({
-            id: keyId,
-            name: k.name,
-            fingerprint: k.fingerprint,
-            publicKey: k.public_key || "",
-            labels: k.labels || {},
-            createdAt: k.created || "",
+          const hetznerId = String(k.id);
+          if (seen.has(hetznerId)) continue;
+          seen.add(hetznerId);
+
+          // Upsert into DB (without overwriting existing private key)
+          const existing = await db.query.sshKeys.findFirst({
+            where: eq(sshKeys.hetznerKeyId, hetznerId),
           });
+          if (!existing) {
+            await db.insert(sshKeys).values({
+              userId: ctx.session.user.id,
+              name: k.name,
+              hetznerKeyId: hetznerId,
+              publicKey: k.public_key || "",
+              privateKey: null,
+              fingerprint: k.fingerprint,
+            });
+          } else if (existing.name !== k.name || existing.fingerprint !== k.fingerprint || existing.publicKey !== (k.public_key || "")) {
+            await db.update(sshKeys).set({
+              name: k.name,
+              fingerprint: k.fingerprint,
+              publicKey: k.public_key || "",
+            }).where(eq(sshKeys.id, existing.id));
+          }
         }
       } catch {
         // Skip failed token
       }
     }
-    return allKeys;
+
+    // Return all keys from DB
+    const dbKeys = await db.query.sshKeys.findMany({
+      where: eq(sshKeys.userId, ctx.session.user.id),
+      orderBy: (sshKeys, { desc }) => [desc(sshKeys.createdAt)],
+    });
+    return dbKeys;
   }),
+
+  addPrivateKey: protectedProcedure
+    .input(z.object({
+      keyId: z.string(),
+      privateKey: z.string(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const key = await db.query.sshKeys.findFirst({
+        where: eq(sshKeys.id, input.keyId),
+      });
+      if (!key || key.userId !== ctx.session.user.id) {
+        throw new Error("SSH key not found");
+      }
+      await db.update(sshKeys).set({ privateKey: input.privateKey }).where(eq(sshKeys.id, input.keyId));
+      return { success: true };
+    }),
 
   hetznerCreateSshKey: protectedProcedure
     .input(z.object({
       apiToken: z.string(),
       name: z.string(),
       publicKey: z.string(),
-      privateKey: z.string(),
+      privateKey: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const res = await fetch("https://api.hetzner.cloud/v1/ssh_keys", {
@@ -501,6 +536,9 @@ export const clusterRouter = router({
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error?.message || `Hetzner API error: ${res.status}`);
       }
+      // Delete from DB too
+      await db.delete(sshKeys).where(eq(sshKeys.hetznerKeyId, input.keyId));
+
       return { success: true };
     }),
 

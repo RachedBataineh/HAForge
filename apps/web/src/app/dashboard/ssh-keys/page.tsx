@@ -12,7 +12,7 @@ import {
 } from "@HAForge/ui/components/dialog";
 import { Input } from "@HAForge/ui/components/input";
 import { Label } from "@HAForge/ui/components/label";
-import { KeyRound, Plus, Trash2, Loader2 } from "lucide-react";
+import { KeyRound, Plus, Trash2, Loader2, Eye, Copy, CheckCircle2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -22,6 +22,10 @@ import { trpc, trpcClient } from "@/utils/trpc";
 export default function SshKeysPage() {
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
+  const [detailKey, setDetailKey] = useState<any>(null);
+  const [addPrivateKeyOpen, setAddPrivateKeyOpen] = useState(false);
+  const [addPrivateKeyValue, setAddPrivateKeyValue] = useState("");
+  const [copiedField, setCopiedField] = useState<string | null>(null);
   const [newKeyName, setNewKeyName] = useState("");
   const [newPublicKey, setNewPublicKey] = useState("");
   const [newPrivateKey, setNewPrivateKey] = useState("");
@@ -29,7 +33,6 @@ export default function SshKeysPage() {
   const sshKeys = useQuery(trpc.cluster.allHetznerSshKeys.queryOptions());
   const keys = (sshKeys.data ?? []) as any[];
 
-  // Get API token from allHetznerServers
   const hetznerServers = useQuery(trpc.cluster.allHetznerServers.queryOptions());
   const apiToken = (hetznerServers.data as any)?.apiToken || "";
 
@@ -39,7 +42,7 @@ export default function SshKeysPage() {
         apiToken,
         name: newKeyName,
         publicKey: newPublicKey,
-        privateKey: newPrivateKey,
+        privateKey: newPrivateKey || undefined,
       });
     },
     onSuccess: () => {
@@ -54,8 +57,11 @@ export default function SshKeysPage() {
   });
 
   const deleteKey = useMutation({
-    mutationFn: async ({ keyId, token }: { keyId: string; token: string }) => {
-      return await trpcClient.cluster.hetznerDeleteSshKey.mutate({ apiToken: token, keyId });
+    mutationFn: async ({ keyId, hetznerKeyId, token }: { keyId: string; hetznerKeyId?: string; token: string }) => {
+      if (hetznerKeyId) {
+        await trpcClient.cluster.hetznerDeleteSshKey.mutate({ apiToken: token, keyId: hetznerKeyId });
+      }
+      // DB record cleanup handled by the sync on next fetch
     },
     onSuccess: () => {
       toast.success("SSH key deleted");
@@ -63,6 +69,31 @@ export default function SshKeysPage() {
     },
     onError: (err) => toast.error(err.message),
   });
+
+  const addPrivate = useMutation({
+    mutationFn: async () => {
+      return await trpcClient.cluster.addPrivateKey.mutate({
+        keyId: detailKey.id,
+        privateKey: addPrivateKeyValue,
+      });
+    },
+    onSuccess: () => {
+      toast.success("Private key added");
+      queryClient.invalidateQueries(trpc.cluster.allHetznerSshKeys.queryFilter());
+      setAddPrivateKeyOpen(false);
+      setAddPrivateKeyValue("");
+      setDetailKey(null);
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const copyToClipboard = (field: string, value: string) => {
+    navigator.clipboard.writeText(value);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  const keysWithPrivate = keys.filter((k: any) => k.privateKey).length;
 
   return (
     <div className="p-6 space-y-6">
@@ -84,6 +115,12 @@ export default function SshKeysPage() {
           <CardContent className="py-4">
             <div className="text-2xl font-bold">{keys.length}</div>
             <p className="text-xs text-muted-foreground">Total SSH Keys</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-4">
+            <div className="text-2xl font-bold text-green-600">{keysWithPrivate}</div>
+            <p className="text-xs text-muted-foreground">With Private Key</p>
           </CardContent>
         </Card>
       </div>
@@ -108,26 +145,36 @@ export default function SshKeysPage() {
       {keys.length > 0 && (
         <div className="grid gap-3">
           {keys.map((key: any) => (
-            <Card key={key.id}>
+            <Card
+              key={key.id}
+              className="cursor-pointer hover:border-primary/50 transition-colors"
+              onClick={() => setDetailKey(key)}
+            >
               <CardContent className="flex items-center justify-between py-3">
                 <div className="flex items-center gap-3">
                   <KeyRound className="size-4 text-muted-foreground" />
                   <div>
-                    <p className="font-medium text-sm">{key.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-sm">{key.name}</p>
+                      {key.privateKey ? (
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Ready</Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">No Private Key</Badge>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  {key.createdAt && (
-                    <span className="text-xs text-muted-foreground">
-                      Added {new Date(key.createdAt).toLocaleDateString()}
-                    </span>
-                  )}
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(key.createdAt).toLocaleDateString()}
+                  </span>
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();
                       if (confirm(`Delete SSH key "${key.name}"?`)) {
-                        deleteKey.mutate({ keyId: key.id, token: apiToken });
+                        deleteKey.mutate({ keyId: key.id, hetznerKeyId: key.hetznerKeyId || undefined, token: apiToken });
                       }
                     }}
                   >
@@ -139,6 +186,112 @@ export default function SshKeysPage() {
           ))}
         </div>
       )}
+
+      {/* Key Detail Dialog */}
+      <Dialog open={!!detailKey} onOpenChange={(open) => { if (!open) setDetailKey(null); }}>
+        <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="size-5" />
+              {detailKey?.name}
+            </DialogTitle>
+          </DialogHeader>
+          {detailKey && (
+            <div className="grid gap-4 py-2">
+              {detailKey.fingerprint && (
+                <div className="grid gap-1">
+                  <Label className="text-xs text-muted-foreground">Fingerprint</Label>
+                  <div className="flex items-center gap-2">
+                    <code className="text-xs bg-muted px-2 py-1 rounded font-mono">{detailKey.fingerprint}</code>
+                    <button onClick={() => copyToClipboard("fp", detailKey.fingerprint)} className="text-muted-foreground hover:text-foreground">
+                      {copiedField === "fp" ? <CheckCircle2 className="size-3.5 text-green-500" /> : <Copy className="size-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid gap-1">
+                <Label className="text-xs text-muted-foreground">Public Key</Label>
+                <div className="relative">
+                  <pre className="text-xs bg-muted p-3 rounded font-mono whitespace-pre-wrap break-all max-h-32 overflow-y-auto">{detailKey.publicKey}</pre>
+                  <button
+                    onClick={() => copyToClipboard("pub", detailKey.publicKey)}
+                    className="absolute top-2 right-2 text-muted-foreground hover:text-foreground"
+                  >
+                    {copiedField === "pub" ? <CheckCircle2 className="size-3.5 text-green-500" /> : <Copy className="size-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              {detailKey.privateKey ? (
+                <div className="grid gap-1">
+                  <Label className="text-xs text-muted-foreground">Private Key</Label>
+                  <div className="relative">
+                    <pre className="text-xs bg-muted p-3 rounded font-mono whitespace-pre-wrap break-all max-h-32 overflow-y-auto">{detailKey.privateKey}</pre>
+                    <button
+                      onClick={() => copyToClipboard("priv", detailKey.privateKey)}
+                      className="absolute top-2 right-2 text-muted-foreground hover:text-foreground"
+                    >
+                      {copiedField === "priv" ? <CheckCircle2 className="size-3.5 text-green-500" /> : <Copy className="size-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid gap-2 p-4 rounded-lg border border-dashed">
+                  <div className="flex items-center gap-2">
+                    <KeyRound className="size-4 text-muted-foreground" />
+                    <p className="text-sm font-medium">No Private Key</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Add a private key to enable HAForge to SSH into servers using this key.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-1 w-fit"
+                    onClick={() => {
+                      setAddPrivateKeyValue("");
+                      setAddPrivateKeyOpen(true);
+                    }}
+                  >
+                    <Plus className="size-3.5 mr-1" />
+                    Add Private Key
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Private Key Dialog */}
+      <Dialog open={addPrivateKeyOpen} onOpenChange={setAddPrivateKeyOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add Private Key</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="grid gap-2">
+              <Label className="text-sm">Private Key for: {detailKey?.name}</Label>
+              <textarea
+                className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
+                value={addPrivateKeyValue}
+                onChange={(e) => setAddPrivateKeyValue(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddPrivateKeyOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => addPrivate.mutate()} disabled={!addPrivateKeyValue.trim() || addPrivate.isPending}>
+              {addPrivate.isPending ? <Loader2 className="size-4 animate-spin mr-2" /> : <KeyRound className="size-4 mr-2" />}
+              Save Private Key
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create SSH Key Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -180,7 +333,7 @@ export default function SshKeysPage() {
             </Button>
             <Button
               onClick={() => createKey.mutate()}
-              disabled={!newKeyName.trim() || !newPublicKey.trim() || !newPrivateKey.trim() || createKey.isPending}
+              disabled={!newKeyName.trim() || !newPublicKey.trim() || createKey.isPending}
             >
               {createKey.isPending ? <Loader2 className="size-4 animate-spin mr-2" /> : <Plus className="size-4 mr-2" />}
               Add Key

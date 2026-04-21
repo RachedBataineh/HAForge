@@ -252,7 +252,7 @@ export const sshKeys = pgTable("ssh_keys", {
   name: text("name").notNull(),
   hetznerKeyId: text("hetzner_key_id").unique(),
   publicKey: text("public_key").notNull(),
-  privateKey: text("private_key").notNull(),
+  privateKey: text("private_key"),
   fingerprint: text("fingerprint"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
