@@ -124,7 +124,6 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const [selectedLbId, setSelectedLbId] = useState("");
   const [createLbName, setCreateLbName] = useState("");
   const [superuserUsername, setSuperuserUsername] = useState("postgres");
-  const [initialDatabase, setInitialDatabase] = useState("postgres");
 
   const [pgServers, setPgServers] = useState<Record<string, ServerForm>>({
     postgresql_1: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
@@ -172,7 +171,6 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
     if (c.floatingIpId) setFloatingIpId(c.floatingIpId);
     if (c.loadBalancerId) setSelectedLbId(c.loadBalancerId);
     if (c.superuserUsername) setSuperuserUsername(c.superuserUsername);
-    if (c.initialDatabase) setInitialDatabase(c.initialDatabase);
 
     const servers = c.servers ?? [];
     if (servers.length > 0) {
@@ -242,7 +240,6 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       }
       if (currentStep >= 1) {
         clusterData.superuserUsername = superuserUsername;
-        clusterData.initialDatabase = initialDatabase;
       }
       await updateCluster.mutateAsync(clusterData);
 
@@ -693,26 +690,18 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
               <CardTitle className="text-base">Database Settings</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-4">
                 <div className="grid gap-1.5">
-                  <Label className="text-xs">Superuser Username</Label>
+                  <Label className="text-xs">Username</Label>
                   <Input
                     placeholder="postgres"
                     value={superuserUsername}
                     onChange={(e) => setSuperuserUsername(e.target.value)}
                   />
                 </div>
-                <div className="grid gap-1.5">
-                  <Label className="text-xs">Initial Database</Label>
-                  <Input
-                    placeholder="postgres"
-                    value={initialDatabase}
-                    onChange={(e) => setInitialDatabase(e.target.value)}
-                  />
-                </div>
               </div>
               <p className="text-xs text-muted-foreground mt-2">
-                A secure password will be auto-generated. Both fields default to "postgres" — change only if needed.
+                A secure password will be auto-generated. Defaults to "postgres" — change only if needed.
               </p>
             </CardContent>
           </Card>
