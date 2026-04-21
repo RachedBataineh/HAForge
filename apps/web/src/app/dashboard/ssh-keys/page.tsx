@@ -12,7 +12,7 @@ import {
 } from "@HAForge/ui/components/dialog";
 import { Input } from "@HAForge/ui/components/input";
 import { Label } from "@HAForge/ui/components/label";
-import { KeyRound, Plus, Trash2, Loader2, Copy, CheckCircle2 } from "lucide-react";
+import { KeyRound, Plus, Trash2, Loader2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -25,7 +25,6 @@ export default function SshKeysPage() {
   const [newKeyName, setNewKeyName] = useState("");
   const [newPublicKey, setNewPublicKey] = useState("");
   const [newPrivateKey, setNewPrivateKey] = useState("");
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const sshKeys = useQuery(trpc.cluster.allHetznerSshKeys.queryOptions());
   const keys = (sshKeys.data ?? []) as any[];
@@ -64,12 +63,6 @@ export default function SshKeysPage() {
     },
     onError: (err) => toast.error(err.message),
   });
-
-  const copyFingerprint = (id: string, fp: string) => {
-    navigator.clipboard.writeText(fp);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
 
   return (
     <div className="p-6 space-y-6">
@@ -121,17 +114,6 @@ export default function SshKeysPage() {
                   <KeyRound className="size-4 text-muted-foreground" />
                   <div>
                     <p className="font-medium text-sm">{key.name}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-muted-foreground font-mono">{key.fingerprint}</span>
-                      <button
-                        onClick={() => copyFingerprint(key.id, key.fingerprint)}
-                        className="text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        {copiedId === key.id
-                          ? <CheckCircle2 className="size-3 text-green-500" />
-                          : <Copy className="size-3" />}
-                      </button>
-                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
