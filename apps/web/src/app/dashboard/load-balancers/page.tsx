@@ -277,10 +277,10 @@ function CreateLoadBalancerDialog({
         networkId: networkId || undefined,
         algorithm: (algorithm as "round_robin" | "least_connections") || undefined,
         service: {
-          protocol: svcProtocol as "tcp" | "http" | "https",
+          protocol: svcProtocol as "tcp" | "http",
           listenPort: svcListenPort,
           destinationPort: svcDestPort,
-          healthCheckProtocol: hcProtocol as "http" | "https" | "tcp",
+          healthCheckProtocol: hcProtocol as "http" | "tcp",
           healthCheckPort: hcPort,
           healthCheckInterval: hcInterval,
           healthCheckTimeout: hcTimeout,
@@ -410,7 +410,6 @@ function CreateLoadBalancerDialog({
                     <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
                       <SelectItem value="tcp">TCP</SelectItem>
                       <SelectItem value="http">HTTP</SelectItem>
-                      <SelectItem value="https">HTTPS</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -434,7 +433,6 @@ function CreateLoadBalancerDialog({
                     <SelectTrigger className="w-full"><span className="uppercase">{hcProtocol}</span></SelectTrigger>
                     <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
                       <SelectItem value="http">HTTP</SelectItem>
-                      <SelectItem value="https">HTTPS</SelectItem>
                       <SelectItem value="tcp">TCP</SelectItem>
                     </SelectContent>
                   </Select>
@@ -455,28 +453,30 @@ function CreateLoadBalancerDialog({
                   <Label className="text-xs">Retries</Label>
                   <Input type="number" value={hcRetries} onChange={(e) => setHcRetries(Number(e.target.value))} />
                 </div>
-                {(hcProtocol === "http" || hcProtocol === "https") && (
+                {hcProtocol === "http" && (
                   <div className="grid gap-1.5">
                     <Label className="text-xs">Path</Label>
                     <Input value={hcPath} onChange={(e) => setHcPath(e.target.value)} />
                   </div>
                 )}
-                <div className="grid gap-1.5">
-                  <Label className="text-xs">TLS</Label>
-                  <Select value={hcTls ? "enabled" : "disabled"} onValueChange={(v) => setHcTls(v === "enabled")}>
-                    <SelectTrigger className="w-full">
-                      <span>{hcTls ? "Enabled" : "Disabled"}</span>
-                    </SelectTrigger>
-                    <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
-                      <SelectItem value="enabled">Enabled</SelectItem>
-                      <SelectItem value="disabled">Disabled</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {(hcProtocol === "http" || hcProtocol === "https") && (
+                {hcProtocol === "http" && (
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">TLS</Label>
+                    <Select value={hcTls ? "enabled" : "disabled"} onValueChange={(v) => setHcTls(v === "enabled")}>
+                      <SelectTrigger className="w-full">
+                        <span>{hcTls ? "Enabled" : "Disabled"}</span>
+                      </SelectTrigger>
+                      <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
+                        <SelectItem value="enabled">Enabled</SelectItem>
+                        <SelectItem value="disabled">Disabled</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {hcProtocol === "http" && (
                   <div className="grid gap-1.5">
                     <Label className="text-xs">Status Codes</Label>
-                    <Input value={hcStatuses} onChange={(e) => setHcStatuses(e.target.value)} placeholder="200, 201" />
+                    <Input value={hcStatuses} onChange={(e) => setHcStatuses(e.target.value)} placeholder="2??, 3??" />
                   </div>
                 )}
               </div>

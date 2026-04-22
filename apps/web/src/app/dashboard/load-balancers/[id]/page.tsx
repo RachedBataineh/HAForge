@@ -3,10 +3,16 @@
 import { Badge } from "@HAForge/ui/components/badge";
 import { Button } from "@HAForge/ui/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@HAForge/ui/components/card";
-import { ArrowLeft, Loader2, Network, Trash2, ExternalLink, Server } from "lucide-react";
+import { Input } from "@HAForge/ui/components/input";
+import { Label } from "@HAForge/ui/components/label";
+import { Separator } from "@HAForge/ui/components/separator";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger,
+} from "@HAForge/ui/components/select";
+import { ArrowLeft, Loader2, Server, Save } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { toast } from "sonner";
 
 import { trpc, trpcClient } from "@/utils/trpc";
@@ -25,6 +31,75 @@ export default function LoadBalancerDetailPage({ params }: { params: Promise<{ i
       { enabled: !!apiToken && !!lbId },
     ),
   );
+
+  // Editable state
+  const [algorithm, setAlgorithm] = useState("");
+  const [svcProtocol, setSvcProtocol] = useState("tcp");
+  const [svcListenPort, setSvcListenPort] = useState(5432);
+  const [svcDestPort, setSvcDestPort] = useState(5432);
+  const [hcProtocol, setHcProtocol] = useState("http");
+  const [hcPort, setHcPort] = useState(8008);
+  const [hcInterval, setHcInterval] = useState(5);
+  const [hcTimeout, setHcTimeout] = useState(3);
+  const [hcRetries, setHcRetries] = useState(3);
+  const [hcPath, setHcPath] = useState("/leader");
+  const [hcTls, setHcTls] = useState(false);
+  const [hcStatuses, setHcStatuses] = useState("200");
+  const [dirty, setDirty] = useState(false);
+
+  // Populate state from fetched data
+  useEffect(() => {
+    if (lb.data) {
+      setAlgorithm(lb.data.algorithm || "round_robin");
+      if (lb.data.services.length > 0) {
+        const s = lb.data.services[0];
+        setSvcProtocol(s.protocol || "tcp");
+        setSvcListenPort(s.listenPort || 5432);
+        setSvcDestPort(s.destinationPort || 5432);
+        setHcProtocol(s.healthCheckProtocol || "http");
+        setHcPort(s.healthCheckPort || 8008);
+        setHcInterval(s.healthCheckInterval || 5);
+        setHcTimeout(s.healthCheckTimeout || 3);
+        setHcRetries(s.healthCheckRetries || 3);
+        setHcPath(s.healthCheckPath || "/leader");
+        setHcTls(s.healthCheckTls || false);
+        setHcStatuses((s.healthCheckStatuses || [200]).join(", "));
+      }
+    }
+  }, [lb.data]);
+
+  const markDirty = () => setDirty(true);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      await trpcClient.cluster.hetznerUpdateLoadBalancer.mutate({
+        apiToken,
+        loadBalancerId: lbId,
+        algorithm: algorithm as "round_robin" | "least_connections",
+        service: {
+          protocol: svcProtocol as "tcp" | "http",
+          listenPort: svcListenPort,
+          destinationPort: svcDestPort,
+          healthCheckProtocol: hcProtocol as "http" | "tcp",
+          healthCheckPort: hcPort,
+          healthCheckInterval: hcInterval,
+          healthCheckTimeout: hcTimeout,
+          healthCheckRetries: hcRetries,
+          healthCheckPath: hcPath,
+          healthCheckTls: hcTls,
+          healthCheckStatuses: hcStatuses.split(",").map((s) => Number(s.trim())).filter((n) => !isNaN(n)),
+        },
+      });
+    },
+    onSuccess: () => {
+      toast.success("Load balancer updated successfully");
+      setDirty(false);
+      queryClient.invalidateQueries({ queryKey: ["cluster", "hetznerLoadBalancerDetails"] });
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to update load balancer");
+    },
+  });
 
   if (!apiToken) {
     return (
@@ -73,7 +148,7 @@ export default function LoadBalancerDetailPage({ params }: { params: Promise<{ i
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-6 space-y-6">
-        {/* Overview */}
+        {/* Details */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Details</CardTitle>
@@ -89,8 +164,16 @@ export default function LoadBalancerDetailPage({ params }: { params: Promise<{ i
                 <p>{data.type}</p>
               </div>
               <div>
-                <span className="text-muted-foreground">Algorithm</span>
-                <p className="capitalize">{data.algorithm || "round_robin"}</p>
+                <Label className="text-muted-foreground text-xs">Algorithm</Label>
+                <Select value={algorithm} onValueChange={(v) => { setAlgorithm(v ?? "round_robin"); markDirty(); }}>
+                  <SelectTrigger className="w-full mt-1 h-8">
+                    <span>{algorithm === "round_robin" ? "Round Robin" : "Least Connections"}</span>
+                  </SelectTrigger>
+                  <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
+                    <SelectItem value="round_robin">Round Robin</SelectItem>
+                    <SelectItem value="least_connections">Least Connections</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <span className="text-muted-foreground">Created</span>
@@ -108,40 +191,92 @@ export default function LoadBalancerDetailPage({ params }: { params: Promise<{ i
           </CardContent>
         </Card>
 
-        {/* Services */}
+        {/* Services - Editable */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Services</CardTitle>
+            <CardTitle className="text-base">Service</CardTitle>
           </CardHeader>
-          <CardContent>
-            {data.services.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No services configured.</p>
-            ) : (
-              <div className="space-y-3">
-                {data.services.map((s: any, i: number) => (
-                  <div key={i} className="rounded-lg border p-3">
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">Protocol</span>
-                        <p className="uppercase">{s.protocol}</p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Listen Port</span>
-                        <p className="font-mono">{s.listenPort}</p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Destination Port</span>
-                        <p className="font-mono">{s.destinationPort}</p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Health Check</span>
-                        <p>{s.healthCheckProtocol}:{s.healthCheckPort}{s.healthCheckPath ? ` ${s.healthCheckPath}` : ""}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="grid gap-1.5">
+                <Label className="text-xs">Protocol</Label>
+                <Select value={svcProtocol} onValueChange={(v) => { setSvcProtocol(v ?? "tcp"); markDirty(); }}>
+                  <SelectTrigger className="w-full"><span className="uppercase">{svcProtocol}</span></SelectTrigger>
+                  <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
+                    <SelectItem value="tcp">TCP</SelectItem>
+                    <SelectItem value="http">HTTP</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-            )}
+              <div className="grid gap-1.5">
+                <Label className="text-xs">Listen Port</Label>
+                <Input type="number" value={svcListenPort} onChange={(e) => { setSvcListenPort(Number(e.target.value)); markDirty(); }} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-xs">Destination Port</Label>
+                <Input type="number" value={svcDestPort} onChange={(e) => { setSvcDestPort(Number(e.target.value)); markDirty(); }} />
+              </div>
+            </div>
+
+            <Separator />
+
+            <div>
+              <Label className="text-sm font-semibold">Health Check</Label>
+              <div className="grid grid-cols-2 gap-3 mt-2">
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Protocol</Label>
+                  <Select value={hcProtocol} onValueChange={(v) => { setHcProtocol(v ?? "http"); markDirty(); }}>
+                    <SelectTrigger className="w-full"><span className="uppercase">{hcProtocol}</span></SelectTrigger>
+                    <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
+                      <SelectItem value="http">HTTP</SelectItem>
+                      <SelectItem value="tcp">TCP</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Port</Label>
+                  <Input type="number" value={hcPort} onChange={(e) => { setHcPort(Number(e.target.value)); markDirty(); }} />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Interval (s)</Label>
+                  <Input type="number" value={hcInterval} onChange={(e) => { setHcInterval(Number(e.target.value)); markDirty(); }} />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Timeout (s)</Label>
+                  <Input type="number" value={hcTimeout} onChange={(e) => { setHcTimeout(Number(e.target.value)); markDirty(); }} />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Retries</Label>
+                  <Input type="number" value={hcRetries} onChange={(e) => { setHcRetries(Number(e.target.value)); markDirty(); }} />
+                </div>
+                {hcProtocol === "http" && (
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">Path</Label>
+                    <Input value={hcPath} onChange={(e) => { setHcPath(e.target.value); markDirty(); }} />
+                  </div>
+                )}
+                {hcProtocol === "http" && (
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">TLS</Label>
+                    <Select value={hcTls ? "enabled" : "disabled"} onValueChange={(v) => { setHcTls(v === "enabled"); markDirty(); }}>
+                      <SelectTrigger className="w-full">
+                        <span>{hcTls ? "Enabled" : "Disabled"}</span>
+                      </SelectTrigger>
+                      <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
+                        <SelectItem value="enabled">Enabled</SelectItem>
+                        <SelectItem value="disabled">Disabled</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {hcProtocol === "http" && (
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">Status Codes</Label>
+                    <Input value={hcStatuses} onChange={(e) => { setHcStatuses(e.target.value); markDirty(); }} placeholder="2??, 3??" />
+                  </div>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
 
@@ -161,7 +296,7 @@ export default function LoadBalancerDetailPage({ params }: { params: Promise<{ i
                 {data.targets.map((t: any, i: number) => {
                   const isLeader = t.status === "5432: healthy";
                   const isRunning = t.serverStatus === "running";
-                  const role = isLeader ? "Leader" : (isRunning ? "Replica" : "Server Offline");
+                  const role = isLeader ? "Leader" : (isRunning ? "Replica" : "Offline");
 
                   return (
                     <div key={i} className="flex items-center justify-between rounded-lg border p-3"
@@ -188,6 +323,19 @@ export default function LoadBalancerDetailPage({ params }: { params: Promise<{ i
             )}
           </CardContent>
         </Card>
+
+        {/* Save Button */}
+        {dirty && (
+          <div className="flex justify-end pt-2">
+            <Button
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending}
+            >
+              {saveMutation.isPending ? <Loader2 className="size-4 animate-spin mr-2" /> : <Save className="size-4 mr-2" />}
+              Save Changes
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

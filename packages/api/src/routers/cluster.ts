@@ -152,7 +152,7 @@ export const clusterRouter = router({
         protocol: z.enum(["tcp", "http", "https"]).default("tcp"),
         listenPort: z.number().default(5432),
         destinationPort: z.number().default(5432),
-        healthCheckProtocol: z.enum(["http", "https", "tcp"]).default("http"),
+        healthCheckProtocol: z.enum(["http", "tcp"]).default("http"),
         healthCheckPort: z.number().default(8008),
         healthCheckInterval: z.number().default(5),
         healthCheckTimeout: z.number().default(3),
@@ -192,20 +192,25 @@ export const clusterRouter = router({
             listen_port: svc.listenPort || 5432,
             destination_port: svc.destinationPort || 5432,
             proxyprotocol: false,
-            health_check: {
-              protocol: svc.healthCheckProtocol || "http",
-              port: svc.healthCheckPort || 8008,
-              interval: svc.healthCheckInterval || 5,
-              timeout: svc.healthCheckTimeout || 3,
-              retries: svc.healthCheckRetries || 3,
-              http: {
-                domain: "",
-                path: svc.healthCheckPath || "/leader",
-                response: "",
-                statuses: svc.healthCheckStatuses || [200],
-                tls: svc.healthCheckTls ?? ((svc.healthCheckProtocol || "http") === "https"),
-              },
-            },
+            health_check: (() => {
+              const hc: any = {
+                protocol: svc.healthCheckProtocol || "http",
+                port: svc.healthCheckPort || 8008,
+                interval: svc.healthCheckInterval || 5,
+                timeout: svc.healthCheckTimeout || 3,
+                retries: svc.healthCheckRetries || 3,
+              };
+              if ((svc.healthCheckProtocol || "http") === "http") {
+                hc.http = {
+                  domain: "",
+                  path: svc.healthCheckPath || "/leader",
+                  response: "",
+                  status_codes: (svc.healthCheckStatuses || [200]).map((s: number) => String(s)),
+                  tls: svc.healthCheckTls ?? false,
+                };
+              }
+              return hc;
+            })(),
           },
         ],
       };
@@ -267,6 +272,70 @@ export const clusterRouter = router({
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error?.message || `Delete failed: ${res.status}`);
+      }
+      return { success: true };
+    }),
+
+  hetznerUpdateLoadBalancer: protectedProcedure
+    .input(z.object({
+      apiToken: z.string(),
+      loadBalancerId: z.string(),
+      algorithm: z.enum(["round_robin", "least_connections"]).optional(),
+      service: z.object({
+        protocol: z.enum(["tcp", "http", "https"]),
+        listenPort: z.number(),
+        destinationPort: z.number(),
+        healthCheckProtocol: z.enum(["http", "tcp"]),
+        healthCheckPort: z.number(),
+        healthCheckInterval: z.number(),
+        healthCheckTimeout: z.number(),
+        healthCheckRetries: z.number(),
+        healthCheckPath: z.string(),
+        healthCheckTls: z.boolean(),
+        healthCheckStatuses: z.array(z.number()),
+      }).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      // Update algorithm
+      if (input.algorithm) {
+        const res = await fetch(`https://api.hetzner.cloud/v1/load_balancers/${input.loadBalancerId}/actions/change_algorithm`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ type: input.algorithm }),
+        });
+        if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || `Update algorithm failed: ${res.status}`); }
+      }
+
+      // Update service using the update_service action
+      if (input.service) {
+        const svc = input.service;
+        const hc: any = {
+          protocol: svc.healthCheckProtocol,
+          port: svc.healthCheckPort,
+          interval: svc.healthCheckInterval,
+          timeout: svc.healthCheckTimeout,
+          retries: svc.healthCheckRetries,
+        };
+        if (svc.healthCheckProtocol === "http") {
+          hc.http = {
+            domain: "",
+            path: svc.healthCheckPath,
+            response: "",
+            status_codes: svc.healthCheckStatuses.map((s: number) => String(s)),
+            tls: svc.healthCheckTls,
+          };
+        }
+        const updateRes = await fetch(`https://api.hetzner.cloud/v1/load_balancers/${input.loadBalancerId}/actions/update_service`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            listen_port: svc.listenPort,
+            destination_port: svc.destinationPort,
+            proxyprotocol: false,
+            health_check: hc,
+          }),
+        });
+        if (!updateRes.ok) { const err = await updateRes.json(); throw new Error(err.error?.message || `Update service failed: ${updateRes.status}`); }
       }
       return { success: true };
     }),
@@ -345,7 +414,15 @@ export const clusterRouter = router({
           destinationPort: s.destination_port,
           healthCheckProtocol: s.health_check?.protocol || "",
           healthCheckPort: s.health_check?.port || 0,
+          healthCheckInterval: s.health_check?.interval || 0,
+          healthCheckTimeout: s.health_check?.timeout || 0,
+          healthCheckRetries: s.health_check?.retries || 0,
           healthCheckPath: s.health_check?.http?.path || "",
+          healthCheckTls: s.health_check?.http?.tls || false,
+          healthCheckStatuses: (s.health_check?.http?.status_codes || []).map((c: any) => {
+            const num = Number(c);
+            return isNaN(num) ? c : num;
+          }),
         })),
       };
     }),
