@@ -275,7 +275,7 @@ function CreateLoadBalancerDialog({
             <div className="grid gap-2">
               <Label className="text-sm">Type</Label>
               <Select value={lbType} onValueChange={(v) => setLbType(v ?? "")}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   {lbType
                     ? <span>{lbTypesData.find((t: any) => t.name === lbType)?.description || lbType}</span>
                     : <span className="text-muted-foreground">Select type (default: lb11)</span>}
@@ -285,7 +285,7 @@ function CreateLoadBalancerDialog({
                     <SelectItem key={t.id} value={t.name}>
                       <span className="text-sm">{t.description}</span>
                       <span className="text-xs text-muted-foreground ml-2">
-                        ({t.maxConnections} conn, {t.maxTargets} targets, {t.priceMonthly}/mo)
+                        ({t.maxConnections} conn, {t.maxTargets} targets, €{t.priceMonthly}/mo)
                       </span>
                     </SelectItem>
                   ))}
@@ -296,15 +296,15 @@ function CreateLoadBalancerDialog({
             <div className="grid gap-2">
               <Label className="text-sm">Location</Label>
               <Select value={location} onValueChange={(v) => setLocation(v ?? "")}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   {location
-                    ? <span>{locationsData.find((l: any) => l.id === location)?.name || location}</span>
+                    ? <span>{(() => { const l = locationsData.find((l: any) => l.id === location); return l ? `${l.city || l.description}, ${l.country} (${l.name})` : location; })()}</span>
                     : <span className="text-muted-foreground">Select location</span>}
                 </SelectTrigger>
                 <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
                   {locationsData.map((l: any) => (
                     <SelectItem key={l.id} value={l.id}>
-                      {l.name} ({l.country})
+                      {l.city || l.description}, {l.country} ({l.name})
                     </SelectItem>
                   ))}
                 </SelectContent>

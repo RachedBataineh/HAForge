@@ -217,7 +217,7 @@ export const clusterRouter = router({
         maxConnections: t.max_connections || 0,
         maxServices: t.max_services || 0,
         maxTargets: t.max_targets || 0,
-        priceMonthly: t.prices?.[0]?.price_monthly?.gross || "",
+        priceMonthly: parseFloat(t.prices?.[0]?.price_monthly?.gross || "0").toFixed(2),
       }));
     }),
 
