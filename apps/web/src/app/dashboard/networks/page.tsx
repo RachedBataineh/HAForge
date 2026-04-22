@@ -6,6 +6,9 @@ import { Card, CardContent } from "@HAForge/ui/components/card";
 import { Input } from "@HAForge/ui/components/input";
 import { Label } from "@HAForge/ui/components/label";
 import {
+  Select, SelectContent, SelectItem, SelectTrigger,
+} from "@HAForge/ui/components/select";
+import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@HAForge/ui/components/dialog";
 import { Globe, Plus, Loader2, Trash2 } from "lucide-react";
@@ -193,6 +196,7 @@ export default function NetworksPage() {
 function CreateNetworkForm({ apiToken, onCreated }: { apiToken: string; onCreated: () => void }) {
   const [name, setName] = useState("");
   const [ipRange, setIpRange] = useState("10.0.0.0/16");
+  const [networkZone, setNetworkZone] = useState("eu-central");
   const [creating, setCreating] = useState(false);
 
   const handleCreate = async () => {
@@ -202,10 +206,11 @@ function CreateNetworkForm({ apiToken, onCreated }: { apiToken: string; onCreate
     }
     setCreating(true);
     try {
-      await trpcClient.network.create.mutate({ apiToken, name, ipRange });
+      await trpcClient.network.create.mutate({ apiToken, name, ipRange, networkZone });
       toast.success(`Network "${name}" created successfully`);
       setName("");
       setIpRange("10.0.0.0/16");
+      setNetworkZone("eu-central");
       onCreated();
     } catch (err: any) {
       toast.error(err.message);
@@ -225,6 +230,21 @@ function CreateNetworkForm({ apiToken, onCreated }: { apiToken: string; onCreate
           <Label className="text-sm">IP Range (CIDR)</Label>
           <Input placeholder="10.0.0.0/16" value={ipRange} onChange={(e) => setIpRange(e.target.value)} />
           <p className="text-xs text-muted-foreground">The IP range for the network in CIDR notation.</p>
+        </div>
+        <div className="grid gap-2">
+          <Label className="text-sm">Network Zone</Label>
+          <Select value={networkZone} onValueChange={(v) => setNetworkZone(v ?? "eu-central")}>
+            <SelectTrigger className="w-full">
+              {networkZone === "eu-central" ? "EU Central" : networkZone === "us-east" ? "US East" : networkZone === "us-west" ? "US West" : "AP Southeast"}
+            </SelectTrigger>
+            <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
+              <SelectItem value="eu-central">EU Central</SelectItem>
+              <SelectItem value="us-east">US East</SelectItem>
+              <SelectItem value="us-west">US West</SelectItem>
+              <SelectItem value="ap-southeast">AP Southeast</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">The zone where the network will be created.</p>
         </div>
       </div>
       <DialogFooter>

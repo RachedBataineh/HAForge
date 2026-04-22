@@ -90,12 +90,17 @@ export const networkRouter = router({
       apiToken: z.string(),
       name: z.string().min(1),
       ipRange: z.string().min(1),
+      networkZone: z.string().default("eu-central"),
     }))
     .mutation(async ({ input }) => {
       const res = await fetch(`${API}/networks`, {
         method: "POST",
         headers: headers(input.apiToken),
-        body: JSON.stringify({ name: input.name, ip_range: input.ipRange }),
+        body: JSON.stringify({
+          name: input.name,
+          ip_range: input.ipRange,
+          network_zone: input.networkZone,
+        }),
       });
       if (!res.ok) {
         const err = await res.json();
