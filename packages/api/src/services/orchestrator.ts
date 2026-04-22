@@ -1,4 +1,4 @@
-import { db, clusters, executions, executionSteps, executionLogs, servers, sshKeys } from "@HAForge/db";
+import { db, clusters, executions, executionSteps, executionLogs, servers, sshKeys, user } from "@HAForge/db";
 import { eq } from "drizzle-orm";
 import { SSHExecutor } from "./ssh-executor";
 import { generateClusterCertificates, type GeneratedCerts } from "./cert-generator";
@@ -103,7 +103,7 @@ export class Orchestrator extends EventEmitter {
 
     // Build variable map
     const serverMap = this.buildServerMap(cluster.servers);
-    const vars = this.buildVariableMap(cluster, serverMap);
+    const vars = await this.buildVariableMap(cluster, serverMap);
 
     // Create step records
     const steps = isLb ? getLbClusterSteps() : getClusterSteps();
@@ -385,15 +385,18 @@ export class Orchestrator extends EventEmitter {
   }
 
   private async connectAllServers(serverMap: Map<string, any>) {
-    // Resolve SSH private keys: prefer server.sshPrivateKey, fall back to ssh_keys table
+    // Resolve SSH private keys from ssh_keys table via sshKeyId
     for (const [id, server] of serverMap) {
-      if (!server.sshPrivateKey && server.sshKeyId) {
+      if (server.sshKeyId) {
         const key = await db.query.sshKeys.findFirst({
           where: eq(sshKeys.id, server.sshKeyId),
         });
         if (key?.privateKey) {
-          server.sshPrivateKey = key.privateKey;
+          server.resolvedPrivateKey = key.privateKey;
         }
+      }
+      if (!server.resolvedPrivateKey) {
+        throw new Error(`No SSH private key found for server ${server.ipAddress || server.hetznerServerId}`);
       }
     }
 
@@ -403,7 +406,7 @@ export class Orchestrator extends EventEmitter {
           host: server.ipAddress,
           port: server.sshPort,
           username: server.sshUser,
-          privateKey: server.sshPrivateKey,
+          privateKey: server.resolvedPrivateKey,
         });
         await ssh.connect();
         this.sshConnections.set(server.id, ssh);
@@ -590,7 +593,7 @@ export class Orchestrator extends EventEmitter {
     return map;
   }
 
-  private buildVariableMap(cluster: any, serverMap: Map<string, any>): VariableMap {
+  private async buildVariableMap(cluster: any, serverMap: Map<string, any>): Promise<VariableMap> {
     const getServerByRole = (role: string) =>
       Array.from(serverMap.values()).find((s: any) => s.role === role);
 
@@ -600,6 +603,11 @@ export class Orchestrator extends EventEmitter {
     const ha1 = getServerByRole("haproxy_1");
     const ha2 = getServerByRole("haproxy_2");
     const ha3 = getServerByRole("haproxy_3");
+
+    // Resolve Hetzner API token from user profile
+    const clusterOwner = await db.query.user.findFirst({
+      where: eq(user.id, cluster.userId),
+    });
 
     return {
       IP_ADDRESS_NODE_1: pg1?.ipAddress || "",
@@ -618,7 +626,7 @@ export class Orchestrator extends EventEmitter {
       PRIVATE_IP_HAPROXY_2: ha2?.privateIpAddress || "",
       PRIVATE_IP_HAPROXY_3: ha3?.privateIpAddress || "",
       FLOATING_IP: cluster.floatingIp || "",
-      HETZNER_API_TOKEN: cluster.hetznerApiToken || "",
+      HETZNER_API_TOKEN: clusterOwner?.hetznerApiToken || "",
       FLOATING_IP_ID: cluster.floatingIpId || "",
       LOAD_BALANCER_ID: cluster.loadBalancerId || "",
       SERVER_ID_1: ha1?.hetznerServerId || pg1?.hetznerServerId || "",
@@ -626,7 +634,6 @@ export class Orchestrator extends EventEmitter {
       SERVER_ID_3: ha3?.hetznerServerId || pg3?.hetznerServerId || "",
       SUPERUSER_PASSWORD: cluster.superuserPassword || "",
       SUPERUSER_USERNAME: cluster.superuserUsername || "postgres",
-      INITIAL_DATABASE: cluster.initialDatabase || "postgres",
       REPLICATION_PASSWORD: cluster.replicationPassword || "",
     };
   }

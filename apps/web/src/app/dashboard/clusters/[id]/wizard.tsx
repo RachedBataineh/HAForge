@@ -55,7 +55,6 @@ interface ServerForm {
   hetznerServerId: string;
   privateIpAddress: string;
   sshKeyId: string;
-  sshPrivateKey: string;
 }
 
 export default function ClusterSetupWizard({ params }: { params: Promise<{ id: string }> }) {
@@ -123,14 +122,14 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const [superuserUsername, setSuperuserUsername] = useState("postgres");
 
   const [pgServers, setPgServers] = useState<Record<string, ServerForm>>({
-    postgresql_1: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
-    postgresql_2: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
-    postgresql_3: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
+    postgresql_1: { ipAddress: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
+    postgresql_2: { ipAddress: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
+    postgresql_3: { ipAddress: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
   });
   const [haServers, setHaServers] = useState<Record<string, ServerForm>>({
-    haproxy_1: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
-    haproxy_2: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
-    haproxy_3: { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
+    haproxy_1: { ipAddress: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
+    haproxy_2: { ipAddress: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
+    haproxy_3: { ipAddress: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
   });
 
   const updateCluster = useMutation({
@@ -145,7 +144,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   });
 
   const testConnection = useMutation({
-    mutationFn: async (data: { ipAddress: string; sshPort: number; sshUser: string; sshPrivateKey: string }) =>
+    mutationFn: async (data: { ipAddress: string; sshPort: number; sshUser: string; sshKeyId: string }) =>
       trpcClient.server.testConnection.mutate(data),
     onSuccess: (data) => {
       if (data.success) toast.success("SSH connection successful");
@@ -176,7 +175,6 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       for (const s of servers) {
         const form: ServerForm = {
           ipAddress: s.ipAddress || "",
-          sshPrivateKey: s.sshPrivateKey || "",
           sshUser: s.sshUser || "root",
           sshPort: s.sshPort || 22,
           hetznerServerId: s.hetznerServerId || "",
@@ -206,7 +204,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       for (const r of roles) {
         const srv = updated[r.role];
         if (srv.hetznerServerId && used.has(srv.hetznerServerId)) {
-          updated[r.role] = { ipAddress: "", sshPrivateKey: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" };
+          updated[r.role] = { ipAddress: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" };
           conflict = true;
         }
       }
@@ -225,7 +223,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const saveDraft = async (currentStep: number) => {
     setDraftSaving(true);
     try {
-      const clusterData: any = { id: clusterId, wizardStep: currentStep + 1, hetznerApiToken: hetznerToken };
+      const clusterData: any = { id: clusterId, wizardStep: currentStep + 1 };
       if (!isLb) {
         clusterData.floatingIp = floatingIp;
         clusterData.floatingIpId = floatingIpId;
@@ -279,12 +277,11 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       const lb = hetznerLbList.find((l: any) => l.id === selectedLbId);
       await updateCluster.mutateAsync({
         id: clusterId,
-        hetznerApiToken: hetznerToken,
         loadBalancerId: selectedLbId,
         loadBalancerIp: lb?.publicIp || "",
       });
     } else {
-      await updateCluster.mutateAsync({ id: clusterId, hetznerApiToken: hetznerToken, floatingIp, floatingIpId });
+      await updateCluster.mutateAsync({ id: clusterId, floatingIp, floatingIpId });
     }
 
     // Refetch to get the latest servers list (draft may have added some)
@@ -305,7 +302,6 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       await addServer.mutateAsync({
         clusterId,
         ipAddress: server.ipAddress,
-        sshPrivateKey: server.sshPrivateKey || undefined,
         sshKeyId: server.sshKeyId || undefined,
         sshUser: server.sshUser,
         sshPort: server.sshPort,
@@ -472,7 +468,6 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                             ipAddress: srv.publicIp,
                             privateIpAddress: srv.privateIps?.[0]?.ip || "",
                             sshKeyId: srv.sshKeyId || "",
-                            sshPrivateKey: srv.sshPrivateKey || "",
                           },
                         }));
                       }
@@ -553,12 +548,12 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                         ipAddress: haServers[r.role].ipAddress,
                         sshPort: haServers[r.role].sshPort,
                         sshUser: haServers[r.role].sshUser,
-                        sshPrivateKey: haServers[r.role].sshPrivateKey,
+                        sshKeyId: haServers[r.role].sshKeyId,
                       },
                       { onSettled: () => setTestingRole(null) },
                     );
                   }}
-                  disabled={!haServers[r.role].ipAddress || !haServers[r.role].sshPrivateKey || testConnection.isPending}
+                  disabled={!haServers[r.role].ipAddress || !haServers[r.role].sshKeyId || testConnection.isPending}
                 >
                   {testConnection.isPending && testingRole === r.role ? (
                     <>
@@ -724,7 +719,6 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                               ipAddress: srv.publicIp,
                               privateIpAddress: srv.privateIps?.[0]?.ip || "",
                               sshKeyId: srv.sshKeyId || "",
-                              sshPrivateKey: srv.sshPrivateKey || "",
                             },
                           }));
                         }
@@ -819,12 +813,12 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                           ipAddress: pgServers[r.role].ipAddress,
                           sshPort: pgServers[r.role].sshPort,
                           sshUser: pgServers[r.role].sshUser,
-                          sshPrivateKey: pgServers[r.role].sshPrivateKey,
+                          sshKeyId: pgServers[r.role].sshKeyId,
                         },
                         { onSettled: () => setTestingRole(null) },
                       );
                     }}
-                    disabled={!pgServers[r.role].ipAddress || !pgServers[r.role].sshPrivateKey || testConnection.isPending}
+                    disabled={!pgServers[r.role].ipAddress || !pgServers[r.role].sshKeyId || testConnection.isPending}
                   >
                     {testConnection.isPending && testingRole === r.role ? (
                       <>

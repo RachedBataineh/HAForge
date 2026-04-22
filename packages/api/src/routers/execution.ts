@@ -75,6 +75,11 @@ export const executionRouter = router({
         await orchestrator.cancel();
         activeOrchestrators.delete(input.executionId);
       }
+      // Update execution status in DB
+      await db
+        .update(executions)
+        .set({ status: "cancelled", completedAt: new Date() })
+        .where(eq(executions.id, input.executionId));
       return { success: true };
     }),
 

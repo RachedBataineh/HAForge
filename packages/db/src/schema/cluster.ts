@@ -7,14 +7,13 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
+import { user } from "./auth";
 
 export const clusterStatusEnum = pgEnum("cluster_status", [
   "draft",
-  "configuring",
   "deploying",
   "running",
   "error",
-  "destroyed",
 ]);
 
 export const clusterTypeEnum = pgEnum("cluster_type", [
@@ -33,9 +32,6 @@ export const serverRoleEnum = pgEnum("server_role", [
 
 export const serverStatusEnum = pgEnum("server_status", [
   "pending",
-  "connecting",
-  "installing",
-  "configuring",
   "ready",
   "error",
 ]);
@@ -66,17 +62,15 @@ export const clusters = pgTable("cluster", {
 
   // Hetzner config
   floatingIp: text("floating_ip"),
-  hetznerApiToken: text("hetzner_api_token"),
   floatingIpId: text("floating_ip_id"),
   loadBalancerId: text("load_balancer_id"),
   loadBalancerIp: text("load_balancer_ip"),
   wizardStep: integer("wizard_step"),
 
-  // Auto-generated credentials (stored encrypted at app level)
+  // Auto-generated credentials
   superuserPassword: text("superuser_password"),
   replicationPassword: text("replication_password"),
   superuserUsername: text("superuser_username").default("postgres"),
-  initialDatabase: text("initial_database").default("postgres"),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
@@ -98,8 +92,8 @@ export const servers = pgTable(
     ipAddress: text("ip_address"),
     sshPort: integer("ssh_port").default(22).notNull(),
     sshUser: text("ssh_user").default("root").notNull(),
-    sshPrivateKey: text("ssh_private_key"),
-    sshKeyId: text("ssh_key_id"),
+    sshKeyId: text("ssh_key_id")
+      .references(() => sshKeys.id),
 
     role: serverRoleEnum("role").notNull(),
     hetznerServerId: text("hetzner_server_id"),
@@ -130,6 +124,8 @@ export const servers = pgTable(
   (table) => [
     index("server_cluster_id_idx").on(table.clusterId),
     index("server_role_idx").on(table.role),
+    index("server_hetzner_server_id_idx").on(table.hetznerServerId),
+    index("server_ssh_key_id_idx").on(table.sshKeyId),
   ],
 );
 
@@ -164,9 +160,9 @@ export const executionSteps = pgTable(
       .references(() => executions.id, { onDelete: "cascade" }),
 
     stepNumber: integer("step_number").notNull(),
-    phase: text("phase").notNull(), // "postgres" or "haproxy"
+    phase: text("phase").notNull(),
     stepName: text("step_name").notNull(),
-    targetRole: text("target_role").notNull(), // "all_pg", "all_ha", "postgresql_1", etc.
+    targetRole: text("target_role").notNull(),
 
     status: stepStatusEnum("status").default("pending").notNull(),
     commandTemplate: text("command_template"),
@@ -208,6 +204,10 @@ export const serverRelations = relations(servers, ({ one, many }) => ({
   cluster: one(clusters, {
     fields: [servers.clusterId],
     references: [clusters.id],
+  }),
+  sshKey: one(sshKeys, {
+    fields: [servers.sshKeyId],
+    references: [sshKeys.id],
   }),
   executionLogs: many(executionLogs),
 }));
@@ -257,4 +257,10 @@ export const sshKeys = pgTable("ssh_keys", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const sshKeyRelations = relations(sshKeys, ({ one }) => ({}));
+export const sshKeyRelations = relations(sshKeys, ({ one, many }) => ({
+  user: one(user, {
+    fields: [sshKeys.userId],
+    references: [user.id],
+  }),
+  servers: many(servers),
+}));

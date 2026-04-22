@@ -159,7 +159,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                 </div>
                 <div>
                   <span className="text-muted-foreground">Database</span>
-                  <p className="font-mono">{cluster.data.initialDatabase || "postgres"}</p>
+                  <p className="font-mono">postgres</p>
                 </div>
               </div>
             </CardContent>

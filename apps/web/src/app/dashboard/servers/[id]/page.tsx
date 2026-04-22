@@ -64,14 +64,14 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
   const hetznerPrivateIp = hetznerInfo.data?.privateIps?.[0] || "";
   const server = isHetznerOnly
     ? (dbServerByHetzner.data
-        ? { ...dbServerByHetzner.data, ipAddress: hetznerInfo.data?.publicIp || dbServerByHetzner.data.ipAddress, privateIpAddress: hetznerPrivateIp || dbServerByHetzner.data.privateIpAddress, hetznerServerId: hetznerId, clusterHetznerToken: apiToken }
-        : { id: serverId, ipAddress: hetznerInfo.data?.publicIp || "", privateIpAddress: hetznerPrivateIp, hetznerServerId: hetznerId, clusterHetznerToken: apiToken, sshKeyId: null, sshUser: "root", sshPort: 22, sshPrivateKey: null, role: "", clusterId: "", clusterName: "" })
+        ? { ...dbServerByHetzner.data, ipAddress: hetznerInfo.data?.publicIp || dbServerByHetzner.data.ipAddress, privateIpAddress: hetznerPrivateIp || dbServerByHetzner.data.privateIpAddress, hetznerServerId: hetznerId }
+        : { id: serverId, ipAddress: hetznerInfo.data?.publicIp || "", privateIpAddress: hetznerPrivateIp, hetznerServerId: hetznerId, sshKeyId: null, sshUser: "root", sshPort: 22, role: "", clusterId: "", clusterName: "" })
     : dbServer;
 
   const serverAction = useMutation({
     mutationFn: async (action: "poweron" | "poweroff" | "reboot") => {
       return await trpcClient.cluster.hetznerServerAction.mutate({
-        apiToken: server?.clusterHetznerToken || apiToken,
+        apiToken,
         serverId: server?.hetznerServerId || hetznerId || "",
         action,
       });

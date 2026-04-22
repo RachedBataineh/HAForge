@@ -4,6 +4,31 @@ import { eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
 
+async function getServerSshKeyMaps() {
+  const dbServerRecords = await db.query.servers.findMany();
+  const sshKeyMap = new Map<string, string | null>();
+  const sshPrivateKeyMap = new Map<string, string | null>();
+  for (const s of dbServerRecords) {
+    if (s.hetznerServerId) {
+      sshKeyMap.set(s.hetznerServerId, s.sshKeyId);
+    }
+  }
+  const allSshKeys = await db.query.sshKeys.findMany();
+  const sshKeyNameMap = new Map<string, string>();
+  const sshPrivateKeyByName = new Map<string, string | null>();
+  for (const k of allSshKeys) {
+    sshKeyNameMap.set(k.id, k.name);
+  }
+  // Resolve private keys
+  for (const s of dbServerRecords) {
+    if (s.hetznerServerId && s.sshKeyId) {
+      const key = allSshKeys.find((k) => k.id === s.sshKeyId);
+      if (key?.privateKey) sshPrivateKeyMap.set(s.hetznerServerId, key.privateKey);
+    }
+  }
+  return { sshKeyMap, sshKeyNameMap, sshPrivateKeyMap };
+}
+
 export const clusterRouter = router({
   hetznerFloatingIps: protectedProcedure
     .input(z.object({ apiToken: z.string() }))
@@ -58,23 +83,11 @@ export const clusterRouter = router({
       }
       const data = await res.json();
 
-      // Get SSH key assignments from DB
-      const dbServerRecords = await db.query.servers.findMany();
-      const sshKeyMap = new Map<string, { sshKeyId: string | null; sshPrivateKey: string | null }>();
-      for (const s of dbServerRecords) {
-        if (s.hetznerServerId) {
-          sshKeyMap.set(s.hetznerServerId, { sshKeyId: s.sshKeyId, sshPrivateKey: s.sshPrivateKey });
-        }
-      }
-      const allSshKeys = await db.query.sshKeys.findMany();
-      const sshKeyNameMap = new Map<string, string>();
-      for (const k of allSshKeys) {
-        sshKeyNameMap.set(k.id, k.name);
-      }
+      const { sshKeyMap, sshKeyNameMap, sshPrivateKeyMap } = await getServerSshKeyMaps();
 
       return data.servers.map((srv: any) => {
         const hetznerId = String(srv.id);
-        const keyInfo = sshKeyMap.get(hetznerId);
+        const keyId = sshKeyMap.get(hetznerId) || null;
         return {
           id: hetznerId,
           name: srv.name,
@@ -85,9 +98,9 @@ export const clusterRouter = router({
           })),
           status: srv.status,
           location: srv.datacenter?.location?.name || "",
-          sshKeyId: keyInfo?.sshKeyId || null,
-          sshKeyName: keyInfo?.sshKeyId ? sshKeyNameMap.get(keyInfo.sshKeyId) || null : null,
-          sshPrivateKey: keyInfo?.sshPrivateKey || null,
+          sshKeyId: keyId,
+          sshKeyName: keyId ? sshKeyNameMap.get(keyId) || null : null,
+          sshPrivateKey: sshPrivateKeyMap.get(hetznerId) || null,
         };
       });
     }),
@@ -206,14 +219,12 @@ export const clusterRouter = router({
         id: z.string(),
         name: z.string().min(1).max(100).optional(),
         floatingIp: z.string().optional(),
-        hetznerApiToken: z.string().optional(),
         floatingIpId: z.string().optional(),
         clusterType: z.enum(["haproxy", "hetzner_lb"]).optional(),
         loadBalancerId: z.string().optional(),
         loadBalancerIp: z.string().optional(),
         wizardStep: z.number().optional(),
         superuserUsername: z.string().optional(),
-        initialDatabase: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {
@@ -257,13 +268,13 @@ export const clusterRouter = router({
       where: eq(clusters.userId, ctx.session.user.id),
       with: { servers: true },
     });
-    const servers: any[] = [];
+    const allServersList: any[] = [];
     for (const cluster of result) {
       for (const server of cluster.servers) {
-        servers.push({ ...server, clusterId: cluster.id, clusterName: cluster.name, clusterStatus: cluster.status, clusterHetznerToken: cluster.hetznerApiToken || "", clusterType: cluster.clusterType });
+        allServersList.push({ ...server, clusterId: cluster.id, clusterName: cluster.name, clusterStatus: cluster.status, clusterType: cluster.clusterType });
       }
     }
-    return servers;
+    return allServersList;
   }),
 
   allHetznerServers: protectedProcedure.query(async ({ ctx }) => {
@@ -285,21 +296,7 @@ export const clusterRouter = router({
       }
     }
 
-    // Get SSH key assignments from DB servers
-    const dbServerRecords = await db.query.servers.findMany();
-    const sshKeyMap = new Map<string, { sshKeyId: string | null; sshPrivateKey: string | null }>();
-    for (const s of dbServerRecords) {
-      if (s.hetznerServerId) {
-        sshKeyMap.set(s.hetznerServerId, { sshKeyId: s.sshKeyId, sshPrivateKey: s.sshPrivateKey });
-      }
-    }
-
-    // Get SSH key names
-    const allSshKeys = await db.query.sshKeys.findMany();
-    const sshKeyNameMap = new Map<string, string>();
-    for (const k of allSshKeys) {
-      sshKeyNameMap.set(k.id, k.name);
-    }
+    const { sshKeyMap, sshKeyNameMap, sshPrivateKeyMap } = await getServerSshKeyMaps();
 
     const allServers: any[] = [];
 
@@ -312,7 +309,7 @@ export const clusterRouter = router({
           const data = await res.json();
           for (const srv of data.servers || []) {
             const hetznerId = String(srv.id);
-            const keyInfo = sshKeyMap.get(hetznerId);
+            const keyId = sshKeyMap.get(hetznerId) || null;
             allServers.push({
               id: hetznerId,
               name: srv.name,
@@ -323,9 +320,9 @@ export const clusterRouter = router({
               location: srv.datacenter?.location?.name || "",
               created: srv.created || "",
               used: usedServerIds.has(hetznerId),
-              sshKeyId: keyInfo?.sshKeyId || null,
-              sshKeyName: keyInfo?.sshKeyId ? sshKeyNameMap.get(keyInfo.sshKeyId) || null : null,
-              sshPrivateKey: keyInfo?.sshPrivateKey || null,
+              sshKeyId: keyId,
+              sshKeyName: keyId ? sshKeyNameMap.get(keyId) || null : null,
+              sshPrivateKey: sshPrivateKeyMap.get(hetznerId) || null,
             });
           }
         }
@@ -588,18 +585,23 @@ export const clusterRouter = router({
 
   serverDetails: protectedProcedure
     .input(z.object({
-      ipAddress: z.string(),
-      sshPort: z.number(),
-      sshUser: z.string(),
-      sshPrivateKey: z.string(),
+      serverId: z.string(),
     }))
     .query(async ({ input }) => {
+      const server = await db.query.servers.findFirst({
+        where: eq(servers.id, input.serverId),
+        with: { sshKey: true },
+      });
+      if (!server) throw new Error("Server not found");
+      const privateKey = server.sshKey?.privateKey;
+      if (!privateKey) throw new Error("No SSH key configured");
+
       const { SSHExecutor } = await import("../services/ssh-executor");
       const ssh = new SSHExecutor({
-        host: input.ipAddress,
-        port: input.sshPort,
-        username: input.sshUser,
-        privateKey: input.sshPrivateKey,
+        host: server.ipAddress || "",
+        port: server.sshPort || 22,
+        username: server.sshUser || "root",
+        privateKey,
       });
       await ssh.connect();
       try {
@@ -643,19 +645,24 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
 
   serverSetTimezone: protectedProcedure
     .input(z.object({
-      ipAddress: z.string(),
-      sshPort: z.number(),
-      sshUser: z.string(),
-      sshPrivateKey: z.string(),
+      serverId: z.string(),
       timezone: z.string(),
     }))
     .mutation(async ({ input }) => {
+      const server = await db.query.servers.findFirst({
+        where: eq(servers.id, input.serverId),
+        with: { sshKey: true },
+      });
+      if (!server) throw new Error("Server not found");
+      const privateKey = server.sshKey?.privateKey;
+      if (!privateKey) throw new Error("No SSH key configured");
+
       const { SSHExecutor } = await import("../services/ssh-executor");
       const ssh = new SSHExecutor({
-        host: input.ipAddress,
-        port: input.sshPort,
-        username: input.sshUser,
-        privateKey: input.sshPrivateKey,
+        host: server.ipAddress || "",
+        port: server.sshPort || 22,
+        username: server.sshUser || "root",
+        privateKey,
       });
       await ssh.connect();
       try {
@@ -721,19 +728,24 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
 
   sshExec: protectedProcedure
     .input(z.object({
-      host: z.string(),
-      port: z.number(),
-      username: z.string(),
-      privateKey: z.string(),
+      serverId: z.string(),
       command: z.string(),
     }))
     .mutation(async ({ input }) => {
+      const server = await db.query.servers.findFirst({
+        where: eq(servers.id, input.serverId),
+        with: { sshKey: true },
+      });
+      if (!server) throw new Error("Server not found");
+      const privateKey = server.sshKey?.privateKey;
+      if (!privateKey) throw new Error("No SSH key configured");
+
       const { SSHExecutor } = await import("../services/ssh-executor");
       const ssh = new SSHExecutor({
-        host: input.host,
-        port: input.port,
-        username: input.username,
-        privateKey: input.privateKey,
+        host: server.ipAddress || "",
+        port: server.sshPort || 22,
+        username: server.sshUser || "root",
+        privateKey,
       });
       await ssh.connect();
       try {
@@ -750,17 +762,18 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
     .mutation(async ({ input }) => {
       const server = await db.query.servers.findFirst({
         where: eq(servers.id, input.serverId),
-        with: { cluster: true },
+        with: { sshKey: true },
       });
       if (!server) throw new Error("Server not found");
-      if (!server.sshPrivateKey) throw new Error("No SSH key configured");
+      const privateKey = server.sshKey?.privateKey;
+      if (!privateKey) throw new Error("No SSH key configured");
 
       const { SSHExecutor } = await import("../services/ssh-executor");
       const ssh = new SSHExecutor({
         host: server.ipAddress || "",
         port: server.sshPort || 22,
         username: server.sshUser || "root",
-        privateKey: server.sshPrivateKey || "",
+        privateKey,
       });
       await ssh.connect();
       try {

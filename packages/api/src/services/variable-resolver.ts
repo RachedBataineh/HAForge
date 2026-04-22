@@ -30,7 +30,6 @@ export interface VariableMap {
   // Passwords
   SUPERUSER_PASSWORD: string;
   SUPERUSER_USERNAME: string;
-  INITIAL_DATABASE: string;
   REPLICATION_PASSWORD: string;
 }
 

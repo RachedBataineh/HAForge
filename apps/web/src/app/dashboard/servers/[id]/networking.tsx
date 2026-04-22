@@ -15,10 +15,7 @@ export default function NetworkingTab({ server }: { server: any }) {
 
   const sshExec = async (command: string) => {
     return await trpcClient.cluster.sshExec.mutate({
-      host: server.ipAddress,
-      port: server.sshPort || 22,
-      username: server.sshUser || "root",
-      privateKey: server.sshPrivateKey,
+      serverId: server.id,
       command,
     });
   };

@@ -115,11 +115,6 @@ app.get(
               server = await db.query.servers.findFirst({
                 where: eq(servers.hetznerServerId, hetznerId),
               });
-              if (!server) {
-                ws.send(JSON.stringify({ type: "error", message: "Server not found. Assign an SSH key first." }));
-                ws.close();
-                return;
-              }
             } else {
               server = await db.query.servers.findFirst({
                 where: eq(servers.id, serverId),
@@ -127,22 +122,28 @@ app.get(
             }
 
             if (!server) {
-              ws.send(JSON.stringify({ type: "error", message: "Server not found" }));
+              ws.send(JSON.stringify({ type: "error", message: "Server not found. Assign an SSH key first." }));
               ws.close();
               return;
             }
 
-            // Resolve private key from ssh_keys table if needed
-            let privateKey = server.sshPrivateKey;
-            if (!privateKey && server.sshKeyId) {
+            // Resolve private key from ssh_keys table via sshKeyId
+            let privateKey: string | null = null;
+            if (server.sshKeyId) {
               const key = await db.query.sshKeys.findFirst({
                 where: eq(sshKeys.id, server.sshKeyId),
               });
-              privateKey = key?.privateKey;
+              privateKey = key?.privateKey || null;
             }
 
             if (!privateKey) {
               ws.send(JSON.stringify({ type: "error", message: "No SSH private key. Assign an SSH key first." }));
+              ws.close();
+              return;
+            }
+
+            if (!server.ipAddress) {
+              ws.send(JSON.stringify({ type: "error", message: "No IP address configured for this server." }));
               ws.close();
               return;
             }

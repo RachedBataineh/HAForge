@@ -69,10 +69,7 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
   const setTimezone = useMutation({
     mutationFn: async (timezone: string) => {
       await trpcClient.cluster.serverSetTimezone.mutate({
-        ipAddress: server.ipAddress,
-        sshPort: server.sshPort || 22,
-        sshUser: server.sshUser || "root",
-        sshPrivateKey: server.sshPrivateKey,
+        serverId: server.id,
         timezone,
       });
       await trpcClient.cluster.updateServerCache.mutate({ serverId: server.id, timezone });

@@ -9,12 +9,11 @@ export const serverRouter = router({
   add: protectedProcedure
     .input(
       z.object({
-        clusterId: z.string(),
+        clusterId: z.string().optional(),
         hostname: z.string().optional(),
-        ipAddress: z.string().min(1),
+        ipAddress: z.string().optional(),
         sshPort: z.number().default(22),
         sshUser: z.string().default("root"),
-        sshPrivateKey: z.string().optional(),
         sshKeyId: z.string().optional(),
         role: z.enum([
           "postgresql_1",
@@ -47,7 +46,6 @@ export const serverRouter = router({
         ipAddress: z.string().optional(),
         sshPort: z.number().optional(),
         sshUser: z.string().optional(),
-        sshPrivateKey: z.string().optional(),
         sshKeyId: z.string().optional().nullable(),
         hetznerServerId: z.string().optional(),
         privateIpAddress: z.string().optional(),
@@ -73,17 +71,13 @@ export const serverRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const privateKey = input.sshKeyId
-        ? (await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, input.sshKeyId) }))?.privateKey || null
-        : null;
-
       // Find existing server record by hetznerServerId
       const existing = await db.query.servers.findFirst({
         where: eq(servers.hetznerServerId, input.hetznerServerId),
       });
 
       if (existing) {
-        const updates: any = { sshKeyId: input.sshKeyId, sshPrivateKey: privateKey };
+        const updates: any = { sshKeyId: input.sshKeyId };
         if (input.ipAddress && !existing.ipAddress) updates.ipAddress = input.ipAddress;
         if (input.privateIpAddress && !existing.privateIpAddress) updates.privateIpAddress = input.privateIpAddress;
         const [updated] = await db
@@ -103,7 +97,6 @@ export const serverRouter = router({
           privateIpAddress: input.privateIpAddress || "",
           role: "postgresql_1",
           sshKeyId: input.sshKeyId,
-          sshPrivateKey: privateKey,
           status: "pending",
         })
         .returning();
@@ -129,18 +122,23 @@ export const serverRouter = router({
   testConnection: protectedProcedure
     .input(
       z.object({
+        sshKeyId: z.string(),
         ipAddress: z.string(),
         sshPort: z.number().default(22),
         sshUser: z.string().default("root"),
-        sshPrivateKey: z.string(),
       }),
     )
     .mutation(async ({ input }) => {
+      const key = await db.query.sshKeys.findFirst({
+        where: eq(sshKeys.id, input.sshKeyId),
+      });
+      if (!key?.privateKey) throw new Error("SSH key has no private key");
+
       const ssh = new SSHExecutor({
         host: input.ipAddress,
         port: input.sshPort,
         username: input.sshUser,
-        privateKey: input.sshPrivateKey,
+        privateKey: key.privateKey,
       });
 
       try {
