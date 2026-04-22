@@ -63,7 +63,7 @@ export default function LoadBalancerDetailPage({ params }: { params: Promise<{ i
         setHcRetries(s.healthCheckRetries || 3);
         setHcPath(s.healthCheckPath || "/leader");
         setHcTls(s.healthCheckTls || false);
-        setHcStatuses((s.healthCheckStatuses || [200]).join(", "));
+        setHcStatuses((s.healthCheckStatuses && s.healthCheckStatuses.length > 0 ? s.healthCheckStatuses : ["2??", "3??"]).join(", "));
       }
     }
   }, [lb.data]);
@@ -87,7 +87,7 @@ export default function LoadBalancerDetailPage({ params }: { params: Promise<{ i
           healthCheckRetries: hcRetries,
           healthCheckPath: hcPath,
           healthCheckTls: hcTls,
-          healthCheckStatuses: hcStatuses.split(",").map((s) => Number(s.trim())).filter((n) => !isNaN(n)),
+          healthCheckStatuses: hcStatuses.split(",").map((s) => s.trim()).filter((s) => s.length > 0),
         },
       });
     },

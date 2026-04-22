@@ -225,7 +225,7 @@ function CreateLoadBalancerDialog({
   const [hcTimeout, setHcTimeout] = useState(3);
   const [hcRetries, setHcRetries] = useState(3);
   const [hcPath, setHcPath] = useState("/leader");
-  const [hcStatuses, setHcStatuses] = useState("200");
+  const [hcStatuses, setHcStatuses] = useState("2??, 3??");
   const [hcTls, setHcTls] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -256,8 +256,8 @@ function CreateLoadBalancerDialog({
       setHcTimeout(3);
       setHcRetries(3);
       setHcPath("/leader");
-      setHcStatuses("200");
-      setHcTls(true);
+      setHcStatuses("2??, 3??");
+      setHcTls(false);
     }
     onOpenChange(val);
   };
@@ -286,7 +286,7 @@ function CreateLoadBalancerDialog({
           healthCheckTimeout: hcTimeout,
           healthCheckRetries: hcRetries,
           healthCheckPath: hcPath,
-          healthCheckStatuses: hcStatuses.split(",").map((s) => Number(s.trim())).filter((n) => !isNaN(n)),
+          healthCheckStatuses: hcStatuses.split(",").map((s) => s.trim()).filter((s) => s.length > 0),
           healthCheckTls: hcTls,
         },
       });

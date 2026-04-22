@@ -158,7 +158,7 @@ export const clusterRouter = router({
         healthCheckTimeout: z.number().default(3),
         healthCheckRetries: z.number().default(3),
         healthCheckPath: z.string().default("/leader"),
-        healthCheckStatuses: z.array(z.number()).default([200]),
+        healthCheckStatuses: z.array(z.string()).default(["2??", "3??"]),
         healthCheckTls: z.boolean().default(false),
       }).optional(),
     }))
@@ -173,7 +173,7 @@ export const clusterRouter = router({
         healthCheckTimeout: 3,
         healthCheckRetries: 3,
         healthCheckPath: "/leader",
-        healthCheckStatuses: [200],
+        healthCheckStatuses: ["2??", "3??"],
         healthCheckTls: false,
       };
       const body: any = {
@@ -205,7 +205,7 @@ export const clusterRouter = router({
                   domain: "",
                   path: svc.healthCheckPath || "/leader",
                   response: "",
-                  status_codes: (svc.healthCheckStatuses || [200]).map((s: number) => String(s)),
+                  status_codes: svc.healthCheckStatuses || ["2??", "3??"],
                   tls: svc.healthCheckTls ?? false,
                 };
               }
@@ -292,7 +292,7 @@ export const clusterRouter = router({
         healthCheckRetries: z.number(),
         healthCheckPath: z.string(),
         healthCheckTls: z.boolean(),
-        healthCheckStatuses: z.array(z.number()),
+        healthCheckStatuses: z.array(z.string()),
       }).optional(),
     }))
     .mutation(async ({ input }) => {
@@ -321,7 +321,7 @@ export const clusterRouter = router({
             domain: "",
             path: svc.healthCheckPath,
             response: "",
-            status_codes: svc.healthCheckStatuses.map((s: number) => String(s)),
+            status_codes: svc.healthCheckStatuses,
             tls: svc.healthCheckTls,
           };
         }
@@ -419,10 +419,7 @@ export const clusterRouter = router({
           healthCheckRetries: s.health_check?.retries || 0,
           healthCheckPath: s.health_check?.http?.path || "",
           healthCheckTls: s.health_check?.http?.tls || false,
-          healthCheckStatuses: (s.health_check?.http?.status_codes || []).map((c: any) => {
-            const num = Number(c);
-            return isNaN(num) ? c : num;
-          }),
+          healthCheckStatuses: s.health_check?.http?.status_codes || [],
         })),
       };
     }),
