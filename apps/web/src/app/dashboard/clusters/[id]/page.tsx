@@ -19,9 +19,9 @@ export default function ClusterDetailRouter({ params }: { params: Promise<{ id: 
     );
   }
 
-  const hasServers = cluster.data.servers && cluster.data.servers.length > 0;
+  const isDraft = cluster.data.status === "draft";
 
-  if (hasServers) {
+  if (!isDraft) {
     return <ClusterOverview params={params} />;
   }
 
