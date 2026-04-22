@@ -253,12 +253,16 @@ export const clusterRouter = router({
       const data = await lbRes.json();
       const lb = data.load_balancer;
 
-      // Build server name map
+      // Build server name + status map
       const serverNameMap = new Map<string, string>();
+      const serverStatusMap = new Map<string, string>();
+      const serverIpMap = new Map<string, string>();
       if (serversRes.ok) {
         const serversData = await serversRes.json();
         for (const srv of serversData.servers || []) {
           serverNameMap.set(String(srv.id), srv.name);
+          serverStatusMap.set(String(srv.id), srv.status);
+          serverIpMap.set(String(srv.id), srv.public_net?.ipv4?.ip || "");
         }
       }
 
@@ -278,6 +282,8 @@ export const clusterRouter = router({
             type: t.type,
             serverId,
             serverName: serverId ? serverNameMap.get(serverId) || null : null,
+            serverStatus: serverId ? serverStatusMap.get(serverId) || "unknown" : "unknown",
+            serverIp: serverId ? serverIpMap.get(serverId) || "" : "",
             status: typeof t.health_status === "string" ? t.health_status : (Array.isArray(t.health_status) ? t.health_status.map((h: any) => `${h.listen_port}: ${h.status}`).join(", ") : "unknown"),
           };
         }),

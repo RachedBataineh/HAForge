@@ -158,18 +158,32 @@ export default function LoadBalancerDetailPage({ params }: { params: Promise<{ i
               <p className="text-sm text-muted-foreground">No targets attached. Add servers via the cluster wizard.</p>
             ) : (
               <div className="space-y-2">
-                {data.targets.map((t: any, i: number) => (
-                  <div key={i} className="flex items-center justify-between rounded-lg border p-3">
-                    <div className="flex items-center gap-2">
-                      <Server className="size-4 text-muted-foreground" />
-                      <span className="text-sm">{t.serverName || `Server ${t.serverId}`}</span>
-                      <span className="text-xs text-muted-foreground font-mono">({t.serverId})</span>
+                {data.targets.map((t: any, i: number) => {
+                  const isLeader = t.status === "5432: healthy";
+                  const isRunning = t.serverStatus === "running";
+                  const role = isLeader ? "Leader" : (isRunning ? "Replica" : "Server Offline");
+
+                  return (
+                    <div key={i} className="flex items-center justify-between rounded-lg border p-3"
+                      onClick={() => t.serverId && router.push(`/dashboard/servers/hetzner-${t.serverId}`)}
+                      style={{ cursor: t.serverId ? "pointer" : "default" }}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Server className="size-4 text-muted-foreground" />
+                        <div>
+                          <span className="text-sm font-medium">{t.serverName || `Server ${t.serverId}`}</span>
+                          <div className="flex items-center gap-3 mt-0.5">
+                            <span className="text-xs text-muted-foreground font-mono">{t.serverIp}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {isRunning ? "Running" : t.serverStatus === "off" ? "Off" : t.serverStatus}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <Badge variant={isLeader ? "default" : "secondary"}>{role}</Badge>
                     </div>
-                    <Badge variant={t.status === "healthy" ? "secondary" : "destructive"}>
-                      {t.status || "unknown"}
-                    </Badge>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>
