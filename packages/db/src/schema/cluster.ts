@@ -87,6 +87,7 @@ export const servers = pgTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id"),
     clusterId: text("cluster_id")
       .references(() => clusters.id, { onDelete: "cascade" }),
 
@@ -128,6 +129,7 @@ export const servers = pgTable(
     index("server_role_idx").on(table.role),
     index("server_hetzner_server_id_idx").on(table.hetznerServerId),
     index("server_ssh_key_id_idx").on(table.sshKeyId),
+    index("server_user_id_idx").on(table.userId),
   ],
 );
 

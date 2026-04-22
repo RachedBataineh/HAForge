@@ -1,5 +1,5 @@
 import { db } from "@HAForge/db";
-import { executions, executionLogs } from "@HAForge/db";
+import { clusters, executions, executionLogs, executionSteps } from "@HAForge/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
@@ -9,10 +9,32 @@ import { getLiveOutput } from "../services/live-output";
 // Track active orchestrators in memory
 const activeOrchestrators = new Map<string, Orchestrator>();
 
+async function verifyExecutionOwnership(executionId: string, userId: string) {
+  const execution = await db.query.executions.findFirst({
+    where: eq(executions.id, executionId),
+  });
+  if (!execution) throw new Error("Execution not found");
+  const cluster = await db.query.clusters.findFirst({
+    where: eq(clusters.id, execution.clusterId),
+  });
+  if (cluster && cluster.userId !== userId) throw new Error("Access denied");
+  return execution;
+}
+
+async function verifyClusterOwnership(clusterId: string, userId: string) {
+  const cluster = await db.query.clusters.findFirst({
+    where: eq(clusters.id, clusterId),
+  });
+  if (!cluster) throw new Error("Cluster not found");
+  if (cluster.userId !== userId) throw new Error("Access denied");
+  return cluster;
+}
+
 export const executionRouter = router({
   start: protectedProcedure
     .input(z.object({ clusterId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await verifyClusterOwnership(input.clusterId, ctx.session.user.id);
       const orchestrator = new Orchestrator(input.clusterId);
       const executionId = await orchestrator.start();
       activeOrchestrators.set(executionId, orchestrator);
@@ -26,14 +48,8 @@ export const executionRouter = router({
         stepId: z.string(),
       }),
     )
-    .mutation(async ({ input }) => {
-      // For retry, we restart the entire execution from scratch
-      // A more sophisticated approach would track which step failed and restart from there
-      const execution = await db.query.executions.findFirst({
-        where: eq(executions.id, input.executionId),
-      });
-      if (!execution) throw new Error("Execution not found");
-
+    .mutation(async ({ input, ctx }) => {
+      const execution = await verifyExecutionOwnership(input.executionId, ctx.session.user.id);
       const orchestrator = new Orchestrator(execution.clusterId);
       const newExecutionId = await orchestrator.start();
       activeOrchestrators.set(newExecutionId, orchestrator);
@@ -42,7 +58,8 @@ export const executionRouter = router({
 
   getProgress: protectedProcedure
     .input(z.object({ executionId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      await verifyExecutionOwnership(input.executionId, ctx.session.user.id);
       const execution = await db.query.executions.findFirst({
         where: eq(executions.id, input.executionId),
         with: {
@@ -60,7 +77,12 @@ export const executionRouter = router({
         stepId: z.string(),
       }),
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      const step = await db.query.executionSteps.findFirst({
+        where: eq(executionSteps.id, input.stepId),
+      });
+      if (!step) throw new Error("Step not found");
+      await verifyExecutionOwnership(step.executionId, ctx.session.user.id);
       const logs = await db.query.executionLogs.findMany({
         where: eq(executionLogs.stepId, input.stepId),
       });
@@ -69,7 +91,8 @@ export const executionRouter = router({
 
   cancel: protectedProcedure
     .input(z.object({ executionId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await verifyExecutionOwnership(input.executionId, ctx.session.user.id);
       const orchestrator = activeOrchestrators.get(input.executionId);
       if (orchestrator) {
         await orchestrator.cancel();
@@ -85,7 +108,8 @@ export const executionRouter = router({
 
   getLiveOutput: protectedProcedure
     .input(z.object({ executionId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      await verifyExecutionOwnership(input.executionId, ctx.session.user.id);
       return getLiveOutput(input.executionId);
     }),
 });

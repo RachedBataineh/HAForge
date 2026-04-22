@@ -1,9 +1,20 @@
 import { db } from "@HAForge/db";
-import { servers, sshKeys } from "@HAForge/db";
+import { clusters, servers, sshKeys } from "@HAForge/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
 import { SSHExecutor } from "../services/ssh-executor";
+
+async function verifyServerOwnership(serverId: string, userId: string) {
+  const server = await db.query.servers.findFirst({ where: eq(servers.id, serverId) });
+  if (!server) throw new Error("Server not found");
+  if (server.userId && server.userId !== userId) throw new Error("Access denied");
+  if (!server.userId && server.clusterId) {
+    const cluster = await db.query.clusters.findFirst({ where: eq(clusters.id, server.clusterId) });
+    if (cluster && cluster.userId !== userId) throw new Error("Access denied");
+  }
+  return server;
+}
 
 export const serverRouter = router({
   add: protectedProcedure
@@ -27,11 +38,12 @@ export const serverRouter = router({
         privateIpAddress: z.string().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const [server] = await db
         .insert(servers)
         .values({
           ...input,
+          userId: ctx.session.user.id,
           status: "pending",
         })
         .returning();
@@ -51,7 +63,8 @@ export const serverRouter = router({
         privateIpAddress: z.string().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await verifyServerOwnership(input.id, ctx.session.user.id);
       const { id, ...data } = input;
       const [server] = await db
         .update(servers)
@@ -70,14 +83,25 @@ export const serverRouter = router({
         privateIpAddress: z.string().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      // Verify the SSH key belongs to this user
+      if (input.sshKeyId) {
+        const key = await db.query.sshKeys.findFirst({
+          where: eq(sshKeys.id, input.sshKeyId),
+        });
+        if (!key || key.userId !== ctx.session.user.id) throw new Error("SSH key not found or access denied");
+      }
+
       // Find existing server record by hetznerServerId
       const existing = await db.query.servers.findFirst({
         where: eq(servers.hetznerServerId, input.hetznerServerId),
       });
 
       if (existing) {
+        // Check ownership
+        if (existing.userId && existing.userId !== ctx.session.user.id) throw new Error("Access denied");
         const updates: any = { sshKeyId: input.sshKeyId };
+        if (!existing.userId) updates.userId = ctx.session.user.id;
         if (input.ipAddress && !existing.ipAddress) updates.ipAddress = input.ipAddress;
         if (input.privateIpAddress && !existing.privateIpAddress) updates.privateIpAddress = input.privateIpAddress;
         const [updated] = await db
@@ -92,6 +116,7 @@ export const serverRouter = router({
       const [created] = await db
         .insert(servers)
         .values({
+          userId: ctx.session.user.id,
           hetznerServerId: input.hetznerServerId,
           ipAddress: input.ipAddress || "",
           privateIpAddress: input.privateIpAddress || "",
@@ -105,16 +130,24 @@ export const serverRouter = router({
 
   getByHetznerId: protectedProcedure
     .input(z.object({ hetznerServerId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const server = await db.query.servers.findFirst({
         where: eq(servers.hetznerServerId, input.hetznerServerId),
       });
-      return server || null;
+      if (!server) return null;
+      const ownerId = server.userId;
+      if (ownerId && ownerId !== ctx.session.user.id) return null;
+      if (!ownerId && server.clusterId) {
+        const cluster = await db.query.clusters.findFirst({ where: eq(clusters.id, server.clusterId) });
+        if (cluster && cluster.userId !== ctx.session.user.id) return null;
+      }
+      return server;
     }),
 
   remove: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await verifyServerOwnership(input.id, ctx.session.user.id);
       await db.delete(servers).where(eq(servers.id, input.id));
       return { success: true };
     }),
@@ -128,11 +161,12 @@ export const serverRouter = router({
         sshUser: z.string().default("root"),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const key = await db.query.sshKeys.findFirst({
         where: eq(sshKeys.id, input.sshKeyId),
       });
       if (!key?.privateKey) throw new Error("SSH key has no private key");
+      if (key.userId !== ctx.session.user.id) throw new Error("Access denied");
 
       const ssh = new SSHExecutor({
         host: input.ipAddress,

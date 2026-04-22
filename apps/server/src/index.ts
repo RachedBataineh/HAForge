@@ -8,7 +8,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { Client } from "ssh2";
-import { db, sshKeys } from "@HAForge/db";
+import { db, sshKeys, clusters } from "@HAForge/db";
 import { servers } from "@HAForge/db";
 import { eq } from "drizzle-orm";
 
@@ -140,6 +140,24 @@ app.get(
               ws.send(JSON.stringify({ type: "error", message: "Server not found. Assign an SSH key first." }));
               ws.close();
               return;
+            }
+
+            // Ownership check — only the server's owner can open a terminal
+            const ownerId = server.userId;
+            if (ownerId && ownerId !== session.user.id) {
+              ws.send(JSON.stringify({ type: "error", message: "Access denied." }));
+              ws.close();
+              return;
+            }
+            if (!ownerId && server.clusterId) {
+              const cluster = await db.query.clusters.findFirst({
+                where: eq(clusters.id, server.clusterId),
+              });
+              if (cluster && cluster.userId !== session.user.id) {
+                ws.send(JSON.stringify({ type: "error", message: "Access denied." }));
+                ws.close();
+                return;
+              }
             }
 
             // Resolve private key from ssh_keys table via sshKeyId

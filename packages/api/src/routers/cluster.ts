@@ -17,8 +17,21 @@ const hetznerHeaders = (token: string) => ({
   "Content-Type": "application/json",
 });
 
-async function getServerSshKeyMaps() {
-  const dbServerRecords = await db.query.servers.findMany();
+async function verifyServerOwnership(serverId: string, userId: string) {
+  const server = await db.query.servers.findFirst({ where: eq(servers.id, serverId) });
+  if (!server) throw new Error("Server not found");
+  if (server.userId && server.userId !== userId) throw new Error("Access denied");
+  if (!server.userId && server.clusterId) {
+    const cluster = await db.query.clusters.findFirst({ where: eq(clusters.id, server.clusterId) });
+    if (cluster && cluster.userId !== userId) throw new Error("Access denied");
+  }
+  return server;
+}
+
+async function getServerSshKeyMaps(userId?: string) {
+  const dbServerRecords = userId
+    ? await db.query.servers.findMany({ where: eq(servers.userId, userId) })
+    : await db.query.servers.findMany();
   const sshKeyMap = new Map<string, string | null>();
   const sshPrivateKeyMap = new Map<string, string | null>();
   for (const s of dbServerRecords) {
@@ -26,7 +39,9 @@ async function getServerSshKeyMaps() {
       sshKeyMap.set(s.hetznerServerId, s.sshKeyId);
     }
   }
-  const allSshKeys = await db.query.sshKeys.findMany();
+  const allSshKeys = userId
+    ? await db.query.sshKeys.findMany({ where: eq(sshKeys.userId, userId) })
+    : await db.query.sshKeys.findMany();
   const sshKeyNameMap = new Map<string, string>();
   const sshPrivateKeyByName = new Map<string, string | null>();
   for (const k of allSshKeys) {
@@ -84,7 +99,7 @@ export const clusterRouter = router({
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
       const data = await res.json();
 
-      const { sshKeyMap, sshKeyNameMap, sshPrivateKeyMap } = await getServerSshKeyMaps();
+      const { sshKeyMap, sshKeyNameMap, sshPrivateKeyMap } = await getServerSshKeyMaps(ctx.session.user.id);
 
       return data.servers.map((srv: any) => {
         const hetznerId = String(srv.id);
@@ -647,7 +662,9 @@ export const clusterRouter = router({
         with: { cluster: true },
       });
       if (!server) return null;
-      if (server.cluster?.userId !== ctx.session.user.id) return null;
+      const ownerId = server.userId || server.cluster?.userId;
+      if (ownerId && ownerId !== ctx.session.user.id) return null;
+      if (!server.cluster) return null;
       return {
         serverId: server.id,
         clusterId: server.cluster.id,
@@ -1003,20 +1020,21 @@ export const clusterRouter = router({
     .input(z.object({
       serverId: z.string(),
     }))
-    .query(async ({ input }) => {
-      const server = await db.query.servers.findFirst({
-        where: eq(servers.id, input.serverId),
+    .query(async ({ input, ctx }) => {
+      const server = await verifyServerOwnership(input.serverId, ctx.session.user.id);
+      const serverWithKey = await db.query.servers.findFirst({
+        where: eq(servers.id, server.id),
         with: { sshKey: true },
       });
-      if (!server) throw new Error("Server not found");
-      const privateKey = server.sshKey?.privateKey;
+      if (!serverWithKey) throw new Error("Server not found");
+      const privateKey = serverWithKey.sshKey?.privateKey;
       if (!privateKey) throw new Error("No SSH key configured");
 
       const { SSHExecutor } = await import("../services/ssh-executor");
       const ssh = new SSHExecutor({
-        host: server.ipAddress || "",
-        port: server.sshPort || 22,
-        username: server.sshUser || "root",
+        host: serverWithKey.ipAddress || "",
+        port: serverWithKey.sshPort || 22,
+        username: serverWithKey.sshUser || "root",
         privateKey,
       });
       await ssh.connect();
@@ -1035,7 +1053,8 @@ export const clusterRouter = router({
       serverId: z.string(),
       timezone: z.string().regex(/^[a-zA-Z0-9_+\-/]+$/),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await verifyServerOwnership(input.serverId, ctx.session.user.id);
       const server = await db.query.servers.findFirst({
         where: eq(servers.id, input.serverId),
         with: { sshKey: true },
@@ -1114,7 +1133,8 @@ export const clusterRouter = router({
       serverId: z.string(),
       command: z.string(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await verifyServerOwnership(input.serverId, ctx.session.user.id);
       const server = await db.query.servers.findFirst({
         where: eq(servers.id, input.serverId),
         with: { sshKey: true },
@@ -1142,7 +1162,8 @@ export const clusterRouter = router({
 
   refreshServerInfo: protectedProcedure
     .input(z.object({ serverId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await verifyServerOwnership(input.serverId, ctx.session.user.id);
       const server = await db.query.servers.findFirst({
         where: eq(servers.id, input.serverId),
         with: { sshKey: true },
@@ -1191,7 +1212,8 @@ export const clusterRouter = router({
       serverId: z.string(),
       timezone: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await verifyServerOwnership(input.serverId, ctx.session.user.id);
       await db.update(servers).set({
         ...(input.timezone ? { cachedTimezone: input.timezone } : {}),
         lastFetchedAt: new Date(),
@@ -1262,10 +1284,10 @@ export const clusterRouter = router({
     .input(z.object({ clusterId: z.string() }))
     .query(async ({ input, ctx }) => {
       const cluster = await db.query.clusters.findFirst({
-        where: eq(clusters.id, input.clusterId),
+        where: and(eq(clusters.id, input.clusterId), eq(clusters.userId, ctx.session.user.id)),
         with: { servers: true },
       });
-      if (!cluster) throw new Error("Cluster not found");
+      if (!cluster) throw new Error("Cluster not found or access denied");
 
       const u = await db.query.user.findFirst({ where: eq(user.id, ctx.session.user.id) });
       const apiToken = u?.hetznerApiToken || "";
