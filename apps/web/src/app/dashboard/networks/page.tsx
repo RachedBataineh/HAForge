@@ -146,6 +146,7 @@ export default function NetworksPage() {
           </DialogHeader>
           <CreateNetworkForm
             apiToken={apiToken}
+            existingNetworks={netList}
             onCreated={() => {
               networks.refetch();
               setCreateOpen(false);
@@ -193,9 +194,21 @@ export default function NetworksPage() {
   );
 }
 
-function CreateNetworkForm({ apiToken, onCreated }: { apiToken: string; onCreated: () => void }) {
+function CreateNetworkForm({ apiToken, existingNetworks, onCreated }: { apiToken: string; existingNetworks: any[]; onCreated: () => void }) {
+  const suggestIpRange = (networks: any[]) => {
+    const used = new Set<number>();
+    for (const n of networks) {
+      const match = n.ipRange?.match(/^10\.(\d+)\.0\.0\//);
+      if (match) used.add(parseInt(match[1], 10));
+    }
+    for (let i = 0; i <= 255; i++) {
+      if (!used.has(i)) return `10.${i}.0.0/16`;
+    }
+    return "10.0.0.0/16";
+  };
+
   const [name, setName] = useState("");
-  const [ipRange, setIpRange] = useState("10.0.0.0/16");
+  const [ipRange, setIpRange] = useState(() => suggestIpRange(existingNetworks));
   const [networkZone, setNetworkZone] = useState("eu-central");
   const [creating, setCreating] = useState(false);
 
@@ -227,11 +240,6 @@ function CreateNetworkForm({ apiToken, onCreated }: { apiToken: string; onCreate
           <Input placeholder="my-network" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div className="grid gap-2">
-          <Label className="text-sm">IP Range (CIDR)</Label>
-          <Input placeholder="10.0.0.0/16" value={ipRange} onChange={(e) => setIpRange(e.target.value)} />
-          <p className="text-xs text-muted-foreground">The IP range for the network in CIDR notation.</p>
-        </div>
-        <div className="grid gap-2">
           <Label className="text-sm">Network Zone</Label>
           <Select value={networkZone} onValueChange={(v) => setNetworkZone(v ?? "eu-central")}>
             <SelectTrigger className="w-full">
@@ -245,6 +253,11 @@ function CreateNetworkForm({ apiToken, onCreated }: { apiToken: string; onCreate
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">The zone where the network will be created.</p>
+        </div>
+        <div className="grid gap-2">
+          <Label className="text-sm">IP Range (CIDR)</Label>
+          <Input placeholder="10.0.0.0/16" value={ipRange} onChange={(e) => setIpRange(e.target.value)} />
+          <p className="text-xs text-muted-foreground">The IP range for the network in CIDR notation.</p>
         </div>
       </div>
       <DialogFooter>
