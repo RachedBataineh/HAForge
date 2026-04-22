@@ -90,6 +90,22 @@ export const clusterRouter = router({
       }
       return Array.from(ids);
     }),
+  usedLoadBalancerIds: protectedProcedure
+    .input(z.object({ excludeClusterId: z.string().optional() }))
+    .query(async ({ input, ctx }) => {
+      const allClusters = await db.query.clusters.findMany({
+        where: and(
+          ne(clusters.status, "draft"),
+          eq(clusters.userId, ctx.session.user.id),
+        ),
+      });
+      const ids = new Set<string>();
+      for (const c of allClusters) {
+        if (c.id === input.excludeClusterId) continue;
+        if (c.loadBalancerId) ids.add(c.loadBalancerId);
+      }
+      return Array.from(ids);
+    }),
 
   hetznerServers: protectedProcedure
     .query(async ({ ctx }) => {
@@ -133,7 +149,7 @@ export const clusterRouter = router({
         name: lb.name,
         publicIp: lb.public_net?.ipv4?.ip || "",
         privateIp: lb.private_net?.[0]?.ip || "",
-        location: lb.location?.name || "",
+        location: lb.location?.city || lb.location?.name || "",
         type: lb.load_balancer_type?.name || "",
         targets: (lb.targets || []).map((t: any) => ({
           type: t.type,
@@ -389,7 +405,7 @@ export const clusterRouter = router({
         name: lb.name,
         publicIp: lb.public_net?.ipv4?.ip || "",
         privateIp: lb.private_net?.[0]?.ip || "",
-        location: lb.location?.name || "",
+        location: lb.location?.city || lb.location?.name || "",
         type: lb.load_balancer_type?.name || "",
         algorithm: lb.algorithm?.type || "",
         created: lb.created || "",

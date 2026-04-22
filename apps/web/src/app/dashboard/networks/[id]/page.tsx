@@ -470,12 +470,6 @@ function AddSubnetForm({ networkId, networkZone, suggested, onDone }: any) {
             </SelectContent>
           </Select>
         </div>
-        <div className="grid gap-2">
-          <Label className="text-sm">Type</Label>
-          <Select defaultValue="cloud" disabled>
-            <SelectTrigger className="w-full"><span>Cloud</span></SelectTrigger>
-          </Select>
-        </div>
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onDone}>Cancel</Button>

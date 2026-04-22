@@ -115,7 +115,16 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       { enabled: tokenReady && isLb },
     ),
   );
-  const hetznerLbList = (hetznerLoadBalancers.data ?? []) as any[];
+  const usedLbIds = useQuery(
+    trpc.cluster.usedLoadBalancerIds.queryOptions(
+      { excludeClusterId: clusterId },
+      { enabled: isLb },
+    ),
+  );
+  const usedLbIdSet = new Set((usedLbIds.data ?? []) as string[]);
+  const hetznerLbList = ((hetznerLoadBalancers.data ?? []) as any[]).filter(
+    (lb: any) => !usedLbIdSet.has(lb.id),
+  );
 
   const [selectedLbId, setSelectedLbId] = useState("");
   const [createLbName, setCreateLbName] = useState("");
@@ -219,6 +228,11 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       else if (PG_ROLES.some((r) => !pgServers[r.role]?.hetznerServerId)) setStep(isLb ? 1 : 1);
     }
   }, [usedServerIds.data, draftLoaded]);
+
+  // Clear selected LB if it's already used by another cluster
+  React.useEffect(() => {
+    if (selectedLbId && usedLbIdSet.has(selectedLbId)) setSelectedLbId("");
+  }, [usedLbIds.data]);
 
   const saveDraft = async (currentStep: number) => {
     setDraftSaving(true);
