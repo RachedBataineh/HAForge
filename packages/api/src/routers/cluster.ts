@@ -932,4 +932,107 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
       }).where(eq(servers.id, input.serverId));
       return { success: true };
     }),
+
+  pgNodeRoles: protectedProcedure
+    .input(z.object({ clusterId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const cluster = await db.query.clusters.findFirst({
+        where: eq(clusters.id, input.clusterId),
+        with: { servers: true },
+      });
+      if (!cluster) throw new Error("Cluster not found");
+
+      const u = await db.query.user.findFirst({ where: eq(user.id, ctx.session.user.id) });
+      const apiToken = u?.hetznerApiToken || "";
+
+      const pgServers = cluster.servers.filter((s) => s.role?.startsWith("postgresql"));
+      const roles: Record<string, "leader" | "replica" | "offline" | "unknown"> = {};
+
+      if (cluster.clusterType === "hetzner_lb" && cluster.loadBalancerId && apiToken) {
+        // LB mode: use health checks to determine leader
+        const lbRes = await fetch(`https://api.hetzner.cloud/v1/load_balancers/${cluster.loadBalancerId}`, {
+          headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
+        });
+        if (lbRes.ok) {
+          const lbData = await lbRes.json();
+          const lb = lbData.load_balancer;
+          const targets: any[] = lb.targets || [];
+          const healthyIds = new Set<string>();
+
+          for (const t of targets) {
+            if (t.type === "server" && t.server?.id) {
+              const healthStatuses: any[] = t.health_status || [];
+              const isHealthy = healthStatuses.some((h: any) => h.status === "healthy" && h.listen_port === 5432);
+              if (isHealthy) healthyIds.add(String(t.server.id));
+            }
+          }
+
+          // Get server power status
+          const srvRes = await fetch("https://api.hetzner.cloud/v1/servers", {
+            headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
+          });
+          const serverStatusMap = new Map<string, string>();
+          if (srvRes.ok) {
+            const srvData = await srvRes.json();
+            for (const srv of srvData.servers || []) {
+              serverStatusMap.set(String(srv.id), srv.status);
+            }
+          }
+
+          for (const s of pgServers) {
+            if (!s.hetznerServerId) { roles[s.role] = "unknown"; continue; }
+            if (healthyIds.has(s.hetznerServerId)) {
+              roles[s.role] = "leader";
+            } else {
+              const srvStatus = serverStatusMap.get(s.hetznerServerId);
+              roles[s.role] = srvStatus === "running" ? "replica" : "offline";
+            }
+          }
+        }
+      } else if (apiToken) {
+        // HAProxy mode: query Patroni REST API on each node
+        for (const s of pgServers) {
+          if (!s.ipAddress) { roles[s.role] = "unknown"; continue; }
+          try {
+            // Check server power status first
+            if (s.hetznerServerId) {
+              const srvRes = await fetch(`https://api.hetzner.cloud/v1/servers/${s.hetznerServerId}`, {
+                headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
+              });
+              if (srvRes.ok) {
+                const srvData = await srvRes.json();
+                if (srvData.server?.status !== "running") { roles[s.role] = "offline"; continue; }
+              }
+            }
+            const { SSHExecutor } = await import("../services/ssh-executor");
+            // Resolve private key
+            let privateKey: string | null = null;
+            if (s.sshKeyId) {
+              const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, s.sshKeyId) });
+              privateKey = key?.privateKey || null;
+            }
+            if (!privateKey) { roles[s.role] = "unknown"; continue; }
+
+            const ssh = new SSHExecutor({ host: s.ipAddress, port: s.sshPort || 22, username: s.sshUser || "root", privateKey });
+            await ssh.connect();
+            try {
+              const result = await ssh.exec("patronictl -c /etc/patroni/config.yml list --format json 2>/dev/null || echo '[]'");
+              const parsed = JSON.parse(result.stdout || "[]");
+              const me = parsed.find((p: any) => p.Role?.includes("Leader") || p.Role?.includes("Replica") || p.Role?.includes("Standby"));
+              if (me) {
+                roles[s.role] = me.Role?.includes("Leader") ? "leader" : "replica";
+              } else {
+                roles[s.role] = "unknown";
+              }
+            } finally {
+              await ssh.disconnect();
+            }
+          } catch {
+            roles[s.role] = "unknown";
+          }
+        }
+      }
+
+      return roles;
+    }),
 });

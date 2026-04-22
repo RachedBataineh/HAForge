@@ -27,13 +27,13 @@ import { toast } from "sonner";
 
 import { trpc, trpcClient } from "@/utils/trpc";
 
-const ROLE_LABELS: Record<string, { label: string; type: string }> = {
-  postgresql_1: { label: "PostgreSQL Node 1", type: "Primary" },
-  postgresql_2: { label: "PostgreSQL Node 2", type: "Replica" },
-  postgresql_3: { label: "PostgreSQL Node 3", type: "Replica" },
-  haproxy_1: { label: "HAProxy Node 1", type: "Master" },
-  haproxy_2: { label: "HAProxy Node 2", type: "Backup" },
-  haproxy_3: { label: "HAProxy Node 3", type: "Backup" },
+const ROLE_LABELS: Record<string, { label: string; defaultType: string }> = {
+  postgresql_1: { label: "PostgreSQL Node 1", defaultType: "Node" },
+  postgresql_2: { label: "PostgreSQL Node 2", defaultType: "Node" },
+  postgresql_3: { label: "PostgreSQL Node 3", defaultType: "Node" },
+  haproxy_1: { label: "HAProxy Node 1", defaultType: "Node" },
+  haproxy_2: { label: "HAProxy Node 2", defaultType: "Node" },
+  haproxy_3: { label: "HAProxy Node 3", defaultType: "Node" },
 };
 
 const statusColor: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -52,6 +52,13 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
 
   const cluster = useQuery(trpc.cluster.getById.queryOptions({ id: clusterId }));
   const [showPassword, setShowPassword] = useState(false);
+
+  const pgRoles = useQuery(
+    trpc.cluster.pgNodeRoles.queryOptions(
+      { clusterId },
+      { enabled: cluster.data?.status === "running", refetchInterval: 30000 },
+    ),
+  );
 
   const isLb = cluster.data?.clusterType === "hetzner_lb";
   const servers = cluster.data?.servers ?? [];
@@ -175,7 +182,10 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
         </h2>
         <div className="grid gap-3">
           {pgServers.map((server: any) => {
-            const roleInfo = ROLE_LABELS[server.role] || { label: server.role, type: "" };
+            const roleInfo = ROLE_LABELS[server.role] || { label: server.role, defaultType: "Node" };
+            const pgRole = (pgRoles.data as any)?.[server.role];
+            const displayType = pgRole === "leader" ? "Leader" : pgRole === "replica" ? "Replica" : pgRole === "offline" ? "Offline" : roleInfo.defaultType;
+            const badgeVariant = pgRole === "leader" ? "default" : pgRole === "replica" ? "secondary" : pgRole === "offline" ? "destructive" : "outline";
             return (
               <Card key={server.id}>
                 <CardContent className="flex items-center justify-between py-3">
@@ -192,7 +202,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                         Private: <code>{server.privateIpAddress}</code>
                       </span>
                     )}
-                    <Badge variant="secondary" className="text-xs">{roleInfo.type}</Badge>
+                    <Badge variant={badgeVariant} className="text-xs">{displayType}</Badge>
                   </div>
                 </CardContent>
               </Card>
@@ -244,7 +254,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
           </h2>
           <div className="grid gap-3">
             {haServers.map((server: any) => {
-              const roleInfo = ROLE_LABELS[server.role] || { label: server.role, type: "" };
+              const roleInfo = ROLE_LABELS[server.role] || { label: server.role, defaultType: "Node" };
               return (
                 <Card key={server.id}>
                   <CardContent className="flex items-center justify-between py-3">
@@ -266,7 +276,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                           Hetzner ID: <code>{server.hetznerServerId}</code>
                         </span>
                       )}
-                      <Badge variant="secondary" className="text-xs">{roleInfo.type}</Badge>
+                      <Badge variant="secondary" className="text-xs">{roleInfo.defaultType}</Badge>
                     </div>
                   </CardContent>
                 </Card>
