@@ -47,16 +47,37 @@ export const networkRouter = router({
   details: protectedProcedure
     .input(z.object({ apiToken: z.string(), networkId: z.string() }))
     .query(async ({ input }) => {
-      const [netRes, srvRes] = await Promise.all([
+      const [netRes, srvRes, lbRes] = await Promise.all([
         fetch(`${API}/networks/${input.networkId}`, { headers: headers(input.apiToken) }),
         fetch(`${API}/servers`, { headers: headers(input.apiToken) }),
+        fetch(`${API}/load_balancers`, { headers: headers(input.apiToken) }),
       ]);
       if (!netRes.ok) throw new Error(`Hetzner API error: ${netRes.status}`);
       const n = (await netRes.json()).network;
       const srvData = srvRes.ok ? await srvRes.json() : { servers: [] };
+      const lbData = lbRes.ok ? await lbRes.json() : { load_balancers: [] };
+
       const srvMap = new Map<string, any>();
       for (const s of srvData.servers || []) {
-        srvMap.set(String(s.id), { name: s.name, status: s.status, publicIp: s.public_net?.ipv4?.ip || "" });
+        const privateNet = (s.private_net || []).find((p: any) => String(p.network) === input.networkId);
+        srvMap.set(String(s.id), {
+          name: s.name,
+          status: s.status,
+          publicIp: s.public_net?.ipv4?.ip || "",
+          privateIp: privateNet?.ip || "",
+          attached: s.private_net?.some((p: any) => String(p.network) === input.networkId) || false,
+        });
+      }
+
+      const lbMap = new Map<string, any>();
+      for (const lb of lbData.load_balancers || []) {
+        const privateNet = (lb.private_net || []).find((p: any) => String(p.network) === input.networkId);
+        lbMap.set(String(lb.id), {
+          name: lb.name,
+          publicIp: lb.public_net?.ipv4?.ip || "",
+          privateIp: privateNet?.ip || "",
+          attached: lb.private_net?.some((p: any) => String(p.network) === input.networkId) || false,
+        });
       }
 
       return {
@@ -69,9 +90,14 @@ export const networkRouter = router({
         exposeRoutesToVswitch: n.expose_routes_to_vswitch || false,
         servers: (n.servers || []).map((id: any) => {
           const s = srvMap.get(String(id));
-          return { id: String(id), name: s?.name || String(id), status: s?.status || "unknown", publicIp: s?.publicIp || "" };
+          return { id: String(id), name: s?.name || String(id), status: s?.status || "unknown", publicIp: s?.publicIp || "", privateIp: s?.privateIp || "" };
         }),
-        loadBalancers: (n.load_balancers || []),
+        loadBalancers: (n.load_balancers || []).map((id: any) => {
+          const lb = lbMap.get(String(id));
+          return { id: String(id), name: lb?.name || `LB ${id}`, publicIp: lb?.publicIp || "", privateIp: lb?.privateIp || "" };
+        }),
+        allServers: [...srvMap.entries()].map(([id, s]) => ({ id, ...s })),
+        allLoadBalancers: [...lbMap.entries()].map(([id, lb]) => ({ id, ...lb })),
         subnets: (n.subnets || []).map((s: any) => ({
           type: s.type,
           ipRange: s.ip_range,
@@ -120,6 +146,115 @@ export const networkRouter = router({
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error?.message || `Delete failed: ${res.status}`);
+      }
+      return { success: true };
+    }),
+
+  addSubnet: protectedProcedure
+    .input(z.object({
+      apiToken: z.string(),
+      networkId: z.string(),
+      type: z.enum(["cloud", "server"]).default("cloud"),
+      networkZone: z.string().default("eu-central"),
+      ipRange: z.string().min(1),
+    }))
+    .mutation(async ({ input }) => {
+      const res = await fetch(`${API}/networks/${input.networkId}/actions/add_subnet`, {
+        method: "POST",
+        headers: headers(input.apiToken),
+        body: JSON.stringify({
+          type: input.type,
+          network_zone: input.networkZone,
+          ip_range: input.ipRange,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || `Add subnet failed: ${res.status}`);
+      }
+      return { success: true };
+    }),
+
+  deleteSubnet: protectedProcedure
+    .input(z.object({ apiToken: z.string(), networkId: z.string(), ipRange: z.string() }))
+    .mutation(async ({ input }) => {
+      const res = await fetch(`${API}/networks/${input.networkId}/actions/delete_subnet`, {
+        method: "POST",
+        headers: headers(input.apiToken),
+        body: JSON.stringify({ ip_range: input.ipRange }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || `Delete subnet failed: ${res.status}`);
+      }
+      return { success: true };
+    }),
+
+  attachServer: protectedProcedure
+    .input(z.object({
+      apiToken: z.string(),
+      networkId: z.string(),
+      serverId: z.string(),
+      ip: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const body: any = { network: Number(input.networkId) };
+      if (input.ip) body.ip = input.ip;
+      const res = await fetch(`${API}/servers/${input.serverId}/actions/attach_to_network`, {
+        method: "POST",
+        headers: headers(input.apiToken),
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || `Attach server failed: ${res.status}`);
+      }
+      return { success: true };
+    }),
+
+  detachServer: protectedProcedure
+    .input(z.object({ apiToken: z.string(), networkId: z.string(), serverId: z.string() }))
+    .mutation(async ({ input }) => {
+      const res = await fetch(`${API}/servers/${input.serverId}/actions/detach_from_network`, {
+        method: "POST",
+        headers: headers(input.apiToken),
+        body: JSON.stringify({ network: Number(input.networkId) }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || `Detach server failed: ${res.status}`);
+      }
+      return { success: true };
+    }),
+
+  attachLoadBalancer: protectedProcedure
+    .input(z.object({ apiToken: z.string(), networkId: z.string(), loadBalancerId: z.string(), ip: z.string().optional() }))
+    .mutation(async ({ input }) => {
+      const body: any = { network: Number(input.networkId) };
+      if (input.ip) body.ip = input.ip;
+      const res = await fetch(`${API}/load_balancers/${input.loadBalancerId}/actions/attach_to_network`, {
+        method: "POST",
+        headers: headers(input.apiToken),
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || `Attach LB failed: ${res.status}`);
+      }
+      return { success: true };
+    }),
+
+  detachLoadBalancer: protectedProcedure
+    .input(z.object({ apiToken: z.string(), networkId: z.string(), loadBalancerId: z.string() }))
+    .mutation(async ({ input }) => {
+      const res = await fetch(`${API}/load_balancers/${input.loadBalancerId}/actions/detach_from_network`, {
+        method: "POST",
+        headers: headers(input.apiToken),
+        body: JSON.stringify({ network: Number(input.networkId) }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || `Detach LB failed: ${res.status}`);
       }
       return { success: true };
     }),
