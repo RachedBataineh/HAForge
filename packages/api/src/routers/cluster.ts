@@ -1199,6 +1199,42 @@ export const clusterRouter = router({
       return { success: true };
     }),
 
+  hetznerRebuildServer: protectedProcedure
+    .input(z.object({ serverId: z.string(), image: z.string().default("ubuntu-24.04") }))
+    .mutation(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      // Power off first
+      await fetch(`${HETZNER_API}/servers/${input.serverId}/actions/poweroff`, {
+        method: "POST",
+        headers: hetznerHeaders(token),
+      }).catch(() => {});
+      await new Promise((r) => setTimeout(r, 3000));
+      // Rebuild with fresh image
+      const res = await fetch(`${HETZNER_API}/servers/${input.serverId}/actions/rebuild`, {
+        method: "POST",
+        headers: hetznerHeaders(token),
+        body: JSON.stringify({ image: input.image }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || `Rebuild failed: ${res.status}`);
+      }
+      // Clear cached info since it's now a fresh OS
+      const dbServer = await db.query.servers.findFirst({
+        where: eq(servers.hetznerServerId, input.serverId),
+      });
+      if (dbServer) {
+        await db.update(servers).set({
+          cachedHostname: null, cachedOs: null, cachedArch: null, cachedCpuCores: null,
+          cachedRamMB: null, cachedKernel: null, cachedUptime: null, cachedTimezone: null,
+          cachedDiskTotal: null, cachedDiskUsed: null, cachedDiskFree: null, cachedDiskPercent: null,
+          lastFetchedAt: null,
+        }).where(eq(servers.id, dbServer.id));
+      }
+      return { success: true };
+    }),
+
   hetznerDeleteServer: protectedProcedure
     .input(z.object({ serverId: z.string() }))
     .mutation(async ({ input, ctx }) => {

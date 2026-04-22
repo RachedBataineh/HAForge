@@ -15,12 +15,12 @@ import {
   SelectValue,
 } from "@HAForge/ui/components/select";
 import { Loader2, Save, RotateCw, AlertCircle, Trash2, AlertTriangle } from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import React, { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 
-import { trpcClient } from "@/utils/trpc";
+import { trpc, trpcClient } from "@/utils/trpc";
 
 const COMMON_TIMEZONES = [
   "UTC",
@@ -50,6 +50,9 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
   const [refreshing, setRefreshing] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [rebuildOpen, setRebuildOpen] = useState(false);
+  const [rebuildConfirm, setRebuildConfirm] = useState("");
+  const [rebuildImage, setRebuildImage] = useState("ubuntu-24.04");
 
   const serverOff = serverIsOn === false;
 
@@ -122,6 +125,22 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
       router.push("/dashboard/servers");
     },
     onError: (err) => toast.error(`Destroy failed: ${err.message}`),
+  });
+
+  const rebuildServer = useMutation({
+    mutationFn: async () => {
+      const hetznerId = server.hetznerServerId;
+      if (!hetznerId) throw new Error("No Hetzner server ID");
+      await trpcClient.cluster.hetznerRebuildServer.mutate({ serverId: hetznerId, image: rebuildImage });
+    },
+    onSuccess: () => {
+      toast.success("Server is being rebuilt with a fresh OS. This may take a few minutes.");
+      queryClient.invalidateQueries({ queryKey: [["cluster", "allServers"]] });
+      queryClient.invalidateQueries({ queryKey: [["cluster", "hetznerServerInfo"]] });
+      setRebuildOpen(false);
+      setRebuildConfirm("");
+    },
+    onError: (err) => toast.error(`Rebuild failed: ${err.message}`),
   });
 
   const isInCluster = !!server.clusterId && server.clusterStatus !== "draft";
@@ -278,8 +297,8 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
             </CardContent>
           </Card>
 
-          {/* Timezone & Danger Zone */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Timezone, Rebuild & Danger Zone */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Timezone */}
             <Card>
               <CardHeader>
@@ -318,6 +337,42 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
               </CardContent>
             </Card>
 
+            {/* Rebuild */}
+            {server.hetznerServerId && (
+              <Card className="border-orange-500/30">
+                <CardHeader>
+                  <CardTitle className="text-base text-orange-600 dark:text-orange-400 flex items-center gap-2">
+                    <RotateCw className="size-4" />
+                    Rebuild
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-sm font-medium">Wipe & reinstall OS</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Rebuilds the server with a fresh image. All data will be erased.
+                      </p>
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label className="text-xs">Image</Label>
+                      <ImageSelect value={rebuildImage} onChange={setRebuildImage} />
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 border-orange-500/40 text-orange-600 hover:bg-orange-500/10 hover:text-orange-700"
+                      onClick={() => setRebuildOpen(true)}
+                      disabled={rebuildServer.isPending}
+                    >
+                      <RotateCw className="size-3.5" />
+                      Rebuild Server
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Danger Zone */}
             {server.hetznerServerId && (
               <Card className="border-destructive/30">
@@ -332,7 +387,7 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
                     <div>
                       <p className="text-sm font-medium">Delete this server</p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        This will permanently destroy the Hetzner server and all its data. This action cannot be undone.
+                        Permanently destroy the Hetzner server and all its data.
                       </p>
                     </div>
                     <Button
@@ -350,6 +405,28 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
               </Card>
             )}
           </div>
+
+          {/* Rebuild Confirmation Dialog */}
+          <Dialog open={rebuildOpen} onOpenChange={(open) => { setRebuildOpen(open); if (!open) setRebuildConfirm(""); }}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-orange-600 dark:text-orange-400">
+                  <RotateCw className="size-5" />
+                  Rebuild Server
+                </DialogTitle>
+              </DialogHeader>
+              <RebuildForm
+                serverName={serverName}
+                selectedImage={rebuildImage}
+                onImageChange={setRebuildImage}
+                confirmValue={rebuildConfirm}
+                onConfirmChange={setRebuildConfirm}
+                onConfirm={() => rebuildServer.mutate()}
+                onCancel={() => { setRebuildOpen(false); setRebuildConfirm(""); }}
+                isPending={rebuildServer.isPending}
+              />
+            </DialogContent>
+          </Dialog>
 
           {/* Delete Confirmation Dialog */}
           <Dialog open={deleteOpen} onOpenChange={(open) => { setDeleteOpen(open); if (!open) setDeleteConfirm(""); }}>
@@ -420,6 +497,82 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
           </Dialog>
         </>
       )}
+    </div>
+  );
+}
+
+function ImageSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const images = useQuery(trpc.cluster.hetznerImages.queryOptions({}));
+  const imageData = (images.data ?? []) as any[];
+
+  return (
+    <Select value={value} onValueChange={(v) => onChange(v ?? "ubuntu-24.04")}>
+      <SelectTrigger className="w-full">
+        {value
+          ? <span>{imageData.find((i: any) => i.name === value)?.description || value}</span>
+          : <span className="text-muted-foreground">Select an image</span>}
+      </SelectTrigger>
+      <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
+        {imageData.map((i: any) => (
+          <SelectItem key={i.id} value={i.name}>
+            {i.description} ({i.os} {i.version})
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function RebuildForm({ serverName, selectedImage, onImageChange, confirmValue, onConfirmChange, onConfirm, onCancel, isPending }: {
+  serverName: string;
+  selectedImage: string;
+  onImageChange: (v: string) => void;
+  confirmValue: string;
+  onConfirmChange: (v: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+  isPending: boolean;
+}) {
+  return (
+    <div className="space-y-3 py-2">
+      <p className="text-sm text-muted-foreground">
+        This will wipe <span className="font-semibold text-foreground">{serverName}</span> and install a fresh OS. All data will be erased.
+      </p>
+      <div className="grid gap-2">
+        <Label className="text-sm">Image</Label>
+        <ImageSelect value={selectedImage} onChange={onImageChange} />
+      </div>
+      <div className="rounded-md bg-orange-500/5 border border-orange-500/20 p-3 space-y-1">
+        <p className="text-sm font-medium text-orange-600 dark:text-orange-400">What happens:</p>
+        <ul className="text-sm text-muted-foreground list-disc list-inside">
+          <li>Server is powered off</li>
+          <li>Disk is wiped and the selected image is installed</li>
+          <li>Server powers back on automatically</li>
+          <li>Cached system info is cleared</li>
+        </ul>
+      </div>
+      <p className="text-sm">
+        Type <span className="font-mono font-semibold bg-muted px-1.5 py-0.5 rounded">{serverName}</span> to confirm:
+      </p>
+      <Input
+        placeholder={serverName}
+        value={confirmValue}
+        onChange={(e) => onConfirmChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && confirmValue === serverName) onConfirm();
+        }}
+      />
+      <DialogFooter>
+        <Button variant="outline" onClick={onCancel}>Cancel</Button>
+        <Button
+          className="bg-orange-600 hover:bg-orange-700 text-white"
+          disabled={confirmValue !== serverName || isPending}
+          onClick={onConfirm}
+        >
+          {isPending ? <Loader2 className="size-4 animate-spin mr-2" /> : <RotateCw className="size-4 mr-2" />}
+          Rebuild Server
+        </Button>
+      </DialogFooter>
     </div>
   );
 }
