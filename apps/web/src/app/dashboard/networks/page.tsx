@@ -1,0 +1,239 @@
+"use client";
+
+import { Badge } from "@HAForge/ui/components/badge";
+import { Button } from "@HAForge/ui/components/button";
+import { Card, CardContent } from "@HAForge/ui/components/card";
+import { Input } from "@HAForge/ui/components/input";
+import { Label } from "@HAForge/ui/components/label";
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from "@HAForge/ui/components/dialog";
+import { Globe, Plus, Loader2, Trash2 } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import React, { useState } from "react";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+
+import { trpc, trpcClient } from "@/utils/trpc";
+
+export default function NetworksPage() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteNet, setDeleteNet] = useState<{ id: string; name: string } | null>(null);
+  const [deleteName, setDeleteName] = useState("");
+
+  const profile = useQuery(trpc.settings.getProfile.queryOptions());
+  const apiToken = profile.data?.hetznerApiToken || "";
+
+  const networks = useQuery(
+    trpc.network.list.queryOptions(
+      { apiToken },
+      { enabled: !!apiToken },
+    ),
+  );
+
+  const netList = (networks.data ?? []) as any[];
+
+  const deleteMutation = useMutation({
+    mutationFn: async ({ id }: { id: string }) => {
+      return await trpcClient.network.delete.mutate({ apiToken, networkId: id });
+    },
+    onSuccess: () => {
+      toast.success("Network deleted");
+      queryClient.invalidateQueries(trpc.network.list.queryFilter());
+      setDeleteOpen(false);
+      setDeleteNet(null);
+      setDeleteName("");
+    },
+    onError: (err) => toast.error(`Failed: ${err.message}`),
+  });
+
+  if (!apiToken) {
+    return (
+      <div className="p-6 space-y-6">
+        <h1 className="text-2xl font-bold tracking-tight">Networks</h1>
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Globe className="size-12 text-muted-foreground/30 mx-auto mb-4" />
+            <p className="text-muted-foreground">Add your Hetzner API token in Settings to manage networks.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Networks</h1>
+          <p className="text-muted-foreground">Manage Hetzner Cloud Private Networks</p>
+        </div>
+        <Button size="sm" className="gap-2" onClick={() => setCreateOpen(true)}>
+          <Plus className="size-4" />
+          Create Network
+        </Button>
+      </div>
+
+      {networks.isLoading && (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            <Loader2 className="size-4 animate-spin mx-auto mb-2" />
+            Loading networks...
+          </CardContent>
+        </Card>
+      )}
+
+      {!networks.isLoading && netList.length === 0 && (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Globe className="size-12 text-muted-foreground/30 mx-auto mb-4" />
+            <p className="text-muted-foreground">No networks found. Create one to get started.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {netList.length > 0 && (
+        <div className="grid gap-3">
+          {netList.map((n: any) => (
+            <Card key={n.id} className="cursor-pointer hover:border-primary/50 transition-colors"
+              onClick={() => router.push(`/dashboard/networks/${n.id}`)}
+            >
+              <CardContent className="flex items-center justify-between py-3">
+                <div className="flex items-center gap-3">
+                  <Globe className="size-4 text-muted-foreground" />
+                  <div>
+                    <p className="font-medium text-sm">{n.name}</p>
+                    <p className="text-xs text-muted-foreground font-mono">{n.ipRange}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Badge variant="secondary">{n.serverCount} servers</Badge>
+                  {n.loadBalancerCount > 0 && (
+                    <Badge variant="outline">{n.loadBalancerCount} LBs</Badge>
+                  )}
+                  {n.subnets?.length > 0 && (
+                    <span className="text-xs text-muted-foreground">{n.subnets.length} subnet{n.subnets.length > 1 ? "s" : ""}</span>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteNet({ id: n.id, name: n.name });
+                      setDeleteOpen(true);
+                    }}
+                  >
+                    <Trash2 className="size-3.5 text-muted-foreground hover:text-destructive" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Create Dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Network</DialogTitle>
+          </DialogHeader>
+          <CreateNetworkForm
+            apiToken={apiToken}
+            onCreated={() => {
+              networks.refetch();
+              setCreateOpen(false);
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Network</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Type <span className="font-mono font-semibold">{deleteNet?.name}</span> to confirm deletion.
+          </p>
+          <Input
+            placeholder={deleteNet?.name}
+            value={deleteName}
+            onChange={(e) => setDeleteName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && deleteName === deleteNet?.name && deleteNet) {
+                deleteMutation.mutate({ id: deleteNet.id });
+              }
+            }}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setDeleteOpen(false); setDeleteNet(null); setDeleteName(""); }}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteName !== deleteNet?.name || deleteMutation.isPending}
+              onClick={() => {
+                if (deleteNet) deleteMutation.mutate({ id: deleteNet.id });
+              }}
+            >
+              {deleteMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function CreateNetworkForm({ apiToken, onCreated }: { apiToken: string; onCreated: () => void }) {
+  const [name, setName] = useState("");
+  const [ipRange, setIpRange] = useState("10.0.0.0/16");
+  const [creating, setCreating] = useState(false);
+
+  const handleCreate = async () => {
+    if (!name || !ipRange) {
+      toast.error("Please fill in all fields");
+      return;
+    }
+    setCreating(true);
+    try {
+      await trpcClient.network.create.mutate({ apiToken, name, ipRange });
+      toast.success(`Network "${name}" created successfully`);
+      setName("");
+      setIpRange("10.0.0.0/16");
+      onCreated();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="grid gap-4 py-2">
+        <div className="grid gap-2">
+          <Label className="text-sm">Name</Label>
+          <Input placeholder="my-network" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="grid gap-2">
+          <Label className="text-sm">IP Range (CIDR)</Label>
+          <Input placeholder="10.0.0.0/16" value={ipRange} onChange={(e) => setIpRange(e.target.value)} />
+          <p className="text-xs text-muted-foreground">The IP range for the network in CIDR notation.</p>
+        </div>
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={() => onCreated()}>Cancel</Button>
+        <Button onClick={handleCreate} disabled={!name || !ipRange || creating}>
+          {creating ? <Loader2 className="size-4 animate-spin mr-2" /> : <Plus className="size-4 mr-2" />}
+          Create
+        </Button>
+      </DialogFooter>
+    </>
+  );
+}
