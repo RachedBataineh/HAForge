@@ -2,6 +2,10 @@
 
 import { Button } from "@HAForge/ui/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@HAForge/ui/components/card";
+import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from "@HAForge/ui/components/dialog";
+import { Input } from "@HAForge/ui/components/input";
 import { Label } from "@HAForge/ui/components/label";
 import {
   Select,
@@ -10,10 +14,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@HAForge/ui/components/select";
-import { Loader2, Save, RotateCw, AlertCircle } from "lucide-react";
+import { Loader2, Save, RotateCw, AlertCircle, Trash2, AlertTriangle } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import React, { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 
 import { trpcClient } from "@/utils/trpc";
 
@@ -40,8 +45,11 @@ const COMMON_TIMEZONES = [
 
 export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { server: any; serverIsOn?: boolean; hetznerInfo?: any }) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [selectedTz, setSelectedTz] = useState(server.cachedTimezone || "");
   const [refreshing, setRefreshing] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
 
   const serverOff = serverIsOn === false;
 
@@ -79,6 +87,21 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
       queryClient.invalidateQueries({ queryKey: [["cluster", "allServers"]] });
     },
     onError: (err) => toast.error(`Failed: ${err.message}`),
+  });
+
+  const deleteServer = useMutation({
+    mutationFn: async () => {
+      const hetznerId = server.hetznerServerId;
+      if (!hetznerId) throw new Error("No Hetzner server ID");
+      await trpcClient.cluster.hetznerDeleteServer.mutate({ serverId: hetznerId });
+    },
+    onSuccess: () => {
+      toast.success("Server deleted");
+      queryClient.invalidateQueries({ queryKey: [["cluster", "allServers"]] });
+      queryClient.invalidateQueries({ queryKey: [["cluster", "allHetznerServers"]] });
+      router.push("/dashboard/servers");
+    },
+    onError: (err) => toast.error(`Delete failed: ${err.message}`),
   });
 
   const hasCachedData = !!server.cachedHostname;
@@ -231,43 +254,125 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
             </CardContent>
           </Card>
 
-          {/* Timezone */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Timezone</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {serverOff ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                  <AlertCircle className="size-4" />
-                  Server must be running to change timezone.
-                </div>
-              ) : (
-                <div className="flex items-end justify-between gap-4">
-                  <div className="grid gap-1.5 max-w-xs">
-                    <Label className="text-xs">Current Timezone</Label>
-                    <Select value={selectedTz} onValueChange={(val: string | null) => setSelectedTz(val ?? "")}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="!w-auto min-w-[260px]" side="bottom">
-                        {COMMON_TIMEZONES.map((tz) => (
-                          <SelectItem key={tz} value={tz}>{tz}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+          {/* Timezone & Danger Zone */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Timezone */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Timezone</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {serverOff ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                    <AlertCircle className="size-4" />
+                    Server must be running to change timezone.
                   </div>
-                  <Button
-                    onClick={() => setTimezone.mutate(selectedTz)}
-                    disabled={selectedTz === server.cachedTimezone || setTimezone.isPending}
-                  >
-                    {setTimezone.isPending ? <Loader2 className="size-4 animate-spin mr-2" /> : <Save className="size-4 mr-2" />}
-                    Save
-                  </Button>
+                ) : (
+                  <div className="flex items-end justify-between gap-4">
+                    <div className="grid gap-1.5 max-w-xs">
+                      <Label className="text-xs">Current Timezone</Label>
+                      <Select value={selectedTz} onValueChange={(val: string | null) => setSelectedTz(val ?? "")}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="!w-auto min-w-[260px]" side="bottom">
+                          {COMMON_TIMEZONES.map((tz) => (
+                            <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      onClick={() => setTimezone.mutate(selectedTz)}
+                      disabled={selectedTz === server.cachedTimezone || setTimezone.isPending}
+                    >
+                      {setTimezone.isPending ? <Loader2 className="size-4 animate-spin mr-2" /> : <Save className="size-4 mr-2" />}
+                      Save
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Danger Zone */}
+            {server.hetznerServerId && (
+              <Card className="border-destructive/30">
+                <CardHeader>
+                  <CardTitle className="text-base text-destructive flex items-center gap-2">
+                    <AlertTriangle className="size-4" />
+                    Danger Zone
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-sm font-medium">Delete this server</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        This will permanently destroy the Hetzner server and all its data. This action cannot be undone.
+                      </p>
+                    </div>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => setDeleteOpen(true)}
+                      disabled={deleteServer.isPending}
+                    >
+                      <Trash2 className="size-3.5" />
+                      Delete Server
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Delete Confirmation Dialog */}
+          <Dialog open={deleteOpen} onOpenChange={(open) => { setDeleteOpen(open); if (!open) setDeleteConfirm(""); }}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-destructive">
+                  <AlertTriangle className="size-5" />
+                  Delete Server
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 py-2">
+                <p className="text-sm text-muted-foreground">
+                  This will permanently destroy the server <span className="font-semibold text-foreground">{hetznerInfo?.name || server.ipAddress}</span> and all its data. This action cannot be undone.
+                </p>
+                <div className="rounded-md bg-destructive/5 border border-destructive/20 p-3 text-sm text-destructive">
+                  All data on this server will be permanently lost, including databases, configurations, and files.
                 </div>
-              )}
-            </CardContent>
-          </Card>
+                <p className="text-sm">
+                  Type <span className="font-mono font-semibold bg-muted px-1.5 py-0.5 rounded">{hetznerInfo?.name || server.ipAddress}</span> to confirm:
+                </p>
+                <Input
+                  placeholder={hetznerInfo?.name || server.ipAddress}
+                  value={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  onKeyDown={(e) => {
+                    const expected = hetznerInfo?.name || server.ipAddress;
+                    if (e.key === "Enter" && deleteConfirm === expected) {
+                      deleteServer.mutate();
+                    }
+                  }}
+                />
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setDeleteOpen(false); setDeleteConfirm(""); }}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={deleteConfirm !== (hetznerInfo?.name || server.ipAddress) || deleteServer.isPending}
+                  onClick={() => deleteServer.mutate()}
+                >
+                  {deleteServer.isPending ? <Loader2 className="size-4 animate-spin mr-2" /> : <Trash2 className="size-4 mr-2" />}
+                  Delete Server
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </>
       )}
     </div>

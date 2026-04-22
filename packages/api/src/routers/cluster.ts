@@ -995,6 +995,29 @@ export const clusterRouter = router({
       return { success: true };
     }),
 
+  hetznerDeleteServer: protectedProcedure
+    .input(z.object({ serverId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${HETZNER_API}/servers/${input.serverId}`, {
+        method: "DELETE",
+        headers: hetznerHeaders(token),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || `Delete failed: ${res.status}`);
+      }
+      // Also remove from DB if linked
+      const dbServer = await db.query.servers.findFirst({
+        where: eq(servers.hetznerServerId, input.serverId),
+      });
+      if (dbServer) {
+        await db.delete(servers).where(eq(servers.id, dbServer.id));
+      }
+      return { success: true };
+    }),
+
   pgNodeRoles: protectedProcedure
     .input(z.object({ clusterId: z.string() }))
     .query(async ({ input, ctx }) => {
