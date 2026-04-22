@@ -9,6 +9,10 @@ import {
   CardTitle,
 } from "@HAForge/ui/components/card";
 import {
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+} from "@HAForge/ui/components/dialog";
+import { Input } from "@HAForge/ui/components/input";
+import {
   Database,
   Globe,
   CheckCircle2,
@@ -19,8 +23,10 @@ import {
   Copy,
   Plug,
   Cloud,
+  AlertTriangle,
+  Loader2,
 } from "lucide-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 import { toast } from "sonner";
@@ -65,10 +71,47 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
   const pgServers = servers.filter((s: any) => s.role?.startsWith("postgresql"));
   const haServers = servers.filter((s: any) => s.role?.startsWith("haproxy"));
 
-  const deleteCluster = async () => {
-    if (!confirm("Are you sure you want to delete this cluster? This cannot be undone.")) return;
+  const [destroyOpen, setDestroyOpen] = useState(false);
+  const [destroyConfirm, setDestroyConfirm] = useState("");
+  const [destroyMode, setDestroyMode] = useState<"delete" | "clean">("delete");
+
+  const destroyCluster = useMutation({
+    mutationFn: async () => {
+      const result = await trpcClient.cluster.destroyCluster.mutate({ clusterId });
+      return result as any;
+    },
+    onSuccess: (data) => {
+      const failed = (data?.results || []).filter((r: any) => r.status === "failed");
+      if (failed.length > 0) {
+        toast.warning(`Cluster destroyed with ${failed.length} warnings`);
+      } else {
+        toast.success("Cluster and all servers destroyed");
+      }
+      router.push("/dashboard/clusters");
+    },
+    onError: (err) => toast.error(`Destroy failed: ${err.message}`),
+  });
+
+  const cleanCluster = useMutation({
+    mutationFn: async () => {
+      const result = await trpcClient.cluster.cleanCluster.mutate({ clusterId });
+      return result as any;
+    },
+    onSuccess: (data) => {
+      const failed = (data?.results || []).filter((r: any) => r.status === "failed");
+      if (failed.length > 0) {
+        toast.warning(`Cluster cleaned with ${failed.length} warnings`);
+      } else {
+        toast.success("Cluster removed — servers wiped clean");
+      }
+      router.push("/dashboard/servers");
+    },
+    onError: (err) => toast.error(`Clean failed: ${err.message}`),
+  });
+
+  const deleteDraft = async () => {
     await trpcClient.cluster.delete.mutate({ id: clusterId });
-    toast.success("Cluster deleted");
+    toast.success("Draft cluster deleted");
     router.push("/dashboard/clusters");
   };
 
@@ -111,9 +154,16 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
             <RotateCcw className="size-4 mr-2" />
             Redeploy
           </Button>
-          <Button variant="destructive" size="icon" onClick={deleteCluster}>
-            <Trash2 className="size-4" />
-          </Button>
+          {cluster.data.status === "draft" ? (
+            <Button variant="destructive" size="icon" onClick={deleteDraft}>
+              <Trash2 className="size-4" />
+            </Button>
+          ) : (
+            <Button variant="destructive" size="sm" className="gap-2" onClick={() => setDestroyOpen(true)}>
+              <AlertTriangle className="size-4" />
+              Destroy
+            </Button>
+          )}
         </div>
       </div>
 
@@ -286,6 +336,135 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
           </div>
         </div>
       )}
+
+      {/* Destroy Cluster Dialog */}
+      <Dialog open={destroyOpen} onOpenChange={(open) => { setDestroyOpen(open); if (!open) { setDestroyConfirm(""); setDestroyMode("delete"); } }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="size-5" />
+              Destroy Cluster
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {/* Mode selection */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setDestroyMode("delete")}
+                className={`rounded-lg border-2 p-3 text-left transition-colors ${
+                  destroyMode === "delete"
+                    ? "border-destructive bg-destructive/5"
+                    : "border-muted hover:border-muted-foreground/30"
+                }`}
+              >
+                <p className="text-sm font-semibold">Delete Everything</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Destroy all Hetzner servers, LB, floating IP, and cluster data
+                </p>
+              </button>
+              <button
+                onClick={() => setDestroyMode("clean")}
+                className={`rounded-lg border-2 p-3 text-left transition-colors ${
+                  destroyMode === "clean"
+                    ? "border-orange-500 bg-orange-500/5"
+                    : "border-muted hover:border-muted-foreground/30"
+                }`}
+              >
+                <p className="text-sm font-semibold">Clean & Rebuild</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Keep servers but wipe them with a fresh OS image. Delete cluster data
+                </p>
+              </button>
+            </div>
+
+            {/* What will happen */}
+            {destroyMode === "delete" ? (
+              <div className="rounded-md bg-destructive/5 border border-destructive/20 p-3 space-y-2">
+                <p className="text-sm font-medium text-destructive">All of the following will be permanently deleted:</p>
+                <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
+                  {servers.map((s: any) => (
+                    <li key={s.id}>
+                      Server: {s.ipAddress || s.hetznerServerId || s.id}
+                      {s.hetznerServerId ? " (Hetzner VM)" : " (DB only)"}
+                    </li>
+                  ))}
+                  {isLb && cluster.data.loadBalancerId && (
+                    <li>Load Balancer: {cluster.data.loadBalancerIp || cluster.data.loadBalancerId}</li>
+                  )}
+                  {!isLb && cluster.data.floatingIp && (
+                    <li>Floating IP: {cluster.data.floatingIp}</li>
+                  )}
+                  <li>All cluster data, execution history, and logs</li>
+                </ul>
+              </div>
+            ) : (
+              <div className="rounded-md bg-orange-500/5 border border-orange-500/20 p-3 space-y-2">
+                <p className="text-sm font-medium text-orange-600 dark:text-orange-400">Servers will be wiped clean with a fresh OS:</p>
+                <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
+                  {servers.filter((s: any) => s.hetznerServerId).map((s: any) => (
+                    <li key={s.id}>
+                      Server {s.ipAddress || s.hetznerServerId} — rebuilt with Ubuntu 24.04
+                    </li>
+                  ))}
+                  {servers.some((s: any) => !s.hetznerServerId) && (
+                    <li>{servers.filter((s: any) => !s.hetznerServerId).length} DB-only server(s) removed from records</li>
+                  )}
+                  {isLb && cluster.data.loadBalancerId && (
+                    <li>Load Balancer: {cluster.data.loadBalancerIp || cluster.data.loadBalancerId} — deleted</li>
+                  )}
+                  {!isLb && cluster.data.floatingIp && (
+                    <li>Floating IP: {cluster.data.floatingIp} — released</li>
+                  )}
+                  <li>All cluster data, execution history, and logs — deleted</li>
+                </ul>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Servers will remain in your Hetzner account with a clean Ubuntu installation. You can reassign them to a new cluster.
+                </p>
+              </div>
+            )}
+
+            <p className="text-sm">
+              Type <span className="font-mono font-semibold bg-muted px-1.5 py-0.5 rounded">{cluster.data.name}</span> to confirm:
+            </p>
+            <Input
+              placeholder={cluster.data.name}
+              value={destroyConfirm}
+              onChange={(e) => setDestroyConfirm(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && destroyConfirm === cluster.data.name) {
+                  if (destroyMode === "delete") destroyCluster.mutate();
+                  else cleanCluster.mutate();
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setDestroyOpen(false); setDestroyConfirm(""); }}>
+              Cancel
+            </Button>
+            {destroyMode === "delete" ? (
+              <Button
+                variant="destructive"
+                disabled={destroyConfirm !== cluster.data.name || destroyCluster.isPending}
+                onClick={() => destroyCluster.mutate()}
+              >
+                {destroyCluster.isPending ? <Loader2 className="size-4 animate-spin mr-2" /> : <Trash2 className="size-4 mr-2" />}
+                Delete Everything
+              </Button>
+            ) : (
+              <Button
+                variant="destructive"
+                className="bg-orange-600 hover:bg-orange-700"
+                disabled={destroyConfirm !== cluster.data.name || cleanCluster.isPending}
+                onClick={() => cleanCluster.mutate()}
+              >
+                {cleanCluster.isPending ? <Loader2 className="size-4 animate-spin mr-2" /> : <RotateCcw className="size-4 mr-2" />}
+                Clean & Rebuild
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

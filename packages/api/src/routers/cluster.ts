@@ -1,5 +1,5 @@
 import { db } from "@HAForge/db";
-import { clusters, servers, sshKeys, user } from "@HAForge/db";
+import { clusters, executions, servers, sshKeys, user } from "@HAForge/db";
 import { eq, ne, and } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
@@ -452,6 +452,210 @@ export const clusterRouter = router({
       const result = await db.delete(clusters).where(and(eq(clusters.id, input.id), eq(clusters.userId, ctx.session.user.id)));
       if (!result.rowCount) throw new Error("Cluster not found or access denied");
       return { success: true };
+    }),
+
+  destroyCluster: protectedProcedure
+    .input(z.object({ clusterId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const cluster = await db.query.clusters.findFirst({
+        where: and(eq(clusters.id, input.clusterId), eq(clusters.userId, ctx.session.user.id)),
+        with: { servers: true },
+      });
+      if (!cluster) throw new Error("Cluster not found");
+
+      const token = await getUserApiToken(ctx.session.user.id);
+      const results: { resource: string; action: string; status: string; error?: string }[] = [];
+
+      // 1. Delete Hetzner servers
+      for (const server of cluster.servers) {
+        if (server.hetznerServerId && token) {
+          try {
+            const res = await fetch(`${HETZNER_API}/servers/${server.hetznerServerId}`, {
+              method: "DELETE",
+              headers: hetznerHeaders(token),
+            });
+            if (res.ok) {
+              results.push({ resource: `Server ${server.hetznerServerId}`, action: "deleted", status: "ok" });
+            } else {
+              const err = await res.json().catch(() => ({}));
+              results.push({ resource: `Server ${server.hetznerServerId}`, action: "delete", status: "failed", error: err.error?.message || `HTTP ${res.status}` });
+            }
+          } catch (err: any) {
+            results.push({ resource: `Server ${server.hetznerServerId}`, action: "delete", status: "failed", error: err.message });
+          }
+        }
+      }
+
+      // 2. Delete Load Balancer (LB mode)
+      if (cluster.loadBalancerId && token) {
+        try {
+          const res = await fetch(`${HETZNER_API}/load_balancers/${cluster.loadBalancerId}`, {
+            method: "DELETE",
+            headers: hetznerHeaders(token),
+          });
+          if (res.ok) {
+            results.push({ resource: `Load Balancer ${cluster.loadBalancerId}`, action: "deleted", status: "ok" });
+          } else {
+            const err = await res.json().catch(() => ({}));
+            results.push({ resource: `Load Balancer ${cluster.loadBalancerId}`, action: "delete", status: "failed", error: err.error?.message || `HTTP ${res.status}` });
+          }
+        } catch (err: any) {
+          results.push({ resource: `Load Balancer ${cluster.loadBalancerId}`, action: "delete", status: "failed", error: err.message });
+        }
+      }
+
+      // 3. Release Floating IP (HAProxy mode)
+      if (cluster.floatingIpId && token) {
+        try {
+          const res = await fetch(`${HETZNER_API}/floating_ips/${cluster.floatingIpId}`, {
+            method: "DELETE",
+            headers: hetznerHeaders(token),
+          });
+          if (res.ok) {
+            results.push({ resource: `Floating IP ${cluster.floatingIp}`, action: "released", status: "ok" });
+          } else {
+            const err = await res.json().catch(() => ({}));
+            results.push({ resource: `Floating IP ${cluster.floatingIp}`, action: "release", status: "failed", error: err.error?.message || `HTTP ${res.status}` });
+          }
+        } catch (err: any) {
+          results.push({ resource: `Floating IP ${cluster.floatingIp}`, action: "release", status: "failed", error: err.message });
+        }
+      }
+
+      // 4. Cancel any running execution
+      if (token) {
+        try {
+          const runningExecs = await db.query.executions.findMany({
+            where: and(eq(executions.clusterId, cluster.id)),
+          });
+          for (const exec of runningExecs) {
+            if (exec.status === "running") {
+              await db.update(executions).set({ status: "cancelled", completedAt: new Date() }).where(eq(executions.id, exec.id));
+            }
+          }
+        } catch {}
+      }
+
+      // 5. Delete DB records (cascade handles servers, executions, steps, logs)
+      await db.delete(clusters).where(eq(clusters.id, cluster.id));
+
+      return { success: true, results };
+    }),
+
+  cleanCluster: protectedProcedure
+    .input(z.object({ clusterId: z.string(), image: z.string().default("ubuntu-24.04") }))
+    .mutation(async ({ input, ctx }) => {
+      const cluster = await db.query.clusters.findFirst({
+        where: and(eq(clusters.id, input.clusterId), eq(clusters.userId, ctx.session.user.id)),
+        with: { servers: true },
+      });
+      if (!cluster) throw new Error("Cluster not found");
+
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const results: { resource: string; action: string; status: string; error?: string }[] = [];
+
+      // 1. Rebuild all Hetzner servers with fresh OS
+      for (const server of cluster.servers) {
+        if (server.hetznerServerId) {
+          try {
+            // Power off first (rebuild requires server to be off or it triggers automatic shutdown)
+            await fetch(`${HETZNER_API}/servers/${server.hetznerServerId}/actions/poweroff`, {
+              method: "POST",
+              headers: hetznerHeaders(token),
+            }).catch(() => {});
+
+            // Wait a moment for power off
+            await new Promise((r) => setTimeout(r, 3000));
+
+            const res = await fetch(`${HETZNER_API}/servers/${server.hetznerServerId}/actions/rebuild`, {
+              method: "POST",
+              headers: hetznerHeaders(token),
+              body: JSON.stringify({ image: input.image }),
+            });
+            if (res.ok) {
+              results.push({ resource: `Server ${server.hetznerServerId}`, action: "rebuilt with fresh OS", status: "ok" });
+            } else {
+              const err = await res.json().catch(() => ({}));
+              results.push({ resource: `Server ${server.hetznerServerId}`, action: "rebuild", status: "failed", error: err.error?.message || `HTTP ${res.status}` });
+            }
+          } catch (err: any) {
+            results.push({ resource: `Server ${server.hetznerServerId}`, action: "rebuild", status: "failed", error: err.message });
+          }
+        }
+      }
+
+      // 2. Delete LB (LB mode)
+      if (cluster.loadBalancerId) {
+        try {
+          const res = await fetch(`${HETZNER_API}/load_balancers/${cluster.loadBalancerId}`, {
+            method: "DELETE",
+            headers: hetznerHeaders(token),
+          });
+          if (res.ok) {
+            results.push({ resource: `Load Balancer ${cluster.loadBalancerId}`, action: "deleted", status: "ok" });
+          } else {
+            const err = await res.json().catch(() => ({}));
+            results.push({ resource: `Load Balancer ${cluster.loadBalancerId}`, action: "delete", status: "failed", error: err.error?.message || `HTTP ${res.status}` });
+          }
+        } catch (err: any) {
+          results.push({ resource: `Load Balancer ${cluster.loadBalancerId}`, action: "delete", status: "failed", error: err.message });
+        }
+      }
+
+      // 3. Release Floating IP (HAProxy mode)
+      if (cluster.floatingIpId) {
+        try {
+          const res = await fetch(`${HETZNER_API}/floating_ips/${cluster.floatingIpId}`, {
+            method: "DELETE",
+            headers: hetznerHeaders(token),
+          });
+          if (res.ok) {
+            results.push({ resource: `Floating IP ${cluster.floatingIp}`, action: "released", status: "ok" });
+          } else {
+            const err = await res.json().catch(() => ({}));
+            results.push({ resource: `Floating IP ${cluster.floatingIp}`, action: "release", status: "failed", error: err.error?.message || `HTTP ${res.status}` });
+          }
+        } catch (err: any) {
+          results.push({ resource: `Floating IP ${cluster.floatingIp}`, action: "release", status: "failed", error: err.message });
+        }
+      }
+
+      // 4. Cancel running executions
+      try {
+        const runningExecs = await db.query.executions.findMany({
+          where: and(eq(executions.clusterId, cluster.id)),
+        });
+        for (const exec of runningExecs) {
+          if (exec.status === "running") {
+            await db.update(executions).set({ status: "cancelled", completedAt: new Date() }).where(eq(executions.id, exec.id));
+          }
+        }
+      } catch {}
+
+      // 5. Delete DB records (cascade handles servers, executions, steps, logs)
+      await db.delete(clusters).where(eq(clusters.id, cluster.id));
+
+      return { success: true, results };
+    }),
+
+  serverClusterInfo: protectedProcedure
+    .input(z.object({ hetznerServerId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const server = await db.query.servers.findFirst({
+        where: eq(servers.hetznerServerId, input.hetznerServerId),
+        with: { cluster: true },
+      });
+      if (!server) return null;
+      if (server.cluster?.userId !== ctx.session.user.id) return null;
+      return {
+        serverId: server.id,
+        clusterId: server.cluster.id,
+        clusterName: server.cluster.name,
+        clusterStatus: server.cluster.status,
+        clusterType: server.cluster.clusterType,
+        role: server.role,
+      };
     }),
 
   getById: protectedProcedure

@@ -104,6 +104,30 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
     onError: (err) => toast.error(`Delete failed: ${err.message}`),
   });
 
+  const destroyCluster = useMutation({
+    mutationFn: async () => {
+      if (!server.clusterId) throw new Error("No cluster ID");
+      const result = await trpcClient.cluster.destroyCluster.mutate({ clusterId: server.clusterId });
+      return result as any;
+    },
+    onSuccess: (data) => {
+      const failed = (data?.results || []).filter((r: any) => r.status === "failed");
+      if (failed.length > 0) {
+        toast.warning(`Cluster destroyed with ${failed.length} warnings`);
+      } else {
+        toast.success("Cluster destroyed");
+      }
+      queryClient.invalidateQueries({ queryKey: [["cluster", "allServers"]] });
+      queryClient.invalidateQueries({ queryKey: [["cluster", "allHetznerServers"]] });
+      router.push("/dashboard/servers");
+    },
+    onError: (err) => toast.error(`Destroy failed: ${err.message}`),
+  });
+
+  const isInCluster = !!server.clusterId && server.clusterStatus !== "draft";
+  const clusterLabel = server.clusterName || server.clusterId;
+  const serverName = hetznerInfo?.name || server.ipAddress;
+
   const hasCachedData = !!server.cachedHostname;
   const lastFetched = server.lastFetchedAt
     ? new Date(server.lastFetchedAt).toLocaleString()
@@ -337,22 +361,43 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-3 py-2">
+                {isInCluster && (
+                  <div className="rounded-md bg-orange-500/10 border border-orange-500/20 p-3 space-y-2">
+                    <p className="text-sm font-medium text-orange-600 dark:text-orange-400">
+                      This server is part of an active cluster
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Deleting <span className="font-semibold text-foreground">{serverName}</span> from cluster <span className="font-semibold text-foreground">{clusterLabel}</span> will break the cluster. The PostgreSQL quorum requires all nodes to be healthy.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 mt-1"
+                      onClick={() => {
+                        setDeleteOpen(false);
+                        setDeleteConfirm("");
+                        router.push(`/dashboard/clusters/${server.clusterId}/overview`);
+                      }}
+                    >
+                      Go to Cluster instead
+                    </Button>
+                  </div>
+                )}
                 <p className="text-sm text-muted-foreground">
-                  This will permanently destroy the server <span className="font-semibold text-foreground">{hetznerInfo?.name || server.ipAddress}</span> and all its data. This action cannot be undone.
+                  This will permanently destroy the server <span className="font-semibold text-foreground">{serverName}</span> and all its data. This action cannot be undone.
                 </p>
                 <div className="rounded-md bg-destructive/5 border border-destructive/20 p-3 text-sm text-destructive">
                   All data on this server will be permanently lost, including databases, configurations, and files.
                 </div>
                 <p className="text-sm">
-                  Type <span className="font-mono font-semibold bg-muted px-1.5 py-0.5 rounded">{hetznerInfo?.name || server.ipAddress}</span> to confirm:
+                  Type <span className="font-mono font-semibold bg-muted px-1.5 py-0.5 rounded">{serverName}</span> to confirm:
                 </p>
                 <Input
-                  placeholder={hetznerInfo?.name || server.ipAddress}
+                  placeholder={serverName}
                   value={deleteConfirm}
                   onChange={(e) => setDeleteConfirm(e.target.value)}
                   onKeyDown={(e) => {
-                    const expected = hetznerInfo?.name || server.ipAddress;
-                    if (e.key === "Enter" && deleteConfirm === expected) {
+                    if (e.key === "Enter" && deleteConfirm === serverName) {
                       deleteServer.mutate();
                     }
                   }}
@@ -364,7 +409,7 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
                 </Button>
                 <Button
                   variant="destructive"
-                  disabled={deleteConfirm !== (hetznerInfo?.name || server.ipAddress) || deleteServer.isPending}
+                  disabled={deleteConfirm !== serverName || deleteServer.isPending}
                   onClick={() => deleteServer.mutate()}
                 >
                   {deleteServer.isPending ? <Loader2 className="size-4 animate-spin mr-2" /> : <Trash2 className="size-4 mr-2" />}
