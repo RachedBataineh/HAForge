@@ -158,6 +158,8 @@ export const clusterRouter = router({
         healthCheckTimeout: z.number().default(3),
         healthCheckRetries: z.number().default(3),
         healthCheckPath: z.string().default("/leader"),
+        healthCheckStatuses: z.array(z.number()).default([200]),
+        healthCheckTls: z.boolean().default(false),
       }).optional(),
     }))
     .mutation(async ({ input }) => {
@@ -171,6 +173,8 @@ export const clusterRouter = router({
         healthCheckTimeout: 3,
         healthCheckRetries: 3,
         healthCheckPath: "/leader",
+        healthCheckStatuses: [200],
+        healthCheckTls: false,
       };
       const body: any = {
         name: input.name,
@@ -198,8 +202,8 @@ export const clusterRouter = router({
                 domain: "",
                 path: svc.healthCheckPath || "/leader",
                 response: "",
-                statuses: [200],
-                tls: (svc.healthCheckProtocol || "http") === "https",
+                statuses: svc.healthCheckStatuses || [200],
+                tls: svc.healthCheckTls ?? ((svc.healthCheckProtocol || "http") === "https"),
               },
             },
           },

@@ -225,6 +225,8 @@ function CreateLoadBalancerDialog({
   const [hcTimeout, setHcTimeout] = useState(3);
   const [hcRetries, setHcRetries] = useState(3);
   const [hcPath, setHcPath] = useState("/leader");
+  const [hcStatuses, setHcStatuses] = useState("200");
+  const [hcTls, setHcTls] = useState(false);
   const [creating, setCreating] = useState(false);
 
   const lbTypesData = (lbTypes.data ?? []) as any[];
@@ -254,6 +256,8 @@ function CreateLoadBalancerDialog({
       setHcTimeout(3);
       setHcRetries(3);
       setHcPath("/leader");
+      setHcStatuses("200");
+      setHcTls(true);
     }
     onOpenChange(val);
   };
@@ -282,6 +286,8 @@ function CreateLoadBalancerDialog({
           healthCheckTimeout: hcTimeout,
           healthCheckRetries: hcRetries,
           healthCheckPath: hcPath,
+          healthCheckStatuses: hcStatuses.split(",").map((s) => Number(s.trim())).filter((n) => !isNaN(n)),
+          healthCheckTls: hcTls,
         },
       });
       toast.success(`Load balancer "${name}" created successfully`);
@@ -453,6 +459,24 @@ function CreateLoadBalancerDialog({
                   <div className="grid gap-1.5">
                     <Label className="text-xs">Path</Label>
                     <Input value={hcPath} onChange={(e) => setHcPath(e.target.value)} />
+                  </div>
+                )}
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">TLS</Label>
+                  <Select value={hcTls ? "enabled" : "disabled"} onValueChange={(v) => setHcTls(v === "enabled")}>
+                    <SelectTrigger className="w-full">
+                      <span>{hcTls ? "Enabled" : "Disabled"}</span>
+                    </SelectTrigger>
+                    <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
+                      <SelectItem value="enabled">Enabled</SelectItem>
+                      <SelectItem value="disabled">Disabled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {(hcProtocol === "http" || hcProtocol === "https") && (
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">Status Codes</Label>
+                    <Input value={hcStatuses} onChange={(e) => setHcStatuses(e.target.value)} placeholder="200, 201" />
                   </div>
                 )}
               </div>
