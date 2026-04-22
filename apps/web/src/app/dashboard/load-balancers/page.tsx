@@ -225,7 +225,7 @@ function CreateLoadBalancerDialog({
   const [hcTimeout, setHcTimeout] = useState(3);
   const [hcRetries, setHcRetries] = useState(3);
   const [hcPath, setHcPath] = useState("/leader");
-  const [hcStatuses, setHcStatuses] = useState("2??, 3??");
+  const [hcStatuses, setHcStatuses] = useState("200");
   const [hcTls, setHcTls] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -256,7 +256,7 @@ function CreateLoadBalancerDialog({
       setHcTimeout(3);
       setHcRetries(3);
       setHcPath("/leader");
-      setHcStatuses("2??, 3??");
+      setHcStatuses("200");
       setHcTls(false);
     }
     onOpenChange(val);
@@ -348,12 +348,12 @@ function CreateLoadBalancerDialog({
               <Select value={location} onValueChange={(v) => setLocation(v ?? "")}>
                 <SelectTrigger className="w-full">
                   {location
-                    ? <span>{(() => { const l = locationsData.find((l: any) => l.id === location); return l ? `${l.city || l.description}, ${l.country} (${l.name})` : location; })()}</span>
+                    ? <span>{(() => { const l = locationsData.find((l: any) => l.name === location); return l ? `${l.city || l.description}, ${l.country} (${l.name})` : location; })()}</span>
                     : <span className="text-muted-foreground">Select location</span>}
                 </SelectTrigger>
                 <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
                   {locationsData.map((l: any) => (
-                    <SelectItem key={l.id} value={l.id}>
+                    <SelectItem key={l.id} value={l.name}>
                       {l.city || l.description}, {l.country} ({l.name})
                     </SelectItem>
                   ))}

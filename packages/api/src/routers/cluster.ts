@@ -158,7 +158,7 @@ export const clusterRouter = router({
         healthCheckTimeout: z.number().default(3),
         healthCheckRetries: z.number().default(3),
         healthCheckPath: z.string().default("/leader"),
-        healthCheckStatuses: z.array(z.string()).default(["2??", "3??"]),
+        healthCheckStatuses: z.array(z.string()).default(["200"]),
         healthCheckTls: z.boolean().default(false),
       }).optional(),
     }))
@@ -173,14 +173,13 @@ export const clusterRouter = router({
         healthCheckTimeout: 3,
         healthCheckRetries: 3,
         healthCheckPath: "/leader",
-        healthCheckStatuses: ["2??", "3??"],
+        healthCheckStatuses: ["200"],
         healthCheckTls: false,
       };
       const body: any = {
         name: input.name,
         load_balancer_type: input.loadBalancerType || "lb11",
         location: input.location || "fsn1",
-        network_zone: "eu-central",
         algorithm: { type: input.algorithm || "round_robin" },
         targets: (input.serverIds || []).map((id) => ({
           type: "server",
@@ -205,7 +204,7 @@ export const clusterRouter = router({
                   domain: "",
                   path: svc.healthCheckPath || "/leader",
                   response: "",
-                  status_codes: svc.healthCheckStatuses || ["2??", "3??"],
+                  status_codes: svc.healthCheckStatuses || ["200"],
                   tls: svc.healthCheckTls ?? false,
                 };
               }
@@ -589,7 +588,7 @@ export const clusterRouter = router({
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
       const data = await res.json();
       return data.locations.map((l: any) => ({
-        id: l.id,
+        id: String(l.id),
         name: l.name,
         description: l.description,
         country: l.country,
