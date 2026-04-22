@@ -1047,6 +1047,20 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
         }
       }
 
-      return { roles, serverNames };
+      // Fetch LB name if applicable
+      let lbName: string | null = null;
+      if (cluster.clusterType === "hetzner_lb" && cluster.loadBalancerId && apiToken) {
+        try {
+          const lbRes = await fetch(`https://api.hetzner.cloud/v1/load_balancers/${cluster.loadBalancerId}`, {
+            headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
+          });
+          if (lbRes.ok) {
+            const lbData = await lbRes.json();
+            lbName = lbData.load_balancer?.name || null;
+          }
+        } catch { /* skip */ }
+      }
+
+      return { roles, serverNames, lbName };
     }),
 });

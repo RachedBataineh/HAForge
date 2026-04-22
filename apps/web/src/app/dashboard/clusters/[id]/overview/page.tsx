@@ -174,6 +174,40 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
         </div>
       )}
 
+      {/* Hetzner Load Balancer (LB mode only) */}
+      {isLb && (
+        <div>
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <Cloud className="size-5" />
+            Load Balancer
+          </h2>
+          {cluster.data?.loadBalancerId ? (
+            <Card className="cursor-pointer hover:border-primary/50 transition-colors"
+              onClick={() => router.push(`/dashboard/load-balancers/${cluster.data!.loadBalancerId}`)}
+            >
+              <CardContent className="flex items-center justify-between py-3">
+                <div className="flex items-center gap-3">
+                  <Cloud className="size-4 text-muted-foreground" />
+                  <div>
+                    <p className="font-medium text-sm">{(pgRoles.data as any)?.lbName || `LB ${cluster.data!.loadBalancerId}`}</p>
+                    <p className="text-xs text-muted-foreground font-mono">{cluster.data!.loadBalancerIp}</p>
+                  </div>
+                </div>
+                <Badge variant="secondary">{cluster.data!.loadBalancerId}</Badge>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="py-4">
+                <p className="text-sm text-muted-foreground">
+                  Load balancer will be configured during deployment.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
       {/* PostgreSQL Servers */}
       <div>
         <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
@@ -214,42 +248,8 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
         </div>
       </div>
 
-      {/* HAProxy Servers or Load Balancer */}
-      {isLb ? (
-        <div>
-          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-            <Cloud className="size-5" />
-            Hetzner Load Balancer
-          </h2>
-          {cluster.data.loadBalancerId ? (
-            <Card>
-              <CardContent className="py-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Load Balancer ID</span>
-                    <p className="font-mono">{cluster.data.loadBalancerId}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Service</span>
-                    <p className="font-mono">TCP :5432 → :5432</p>
-                  </div>
-                </div>
-                <div className="mt-3 text-xs text-muted-foreground">
-                  Targets: {pgServers.length} PostgreSQL nodes with Patroni health checks
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="py-4">
-                <p className="text-sm text-muted-foreground">
-                  Load Balancer will be configured during deployment.
-                </p>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      ) : (
+      {/* HAProxy Nodes (HAProxy mode only) */}
+      {!isLb && (
         <div>
           <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
             <Globe className="size-5" />
@@ -275,11 +275,6 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                       {server.privateIpAddress && (
                         <span className="text-xs text-muted-foreground">
                           Private: <code>{server.privateIpAddress}</code>
-                        </span>
-                      )}
-                      {server.hetznerServerId && (
-                        <span className="text-xs text-muted-foreground">
-                          Hetzner ID: <code>{server.hetznerServerId}</code>
                         </span>
                       )}
                       <Badge variant="secondary" className="text-xs">{roleInfo.defaultType}</Badge>
