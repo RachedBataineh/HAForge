@@ -5,6 +5,7 @@ import { Button } from "@HAForge/ui/components/button";
 import { Card, CardContent } from "@HAForge/ui/components/card";
 import { Input } from "@HAForge/ui/components/input";
 import { Label } from "@HAForge/ui/components/label";
+import { Separator } from "@HAForge/ui/components/separator";
 import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from "@HAForge/ui/components/select";
@@ -215,6 +216,15 @@ function CreateLoadBalancerDialog({
   const [location, setLocation] = useState("");
   const [networkId, setNetworkId] = useState("");
   const [algorithm, setAlgorithm] = useState("round_robin");
+  const [svcProtocol, setSvcProtocol] = useState("tcp");
+  const [svcListenPort, setSvcListenPort] = useState(5432);
+  const [svcDestPort, setSvcDestPort] = useState(5432);
+  const [hcProtocol, setHcProtocol] = useState("http");
+  const [hcPort, setHcPort] = useState(8008);
+  const [hcInterval, setHcInterval] = useState(5);
+  const [hcTimeout, setHcTimeout] = useState(3);
+  const [hcRetries, setHcRetries] = useState(3);
+  const [hcPath, setHcPath] = useState("/leader");
   const [creating, setCreating] = useState(false);
 
   const lbTypesData = (lbTypes.data ?? []) as any[];
@@ -235,6 +245,15 @@ function CreateLoadBalancerDialog({
       setLocation("");
       setNetworkId("");
       setAlgorithm("round_robin");
+      setSvcProtocol("tcp");
+      setSvcListenPort(5432);
+      setSvcDestPort(5432);
+      setHcProtocol("http");
+      setHcPort(8008);
+      setHcInterval(5);
+      setHcTimeout(3);
+      setHcRetries(3);
+      setHcPath("/leader");
     }
     onOpenChange(val);
   };
@@ -253,6 +272,17 @@ function CreateLoadBalancerDialog({
         loadBalancerType: lbType || undefined,
         networkId: networkId || undefined,
         algorithm: (algorithm as "round_robin" | "least_connections") || undefined,
+        service: {
+          protocol: svcProtocol as "tcp" | "http" | "https",
+          listenPort: svcListenPort,
+          destinationPort: svcDestPort,
+          healthCheckProtocol: hcProtocol as "http" | "https" | "tcp",
+          healthCheckPort: hcPort,
+          healthCheckInterval: hcInterval,
+          healthCheckTimeout: hcTimeout,
+          healthCheckRetries: hcRetries,
+          healthCheckPath: hcPath,
+        },
       });
       toast.success(`Load balancer "${name}" created successfully`);
       onCreated();
@@ -362,9 +392,71 @@ function CreateLoadBalancerDialog({
               </Select>
             </div>
 
-            <p className="text-xs text-muted-foreground">
-              A PostgreSQL service (port 5432) with Patroni health checks will be auto-configured. You can add target servers later via the wizard.
-            </p>
+            <Separator />
+
+            <div className="space-y-3">
+              <Label className="text-sm font-semibold">Service</Label>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Protocol</Label>
+                  <Select value={svcProtocol} onValueChange={(v) => setSvcProtocol(v ?? "tcp")}>
+                    <SelectTrigger className="w-full"><span className="uppercase">{svcProtocol}</span></SelectTrigger>
+                    <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
+                      <SelectItem value="tcp">TCP</SelectItem>
+                      <SelectItem value="http">HTTP</SelectItem>
+                      <SelectItem value="https">HTTPS</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Listen Port</Label>
+                  <Input type="number" value={svcListenPort} onChange={(e) => setSvcListenPort(Number(e.target.value))} />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Destination Port</Label>
+                  <Input type="number" value={svcDestPort} onChange={(e) => setSvcDestPort(Number(e.target.value))} />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Label className="text-sm font-semibold">Health Check</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Protocol</Label>
+                  <Select value={hcProtocol} onValueChange={(v) => setHcProtocol(v ?? "http")}>
+                    <SelectTrigger className="w-full"><span className="uppercase">{hcProtocol}</span></SelectTrigger>
+                    <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
+                      <SelectItem value="http">HTTP</SelectItem>
+                      <SelectItem value="https">HTTPS</SelectItem>
+                      <SelectItem value="tcp">TCP</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Port</Label>
+                  <Input type="number" value={hcPort} onChange={(e) => setHcPort(Number(e.target.value))} />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Interval (s)</Label>
+                  <Input type="number" value={hcInterval} onChange={(e) => setHcInterval(Number(e.target.value))} />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Timeout (s)</Label>
+                  <Input type="number" value={hcTimeout} onChange={(e) => setHcTimeout(Number(e.target.value))} />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Retries</Label>
+                  <Input type="number" value={hcRetries} onChange={(e) => setHcRetries(Number(e.target.value))} />
+                </div>
+                {(hcProtocol === "http" || hcProtocol === "https") && (
+                  <div className="grid gap-1.5">
+                    <Label className="text-xs">Path</Label>
+                    <Input value={hcPath} onChange={(e) => setHcPath(e.target.value)} />
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 

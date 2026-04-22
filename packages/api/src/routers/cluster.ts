@@ -148,8 +148,30 @@ export const clusterRouter = router({
       loadBalancerType: z.string().optional(),
       networkId: z.string().optional(),
       algorithm: z.enum(["round_robin", "least_connections"]).optional(),
+      service: z.object({
+        protocol: z.enum(["tcp", "http", "https"]).default("tcp"),
+        listenPort: z.number().default(5432),
+        destinationPort: z.number().default(5432),
+        healthCheckProtocol: z.enum(["http", "https", "tcp"]).default("http"),
+        healthCheckPort: z.number().default(8008),
+        healthCheckInterval: z.number().default(5),
+        healthCheckTimeout: z.number().default(3),
+        healthCheckRetries: z.number().default(3),
+        healthCheckPath: z.string().default("/leader"),
+      }).optional(),
     }))
     .mutation(async ({ input }) => {
+      const svc = input.service || {
+        protocol: "tcp" as const,
+        listenPort: 5432,
+        destinationPort: 5432,
+        healthCheckProtocol: "http" as const,
+        healthCheckPort: 8008,
+        healthCheckInterval: 5,
+        healthCheckTimeout: 3,
+        healthCheckRetries: 3,
+        healthCheckPath: "/leader",
+      };
       const body: any = {
         name: input.name,
         load_balancer_type: input.loadBalancerType || "lb11",
@@ -162,22 +184,22 @@ export const clusterRouter = router({
         })),
         services: [
           {
-            protocol: "tcp",
-            listen_port: 5432,
-            destination_port: 5432,
+            protocol: svc.protocol || "tcp",
+            listen_port: svc.listenPort || 5432,
+            destination_port: svc.destinationPort || 5432,
             proxyprotocol: false,
             health_check: {
-              protocol: "http",
-              port: 8008,
-              interval: 5,
-              timeout: 3,
-              retries: 3,
+              protocol: svc.healthCheckProtocol || "http",
+              port: svc.healthCheckPort || 8008,
+              interval: svc.healthCheckInterval || 5,
+              timeout: svc.healthCheckTimeout || 3,
+              retries: svc.healthCheckRetries || 3,
               http: {
                 domain: "",
-                path: "/leader",
+                path: svc.healthCheckPath || "/leader",
                 response: "",
                 statuses: [200],
-                tls: true,
+                tls: (svc.healthCheckProtocol || "http") === "https",
               },
             },
           },
