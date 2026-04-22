@@ -162,7 +162,8 @@ export default function LoadBalancerDetailPage({ params }: { params: Promise<{ i
                   <div key={i} className="flex items-center justify-between rounded-lg border p-3">
                     <div className="flex items-center gap-2">
                       <Server className="size-4 text-muted-foreground" />
-                      <span className="text-sm font-mono">Server {t.serverId}</span>
+                      <span className="text-sm">{t.serverName || `Server ${t.serverId}`}</span>
+                      <span className="text-xs text-muted-foreground font-mono">({t.serverId})</span>
                     </div>
                     <Badge variant={t.status === "healthy" ? "secondary" : "destructive"}>
                       {t.status || "unknown"}

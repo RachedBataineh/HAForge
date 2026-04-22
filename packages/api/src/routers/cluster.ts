@@ -241,15 +241,27 @@ export const clusterRouter = router({
   hetznerLoadBalancerDetails: protectedProcedure
     .input(z.object({ apiToken: z.string(), loadBalancerId: z.string() }))
     .query(async ({ input }) => {
-      const res = await fetch(`https://api.hetzner.cloud/v1/load_balancers/${input.loadBalancerId}`, {
-        headers: {
-          Authorization: `Bearer ${input.apiToken}`,
-          "Content-Type": "application/json",
-        },
-      });
-      if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
-      const data = await res.json();
+      const [lbRes, serversRes] = await Promise.all([
+        fetch(`https://api.hetzner.cloud/v1/load_balancers/${input.loadBalancerId}`, {
+          headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
+        }),
+        fetch("https://api.hetzner.cloud/v1/servers", {
+          headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
+        }),
+      ]);
+      if (!lbRes.ok) throw new Error(`Hetzner API error: ${lbRes.status}`);
+      const data = await lbRes.json();
       const lb = data.load_balancer;
+
+      // Build server name map
+      const serverNameMap = new Map<string, string>();
+      if (serversRes.ok) {
+        const serversData = await serversRes.json();
+        for (const srv of serversData.servers || []) {
+          serverNameMap.set(String(srv.id), srv.name);
+        }
+      }
+
       return {
         id: String(lb.id),
         name: lb.name,
@@ -260,11 +272,15 @@ export const clusterRouter = router({
         algorithm: lb.algorithm?.type || "",
         created: lb.created || "",
         labels: lb.labels || {},
-        targets: (lb.targets || []).map((t: any) => ({
-          type: t.type,
-          serverId: t.server?.id ? String(t.server.id) : null,
-          status: typeof t.health_status === "string" ? t.health_status : (Array.isArray(t.health_status) ? t.health_status.map((h: any) => `${h.listen_port}: ${h.status}`).join(", ") : "unknown"),
-        })),
+        targets: (lb.targets || []).map((t: any) => {
+          const serverId = t.server?.id ? String(t.server.id) : null;
+          return {
+            type: t.type,
+            serverId,
+            serverName: serverId ? serverNameMap.get(serverId) || null : null,
+            status: typeof t.health_status === "string" ? t.health_status : (Array.isArray(t.health_status) ? t.health_status.map((h: any) => `${h.listen_port}: ${h.status}`).join(", ") : "unknown"),
+          };
+        }),
         services: (lb.services || []).map((s: any) => ({
           protocol: s.protocol,
           listenPort: s.listen_port,
