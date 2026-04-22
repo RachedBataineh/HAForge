@@ -146,46 +146,53 @@ export const clusterRouter = router({
       serverIds: z.array(z.string()).optional(),
       location: z.string().optional(),
       loadBalancerType: z.string().optional(),
+      networkId: z.string().optional(),
+      algorithm: z.enum(["round_robin", "least_connections"]).optional(),
     }))
     .mutation(async ({ input }) => {
+      const body: any = {
+        name: input.name,
+        load_balancer_type: input.loadBalancerType || "lb11",
+        location: input.location || "fsn1",
+        network_zone: "eu-central",
+        algorithm: { type: input.algorithm || "round_robin" },
+        targets: (input.serverIds || []).map((id) => ({
+          type: "server",
+          server: { id: Number(id) },
+        })),
+        services: [
+          {
+            protocol: "tcp",
+            listen_port: 5432,
+            destination_port: 5432,
+            proxyprotocol: false,
+            health_check: {
+              protocol: "http",
+              port: 8008,
+              interval: 5,
+              timeout: 3,
+              retries: 3,
+              http: {
+                domain: "",
+                path: "/leader",
+                response: "",
+                statuses: [200],
+                tls: true,
+              },
+            },
+          },
+        ],
+      };
+      if (input.networkId) {
+        body.network = Number(input.networkId);
+      }
       const res = await fetch("https://api.hetzner.cloud/v1/load_balancers", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${input.apiToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          name: input.name,
-          load_balancer_type: input.loadBalancerType || "lb11",
-          location: input.location || "fsn1",
-          network_zone: "eu-central",
-          targets: (input.serverIds || []).map((id) => ({
-            type: "server",
-            server: { id: Number(id) },
-          })),
-          services: [
-            {
-              protocol: "tcp",
-              listen_port: 5432,
-              destination_port: 5432,
-              proxyprotocol: false,
-              health_check: {
-                protocol: "http",
-                port: 8008,
-                interval: 5,
-                timeout: 3,
-                retries: 3,
-                http: {
-                  domain: "",
-                  path: "/leader",
-                  response: "",
-                  statuses: [200],
-                  tls: true,
-                },
-              },
-            },
-          ],
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -236,6 +243,25 @@ export const clusterRouter = router({
         throw new Error(err.error?.message || `Delete failed: ${res.status}`);
       }
       return { success: true };
+    }),
+
+  hetznerNetworks: protectedProcedure
+    .input(z.object({ apiToken: z.string() }))
+    .query(async ({ input }) => {
+      const res = await fetch("https://api.hetzner.cloud/v1/networks", {
+        headers: {
+          Authorization: `Bearer ${input.apiToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
+      const data = await res.json();
+      return (data.networks || []).map((n: any) => ({
+        id: String(n.id),
+        name: n.name,
+        ipRange: n.ip_range || "",
+        serverCount: n.servers?.length || 0,
+      }));
     }),
 
   hetznerLoadBalancerDetails: protectedProcedure

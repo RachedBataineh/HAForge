@@ -213,16 +213,28 @@ function CreateLoadBalancerDialog({
   const [name, setName] = useState("");
   const [lbType, setLbType] = useState("");
   const [location, setLocation] = useState("");
+  const [networkId, setNetworkId] = useState("");
+  const [algorithm, setAlgorithm] = useState("round_robin");
   const [creating, setCreating] = useState(false);
 
   const lbTypesData = (lbTypes.data ?? []) as any[];
   const locationsData = (locations.data ?? []) as any[];
+
+  const networks = useQuery(
+    trpc.cluster.hetznerNetworks.queryOptions(
+      { apiToken },
+      { enabled: !!apiToken && open },
+    ),
+  );
+  const networksData = (networks.data ?? []) as any[];
 
   const handleOpenChange = (val: boolean) => {
     if (!val) {
       setName("");
       setLbType("");
       setLocation("");
+      setNetworkId("");
+      setAlgorithm("round_robin");
     }
     onOpenChange(val);
   };
@@ -239,6 +251,8 @@ function CreateLoadBalancerDialog({
         name,
         location,
         loadBalancerType: lbType || undefined,
+        networkId: networkId || undefined,
+        algorithm: (algorithm as "round_robin" | "least_connections") || undefined,
       });
       toast.success(`Load balancer "${name}" created successfully`);
       onCreated();
@@ -249,7 +263,7 @@ function CreateLoadBalancerDialog({
     }
   };
 
-  const loading = lbTypes.isLoading || locations.isLoading;
+  const loading = lbTypes.isLoading || locations.isLoading || networks.isLoading;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -307,6 +321,43 @@ function CreateLoadBalancerDialog({
                       {l.city || l.description}, {l.country} ({l.name})
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label className="text-sm">Network</Label>
+              <Select value={networkId} onValueChange={(v) => setNetworkId(v === "__none__" ? "" : (v ?? ""))}>
+                <SelectTrigger className="w-full">
+                  {networkId
+                    ? <span>{networksData.find((n: any) => n.id === networkId)?.name || networkId}</span>
+                    : <span className="text-muted-foreground">No network (public only)</span>}
+                </SelectTrigger>
+                <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
+                  <SelectItem value="__none__">No network (public only)</SelectItem>
+                  {networksData.map((n: any) => (
+                    <SelectItem key={n.id} value={n.id}>
+                      {n.name} ({n.ipRange}, {n.serverCount} servers)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {networksData.length === 0 && !networks.isLoading && (
+                <p className="text-xs text-muted-foreground">No private networks found in your Hetzner account.</p>
+              )}
+            </div>
+
+            <div className="grid gap-2">
+              <Label className="text-sm">Algorithm</Label>
+              <Select value={algorithm} onValueChange={(v) => setAlgorithm(v ?? "round_robin")}>
+                <SelectTrigger className="w-full">
+                  {algorithm === "round_robin"
+                    ? <span>Round Robin</span>
+                    : <span>Least Connections</span>}
+                </SelectTrigger>
+                <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
+                  <SelectItem value="round_robin">Round Robin</SelectItem>
+                  <SelectItem value="least_connections">Least Connections</SelectItem>
                 </SelectContent>
               </Select>
             </div>
