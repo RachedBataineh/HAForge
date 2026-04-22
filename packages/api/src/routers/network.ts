@@ -1,6 +1,9 @@
 import { protectedProcedure } from "../index";
 import { z } from "zod";
 import { router } from "../index";
+import { db } from "@HAForge/db";
+import { user } from "@HAForge/db";
+import { eq } from "drizzle-orm";
 
 const API = "https://api.hetzner.cloud/v1";
 const headers = (token: string) => ({
@@ -8,13 +11,19 @@ const headers = (token: string) => ({
   "Content-Type": "application/json",
 });
 
+async function getUserApiToken(userId: string): Promise<string> {
+  const u = await db.query.user.findFirst({ where: eq(user.id, userId) });
+  return u?.hetznerApiToken || "";
+}
+
 export const networkRouter = router({
   list: protectedProcedure
-    .input(z.object({ apiToken: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const [netRes, srvRes] = await Promise.all([
-        fetch(`${API}/networks`, { headers: headers(input.apiToken) }),
-        fetch(`${API}/servers`, { headers: headers(input.apiToken) }),
+        fetch(`${API}/networks`, { headers: headers(token) }),
+        fetch(`${API}/servers`, { headers: headers(token) }),
       ]);
       if (!netRes.ok) throw new Error(`Hetzner API error: ${netRes.status}`);
       const netData = await netRes.json();
@@ -45,12 +54,14 @@ export const networkRouter = router({
     }),
 
   details: protectedProcedure
-    .input(z.object({ apiToken: z.string(), networkId: z.string() }))
-    .query(async ({ input }) => {
+    .input(z.object({ networkId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const [netRes, srvRes, lbRes] = await Promise.all([
-        fetch(`${API}/networks/${input.networkId}`, { headers: headers(input.apiToken) }),
-        fetch(`${API}/servers`, { headers: headers(input.apiToken) }),
-        fetch(`${API}/load_balancers`, { headers: headers(input.apiToken) }),
+        fetch(`${API}/networks/${input.networkId}`, { headers: headers(token) }),
+        fetch(`${API}/servers`, { headers: headers(token) }),
+        fetch(`${API}/load_balancers`, { headers: headers(token) }),
       ]);
       if (!netRes.ok) throw new Error(`Hetzner API error: ${netRes.status}`);
       const n = (await netRes.json()).network;
@@ -113,15 +124,16 @@ export const networkRouter = router({
 
   create: protectedProcedure
     .input(z.object({
-      apiToken: z.string(),
-      name: z.string().min(1),
+      name: z.string().min(1).max(64),
       ipRange: z.string().min(1),
       networkZone: z.string().default("eu-central"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${API}/networks`, {
         method: "POST",
-        headers: headers(input.apiToken),
+        headers: headers(token),
         body: JSON.stringify({
           name: input.name,
           ip_range: input.ipRange,
@@ -137,11 +149,13 @@ export const networkRouter = router({
     }),
 
   delete: protectedProcedure
-    .input(z.object({ apiToken: z.string(), networkId: z.string() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ networkId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${API}/networks/${input.networkId}`, {
         method: "DELETE",
-        headers: headers(input.apiToken),
+        headers: headers(token),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -152,16 +166,17 @@ export const networkRouter = router({
 
   addSubnet: protectedProcedure
     .input(z.object({
-      apiToken: z.string(),
       networkId: z.string(),
       type: z.enum(["cloud", "server"]).default("cloud"),
       networkZone: z.string().default("eu-central"),
       ipRange: z.string().min(1),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${API}/networks/${input.networkId}/actions/add_subnet`, {
         method: "POST",
-        headers: headers(input.apiToken),
+        headers: headers(token),
         body: JSON.stringify({
           type: input.type,
           network_zone: input.networkZone,
@@ -176,11 +191,13 @@ export const networkRouter = router({
     }),
 
   deleteSubnet: protectedProcedure
-    .input(z.object({ apiToken: z.string(), networkId: z.string(), ipRange: z.string() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ networkId: z.string(), ipRange: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${API}/networks/${input.networkId}/actions/delete_subnet`, {
         method: "POST",
-        headers: headers(input.apiToken),
+        headers: headers(token),
         body: JSON.stringify({ ip_range: input.ipRange }),
       });
       if (!res.ok) {
@@ -192,17 +209,18 @@ export const networkRouter = router({
 
   attachServer: protectedProcedure
     .input(z.object({
-      apiToken: z.string(),
       networkId: z.string(),
       serverId: z.string(),
       ip: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const body: any = { network: Number(input.networkId) };
       if (input.ip) body.ip = input.ip;
       const res = await fetch(`${API}/servers/${input.serverId}/actions/attach_to_network`, {
         method: "POST",
-        headers: headers(input.apiToken),
+        headers: headers(token),
         body: JSON.stringify(body),
       });
       if (!res.ok) {
@@ -213,11 +231,13 @@ export const networkRouter = router({
     }),
 
   detachServer: protectedProcedure
-    .input(z.object({ apiToken: z.string(), networkId: z.string(), serverId: z.string() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ networkId: z.string(), serverId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${API}/servers/${input.serverId}/actions/detach_from_network`, {
         method: "POST",
-        headers: headers(input.apiToken),
+        headers: headers(token),
         body: JSON.stringify({ network: Number(input.networkId) }),
       });
       if (!res.ok) {
@@ -228,13 +248,15 @@ export const networkRouter = router({
     }),
 
   attachLoadBalancer: protectedProcedure
-    .input(z.object({ apiToken: z.string(), networkId: z.string(), loadBalancerId: z.string(), ip: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ networkId: z.string(), loadBalancerId: z.string(), ip: z.string().optional() }))
+    .mutation(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const body: any = { network: Number(input.networkId) };
       if (input.ip) body.ip = input.ip;
       const res = await fetch(`${API}/load_balancers/${input.loadBalancerId}/actions/attach_to_network`, {
         method: "POST",
-        headers: headers(input.apiToken),
+        headers: headers(token),
         body: JSON.stringify(body),
       });
       if (!res.ok) {
@@ -245,11 +267,13 @@ export const networkRouter = router({
     }),
 
   detachLoadBalancer: protectedProcedure
-    .input(z.object({ apiToken: z.string(), networkId: z.string(), loadBalancerId: z.string() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({ networkId: z.string(), loadBalancerId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${API}/load_balancers/${input.loadBalancerId}/actions/detach_from_network`, {
         method: "POST",
-        headers: headers(input.apiToken),
+        headers: headers(token),
         body: JSON.stringify({ network: Number(input.networkId) }),
       });
       if (!res.ok) {

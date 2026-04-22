@@ -36,13 +36,9 @@ export default function SshKeysPage() {
   const sshKeys = useQuery(trpc.cluster.allHetznerSshKeys.queryOptions());
   const keys = (sshKeys.data ?? []) as any[];
 
-  const hetznerServers = useQuery(trpc.cluster.allHetznerServers.queryOptions());
-  const apiToken = (hetznerServers.data as any)?.apiToken || "";
-
   const createKey = useMutation({
     mutationFn: async () => {
       return await trpcClient.cluster.hetznerCreateSshKey.mutate({
-        apiToken,
         name: newKeyName,
         publicKey: newPublicKey,
         privateKey: newPrivateKey || undefined,
@@ -60,9 +56,9 @@ export default function SshKeysPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async ({ keyId, hetznerKeyId, token }: { keyId: string; hetznerKeyId?: string; token: string }) => {
+    mutationFn: async ({ keyId, hetznerKeyId }: { keyId: string; hetznerKeyId?: string }) => {
       if (hetznerKeyId) {
-        await trpcClient.cluster.hetznerDeleteSshKey.mutate({ apiToken: token, keyId: hetznerKeyId });
+        await trpcClient.cluster.hetznerDeleteSshKey.mutate({ keyId: hetznerKeyId });
       }
     },
     onSuccess: () => {
@@ -107,7 +103,7 @@ export default function SshKeysPage() {
             Manage SSH keys across your Hetzner projects
           </p>
         </div>
-        <Button className="gap-2" onClick={() => setCreateOpen(true)} disabled={!apiToken}>
+        <Button className="gap-2" onClick={() => setCreateOpen(true)} disabled={!newKeyName}>
           <Plus className="size-4" />
           Add SSH Key
         </Button>
@@ -366,7 +362,7 @@ export default function SshKeysPage() {
               onChange={(e) => setDeleteConfirmInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && deleteConfirmInput === deleteKey?.name && deleteKey) {
-                  deleteMutation.mutate({ keyId: deleteKey.id, hetznerKeyId: deleteKey.hetznerKeyId || undefined, token: apiToken });
+                  deleteMutation.mutate({ keyId: deleteKey.id, hetznerKeyId: deleteKey.hetznerKeyId || undefined });
                 }
               }}
             />
@@ -377,7 +373,7 @@ export default function SshKeysPage() {
             </Button>
             <Button
               variant="destructive"
-              onClick={() => { if (deleteKey) deleteMutation.mutate({ keyId: deleteKey.id, hetznerKeyId: deleteKey.hetznerKeyId || undefined, token: apiToken }); }}
+              onClick={() => { if (deleteKey) deleteMutation.mutate({ keyId: deleteKey.id, hetznerKeyId: deleteKey.hetznerKeyId || undefined }); }}
               disabled={deleteConfirmInput !== deleteKey?.name || deleteMutation.isPending}
             >
               {deleteMutation.isPending ? <Loader2 className="size-4 animate-spin mr-2" /> : <Trash2 className="size-4 mr-2" />}

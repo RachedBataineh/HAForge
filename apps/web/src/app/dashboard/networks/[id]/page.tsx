@@ -11,10 +11,7 @@ import {
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@HAForge/ui/components/dialog";
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from "@HAForge/ui/components/dropdown-menu";
-import { ArrowLeft, Loader2, Globe, Server, Network, HardDrive, Plus, Trash2, Link, Unlink, ChevronDown } from "lucide-react";
+import { ArrowLeft, Loader2, Globe, Server, Network, HardDrive, Plus, Trash2, Link, Unlink } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
@@ -80,12 +77,12 @@ export default function NetworkDetailPage({ params }: { params: Promise<{ id: st
   const queryClient = useQueryClient();
 
   const profile = useQuery(trpc.settings.getProfile.queryOptions());
-  const apiToken = profile.data?.hetznerApiToken || "";
+  const hasToken = !!profile.data?.hetznerApiToken;
 
   const net = useQuery(
     trpc.network.details.queryOptions(
-      { apiToken, networkId },
-      { enabled: !!apiToken && !!networkId },
+      { networkId },
+      { enabled: hasToken },
     ),
   );
 
@@ -94,7 +91,7 @@ export default function NetworkDetailPage({ params }: { params: Promise<{ id: st
     queryClient.invalidateQueries(trpc.network.list.queryFilter());
   };
 
-  if (!apiToken) {
+  if (!hasToken) {
     return <div className="p-6"><p className="text-muted-foreground">Add your Hetzner API token in Settings first.</p></div>;
   }
 
@@ -187,7 +184,6 @@ export default function NetworkDetailPage({ params }: { params: Promise<{ id: st
         {/* Subnets — each with its own servers & LBs */}
         <SubnetsSection
           data={data}
-          apiToken={apiToken}
           networkId={networkId}
           onDone={invalidate}
           router={router}
@@ -201,7 +197,7 @@ export default function NetworkDetailPage({ params }: { params: Promise<{ id: st
 
 /* ─── Subnets Section ──────────────────────────────── */
 
-function SubnetsSection({ data, apiToken, networkId, onDone, router, serversBySubnet, lbsBySubnet }: any) {
+function SubnetsSection({ data, networkId, onDone, router, serversBySubnet, lbsBySubnet }: any) {
   const [addOpen, setAddOpen] = useState(false);
 
   const deleteMutation = useMutation({
@@ -237,13 +233,12 @@ function SubnetsSection({ data, apiToken, networkId, onDone, router, serversBySu
               key={subnet.ipRange}
               subnet={subnet}
               data={data}
-              apiToken={apiToken}
               networkId={networkId}
               onDone={onDone}
               router={router}
               servers={serversBySubnet.get(subnet.ipRange) || []}
               loadBalancers={lbsBySubnet.get(subnet.ipRange) || []}
-              onDelete={() => deleteMutation.mutate({ apiToken, networkId, ipRange: subnet.ipRange })}
+              onDelete={() => deleteMutation.mutate({ networkId, ipRange: subnet.ipRange })}
               deleting={deleteMutation.isPending}
             />
           ))}
@@ -254,7 +249,6 @@ function SubnetsSection({ data, apiToken, networkId, onDone, router, serversBySu
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>Add Subnet</DialogTitle></DialogHeader>
           <AddSubnetForm
-            apiToken={apiToken}
             networkId={networkId}
             networkZone={data.subnets?.[0]?.networkZone || "eu-central"}
             suggested={suggested}
@@ -268,7 +262,7 @@ function SubnetsSection({ data, apiToken, networkId, onDone, router, serversBySu
 
 /* ─── Single Subnet Card (contains its servers & LBs) */
 
-function SubnetCard({ subnet, data, apiToken, networkId, onDone, router, servers, loadBalancers, onDelete, deleting }: any) {
+function SubnetCard({ subnet, data, networkId, onDone, router, servers, loadBalancers, onDelete, deleting }: any) {
   const [attachOpen, setAttachOpen] = useState<"server" | "lb" | null>(null);
 
   const detachServerMutation = useMutation({
@@ -354,7 +348,7 @@ function SubnetCard({ subnet, data, apiToken, networkId, onDone, router, servers
                         {s.status === "running" ? "Running" : s.status === "off" ? "Off" : s.status}
                       </Badge>
                       <Button variant="ghost" size="icon-sm" className="opacity-0 group-hover:opacity-100"
-                        onClick={() => detachServerMutation.mutate({ apiToken, networkId, serverId: s.id })}
+                        onClick={() => detachServerMutation.mutate({ networkId, serverId: s.id })}
                         disabled={detachServerMutation.isPending}
                       >
                         <Unlink className="size-3 text-muted-foreground hover:text-destructive" />
@@ -394,7 +388,7 @@ function SubnetCard({ subnet, data, apiToken, networkId, onDone, router, servers
                       {lb.privateIp && <span className="text-xs font-mono text-muted-foreground">{lb.privateIp}</span>}
                     </div>
                     <Button variant="ghost" size="icon-sm" className="opacity-0 group-hover:opacity-100"
-                      onClick={() => detachLbMutation.mutate({ apiToken, networkId, loadBalancerId: lb.id })}
+                      onClick={() => detachLbMutation.mutate({ networkId, loadBalancerId: lb.id })}
                       disabled={detachLbMutation.isPending}
                     >
                       <Unlink className="size-3 text-muted-foreground hover:text-destructive" />
@@ -412,7 +406,6 @@ function SubnetCard({ subnet, data, apiToken, networkId, onDone, router, servers
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>Attach Server to {subnet.ipRange}</DialogTitle></DialogHeader>
           <AttachServerForm
-            apiToken={apiToken}
             networkId={networkId}
             servers={availableServers}
             suggestedIp={nextAvailableIp(subnet.ipRange, usedIps)}
@@ -426,7 +419,6 @@ function SubnetCard({ subnet, data, apiToken, networkId, onDone, router, servers
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>Attach Load Balancer to {subnet.ipRange}</DialogTitle></DialogHeader>
           <AttachLBForm
-            apiToken={apiToken}
             networkId={networkId}
             loadBalancers={availableLBs}
             suggestedIp={nextAvailableIp(subnet.ipRange, usedIps)}
@@ -440,7 +432,7 @@ function SubnetCard({ subnet, data, apiToken, networkId, onDone, router, servers
 
 /* ─── Add Subnet Form ──────────────────────────────── */
 
-function AddSubnetForm({ apiToken, networkId, networkZone, suggested, onDone }: any) {
+function AddSubnetForm({ networkId, networkZone, suggested, onDone }: any) {
   const [ipRange, setIpRange] = useState(suggested);
   const [zone, setZone] = useState(networkZone);
   const [creating, setCreating] = useState(false);
@@ -449,7 +441,7 @@ function AddSubnetForm({ apiToken, networkId, networkZone, suggested, onDone }: 
     if (!ipRange) { toast.error("IP range is required"); return; }
     setCreating(true);
     try {
-      await trpcClient.network.addSubnet.mutate({ apiToken, networkId, ipRange, networkZone: zone });
+      await trpcClient.network.addSubnet.mutate({ networkId, ipRange, networkZone: zone });
       toast.success("Subnet added");
       onDone();
     } catch (err: any) { toast.error(err.message); }
@@ -497,7 +489,7 @@ function AddSubnetForm({ apiToken, networkId, networkZone, suggested, onDone }: 
 
 /* ─── Attach Server Form (per subnet) ──────────────── */
 
-function AttachServerForm({ apiToken, networkId, servers, suggestedIp, onDone }: any) {
+function AttachServerForm({ networkId, servers, suggestedIp, onDone }: any) {
   const [serverId, setServerId] = useState("");
   const [ip, setIp] = useState(suggestedIp);
   const [attaching, setAttaching] = useState(false);
@@ -506,7 +498,7 @@ function AttachServerForm({ apiToken, networkId, servers, suggestedIp, onDone }:
     if (!serverId) { toast.error("Select a server"); return; }
     setAttaching(true);
     try {
-      await trpcClient.network.attachServer.mutate({ apiToken, networkId, serverId, ip: ip || undefined });
+      await trpcClient.network.attachServer.mutate({ networkId, serverId, ip: ip || undefined });
       toast.success("Server attached");
       onDone();
     } catch (err: any) { toast.error(err.message); }
@@ -551,7 +543,7 @@ function AttachServerForm({ apiToken, networkId, servers, suggestedIp, onDone }:
 
 /* ─── Attach LB Form (per subnet) ──────────────────── */
 
-function AttachLBForm({ apiToken, networkId, loadBalancers, suggestedIp, onDone }: any) {
+function AttachLBForm({ networkId, loadBalancers, suggestedIp, onDone }: any) {
   const [lbId, setLbId] = useState("");
   const [ip, setIp] = useState(suggestedIp);
   const [attaching, setAttaching] = useState(false);
@@ -560,7 +552,7 @@ function AttachLBForm({ apiToken, networkId, loadBalancers, suggestedIp, onDone 
     if (!lbId) { toast.error("Select a load balancer"); return; }
     setAttaching(true);
     try {
-      await trpcClient.network.attachLoadBalancer.mutate({ apiToken, networkId, loadBalancerId: lbId, ip: ip || undefined });
+      await trpcClient.network.attachLoadBalancer.mutate({ networkId, loadBalancerId: lbId, ip: ip || undefined });
       toast.success("Load balancer attached");
       onDone();
     } catch (err: any) { toast.error(err.message); }

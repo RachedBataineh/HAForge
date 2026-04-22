@@ -28,20 +28,17 @@ export default function NetworksPage() {
   const [deleteName, setDeleteName] = useState("");
 
   const profile = useQuery(trpc.settings.getProfile.queryOptions());
-  const apiToken = profile.data?.hetznerApiToken || "";
+  const hasToken = !!profile.data?.hetznerApiToken;
 
   const networks = useQuery(
-    trpc.network.list.queryOptions(
-      { apiToken },
-      { enabled: !!apiToken },
-    ),
+    trpc.network.list.queryOptions(undefined, { enabled: hasToken }),
   );
 
   const netList = (networks.data ?? []) as any[];
 
   const deleteMutation = useMutation({
     mutationFn: async ({ id }: { id: string }) => {
-      return await trpcClient.network.delete.mutate({ apiToken, networkId: id });
+      return await trpcClient.network.delete.mutate({ networkId: id });
     },
     onSuccess: () => {
       toast.success("Network deleted");
@@ -53,7 +50,7 @@ export default function NetworksPage() {
     onError: (err) => toast.error(`Failed: ${err.message}`),
   });
 
-  if (!apiToken) {
+  if (!hasToken) {
     return (
       <div className="p-6 space-y-6">
         <h1 className="text-2xl font-bold tracking-tight">Networks</h1>
@@ -145,7 +142,6 @@ export default function NetworksPage() {
             <DialogTitle>Create Network</DialogTitle>
           </DialogHeader>
           <CreateNetworkForm
-            apiToken={apiToken}
             existingNetworks={netList}
             onCreated={() => {
               networks.refetch();
@@ -194,7 +190,7 @@ export default function NetworksPage() {
   );
 }
 
-function CreateNetworkForm({ apiToken, existingNetworks, onCreated }: { apiToken: string; existingNetworks: any[]; onCreated: () => void }) {
+function CreateNetworkForm({ existingNetworks, onCreated }: { existingNetworks: any[]; onCreated: () => void }) {
   const suggestIpRange = (networks: any[]) => {
     const used = new Set<number>();
     for (const n of networks) {
@@ -219,7 +215,7 @@ function CreateNetworkForm({ apiToken, existingNetworks, onCreated }: { apiToken
     }
     setCreating(true);
     try {
-      await trpcClient.network.create.mutate({ apiToken, name, ipRange, networkZone });
+      await trpcClient.network.create.mutate({ name, ipRange, networkZone });
       toast.success(`Network "${name}" created successfully`);
       setName("");
       setIpRange("10.0.0.0/16");

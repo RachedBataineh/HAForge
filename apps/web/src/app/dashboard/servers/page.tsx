@@ -42,9 +42,8 @@ export default function ServersPage() {
   const assigned = serverList.filter((s: any) => s.clusterStatus === "running" || s.clusterStatus === "deploying");
   const draft = serverList.filter((s: any) => s.clusterStatus === "draft");
 
-  const hzData = hetznerServers.data as { servers: any[]; apiToken: string } | undefined;
+  const hzData = hetznerServers.data as { servers: any[] } | undefined;
   const hzServers = hzData?.servers ?? [];
-  const hzApiToken = hzData?.apiToken || "";
   const hzUsed = hzServers.filter((s) => s.used);
   const hzAvailable = hzServers.filter((s) => !s.used);
 
@@ -104,7 +103,7 @@ export default function ServersPage() {
           })}
         </div>
         <div className="ml-auto">
-          {hzApiToken && (
+          {(hetznerServers.data as any)?.servers?.length > 0 && (
             <Button size="sm" className="gap-2 mb-1" onClick={() => setCreateDialogOpen(true)}>
               <Plus className="size-4" />
               Create Server
@@ -245,7 +244,6 @@ export default function ServersPage() {
       <CreateServerDialog
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
-        apiToken={hzApiToken}
         onCreated={() => hetznerServers.refetch()}
       />
     </div>

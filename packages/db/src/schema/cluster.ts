@@ -77,7 +77,9 @@ export const clusters = pgTable("cluster", {
     .defaultNow()
     .$onUpdate(() => new Date())
     .notNull(),
-});
+}, (table) => [
+  index("cluster_user_id_idx").on(table.userId),
+]);
 
 export const servers = pgTable(
   "server",
@@ -255,7 +257,9 @@ export const sshKeys = pgTable("ssh_keys", {
   privateKey: text("private_key"),
   fingerprint: text("fingerprint"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("ssh_keys_user_id_idx").on(table.userId),
+]);
 
 export const sshKeyRelations = relations(sshKeys, ({ one, many }) => ({
   user: one(user, {

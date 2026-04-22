@@ -29,34 +29,25 @@ export default function LoadBalancersPage() {
   const [deleteName, setDeleteName] = useState("");
 
   const profile = useQuery(trpc.settings.getProfile.queryOptions());
-  const apiToken = profile.data?.hetznerApiToken || "";
+  const hasToken = !!profile.data?.hetznerApiToken;
 
   const loadBalancers = useQuery(
-    trpc.cluster.hetznerLoadBalancers.queryOptions(
-      { apiToken },
-      { enabled: !!apiToken },
-    ),
+    trpc.cluster.hetznerLoadBalancers.queryOptions(undefined, { enabled: hasToken }),
   );
 
   const lbTypes = useQuery(
-    trpc.cluster.hetznerLoadBalancerTypes.queryOptions(
-      { apiToken },
-      { enabled: !!apiToken && createOpen },
-    ),
+    trpc.cluster.hetznerLoadBalancerTypes.queryOptions(undefined, { enabled: hasToken && createOpen }),
   );
 
   const locations = useQuery(
-    trpc.cluster.hetznerLocations.queryOptions(
-      { apiToken },
-      { enabled: !!apiToken && createOpen },
-    ),
+    trpc.cluster.hetznerLocations.queryOptions(undefined, { enabled: hasToken && createOpen }),
   );
 
   const lbList = (loadBalancers.data ?? []) as any[];
 
   const deleteMutation = useMutation({
     mutationFn: async ({ id }: { id: string }) => {
-      return await trpcClient.cluster.hetznerDeleteLoadBalancer.mutate({ apiToken, loadBalancerId: id });
+      return await trpcClient.cluster.hetznerDeleteLoadBalancer.mutate({ loadBalancerId: id });
     },
     onSuccess: () => {
       toast.success("Load balancer deleted");
@@ -68,7 +59,7 @@ export default function LoadBalancersPage() {
     onError: (err) => toast.error(`Failed: ${err.message}`),
   });
 
-  if (!apiToken) {
+  if (!hasToken) {
     return (
       <div className="p-6 space-y-6">
         <h1 className="text-2xl font-bold tracking-tight">Load Balancers</h1>
@@ -153,7 +144,6 @@ export default function LoadBalancersPage() {
       <CreateLoadBalancerDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
-        apiToken={apiToken}
         lbTypes={lbTypes}
         locations={locations}
         onCreated={() => {
@@ -202,11 +192,10 @@ export default function LoadBalancersPage() {
 }
 
 function CreateLoadBalancerDialog({
-  open, onOpenChange, apiToken, lbTypes, locations, onCreated,
+  open, onOpenChange, lbTypes, locations, onCreated,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  apiToken: string;
   lbTypes: any;
   locations: any;
   onCreated: () => void;
@@ -233,10 +222,7 @@ function CreateLoadBalancerDialog({
   const locationsData = (locations.data ?? []) as any[];
 
   const networks = useQuery(
-    trpc.cluster.hetznerNetworks.queryOptions(
-      { apiToken },
-      { enabled: !!apiToken && open },
-    ),
+    trpc.cluster.hetznerNetworks.queryOptions(undefined, { enabled: open }),
   );
   const networksData = (networks.data ?? []) as any[];
 
@@ -270,7 +256,6 @@ function CreateLoadBalancerDialog({
     setCreating(true);
     try {
       await trpcClient.cluster.hetznerCreateLoadBalancer.mutate({
-        apiToken,
         name,
         location,
         loadBalancerType: lbType || undefined,

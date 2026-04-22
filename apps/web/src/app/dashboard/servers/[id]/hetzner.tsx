@@ -14,15 +14,14 @@ export default function HetznerTab({ server }: { server: any }) {
 
   const hetznerInfo = useQuery(
     trpc.cluster.hetznerServerInfo.queryOptions(
-      { apiToken: server.clusterHetznerToken || "", serverId: server.hetznerServerId || "" },
-      { enabled: !!server.hetznerServerId && !!server.clusterHetznerToken },
+      { serverId: server.hetznerServerId || "" },
+      { enabled: !!server.hetznerServerId },
     ),
   );
 
   const serverAction = useMutation({
     mutationFn: async (action: "poweron" | "poweroff" | "reboot") => {
       return await trpcClient.cluster.hetznerServerAction.mutate({
-        apiToken: server.clusterHetznerToken,
         serverId: server.hetznerServerId,
         action,
       });
@@ -39,16 +38,6 @@ export default function HetznerTab({ server }: { server: any }) {
       <Card>
         <CardContent className="py-8 text-center text-muted-foreground">
           No Hetzner server ID linked to this server.
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!server.clusterHetznerToken) {
-    return (
-      <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          No Hetzner API token available for this cluster.
         </CardContent>
       </Card>
     );

@@ -4,6 +4,7 @@ import { SSHExecutor } from "./ssh-executor";
 import { generateClusterCertificates, type GeneratedCerts } from "./cert-generator";
 import { resolveVariables, type VariableMap } from "./variable-resolver";
 import { getClusterSteps, getLbClusterSteps, type StepDefinition, type TargetRole } from "../templates/cluster-steps";
+import { generatePassword, SERVER_INFO_SCRIPT, parseServerInfo } from "./server-info";
 import { EventEmitter } from "events";
 import {
   initStep,
@@ -31,15 +32,6 @@ function getTargetServerRoles(targetRole: TargetRole): string[] {
     default:
       return [targetRole];
   }
-}
-
-function generatePassword(length = 32): string {
-  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let result = "";
-  for (let i = 0; i < length; i++) {
-    result += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return result;
 }
 
 export class Orchestrator extends EventEmitter {
@@ -532,8 +524,8 @@ export class Orchestrator extends EventEmitter {
           }),
         },
       );
-    } catch {
-      // Service may already exist if user created it manually on Hetzner
+    } catch (err) {
+      console.error("Failed to add service to LB (may already exist):", err);
     }
   }
 
@@ -543,44 +535,27 @@ export class Orchestrator extends EventEmitter {
       const ssh = this.sshConnections.get(serverId);
       if (!ssh) continue;
       try {
-        const script = [
-          "echo '---HOSTNAME---' && hostname && echo '---END---'",
-          "echo '---OS---' && cat /etc/os-release | grep PRETTY_NAME | cut -d'\"' -f2 && echo '---END---'",
-          "echo '---ARCH---' && uname -m && echo '---END---'",
-          "echo '---CPU---' && nproc && echo '---END---'",
-          "echo '---RAM---' && awk '/MemTotal/ {printf \"%.0f\", $2/1024}' /proc/meminfo && echo '---END---'",
-          "echo '---KERNEL---' && uname -r && echo '---END---'",
-          "echo '---UPTIME---' && uptime -p && echo '---END---'",
-          "echo '---TIMEZONE---' && timedatectl show -p Timezone --value && echo '---END---'",
-          "echo '---DISK---' && df -h / | awk 'NR==2{print $2 \"|\" $3 \"|\" $4 \"|\" $5}' && echo '---END---'",
-        ].join("\n");
-        const result = await ssh.exec(script);
+        const result = await ssh.exec(SERVER_INFO_SCRIPT);
         if (result.exitCode !== 0) continue;
-
-        const extract = (tag: string) => {
-          const regex = new RegExp(`---${tag}---\\s*\\n([\\s\\S]*?)---END---`);
-          const match = result.stdout.match(regex);
-          return match ? match[1].trim() : "";
-        };
-        const diskParts = extract("DISK").split("|");
+        const info = parseServerInfo(result.stdout);
 
         await db.update(servers).set({
-          cachedHostname: extract("HOSTNAME"),
-          cachedOs: extract("OS"),
-          cachedArch: extract("ARCH"),
-          cachedCpuCores: Number(extract("CPU")) || null,
-          cachedRamMB: Number(extract("RAM")) || null,
-          cachedKernel: extract("KERNEL"),
-          cachedUptime: extract("UPTIME"),
-          cachedTimezone: extract("TIMEZONE"),
-          cachedDiskTotal: diskParts[0] || null,
-          cachedDiskUsed: diskParts[1] || null,
-          cachedDiskFree: diskParts[2] || null,
-          cachedDiskPercent: diskParts[3] || null,
+          cachedHostname: info.hostname,
+          cachedOs: info.os,
+          cachedArch: info.arch,
+          cachedCpuCores: Number(info.cpuCores) || null,
+          cachedRamMB: Number(info.ramMB) || null,
+          cachedKernel: info.kernel,
+          cachedUptime: info.uptime,
+          cachedTimezone: info.timezone,
+          cachedDiskTotal: info.diskTotal || null,
+          cachedDiskUsed: info.diskUsed || null,
+          cachedDiskFree: info.diskFree || null,
+          cachedDiskPercent: info.diskPercent || null,
           lastFetchedAt: new Date(),
         }).where(eq(servers.id, serverId));
-      } catch {
-        // Silently skip if caching fails
+      } catch (err) {
+        console.error(`Failed to cache info for server ${serverId}:`, err);
       }
     }
   }

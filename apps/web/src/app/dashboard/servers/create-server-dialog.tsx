@@ -26,11 +26,10 @@ import { trpc, trpcClient } from "@/utils/trpc";
 interface CreateServerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  apiToken: string;
   onCreated: () => void;
 }
 
-export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: CreateServerDialogProps) {
+export function CreateServerDialog({ open, onOpenChange, onCreated }: CreateServerDialogProps) {
   const [name, setName] = useState("");
   const [serverType, setServerType] = useState("");
   const [location, setLocation] = useState("");
@@ -38,19 +37,17 @@ export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: 
   const [sshKeyId, setSshKeyId] = useState("");
   const [selectedArch, setSelectedArch] = useState("x86");
 
-  const enabled = !!apiToken;
-
   const serverTypes = useQuery(
-    trpc.cluster.hetznerServerTypes.queryOptions({ apiToken }, { enabled }),
+    trpc.cluster.hetznerServerTypes.queryOptions(),
   );
   const locations = useQuery(
-    trpc.cluster.hetznerLocations.queryOptions({ apiToken }, { enabled }),
+    trpc.cluster.hetznerLocations.queryOptions(),
   );
   const images = useQuery(
-    trpc.cluster.hetznerImages.queryOptions({ apiToken, architecture: selectedArch }, { enabled }),
+    trpc.cluster.hetznerImages.queryOptions({ architecture: selectedArch }),
   );
   const sshKeys = useQuery(
-    trpc.cluster.hetznerSshKeys.queryOptions({ apiToken }, { enabled }),
+    trpc.cluster.hetznerSshKeys.queryOptions(),
   );
 
   const serverTypesData = (serverTypes.data ?? []) as any[];
@@ -80,7 +77,6 @@ export function CreateServerDialog({ open, onOpenChange, apiToken, onCreated }: 
     setCreating(true);
     try {
       await trpcClient.cluster.hetznerCreateServer.mutate({
-        apiToken,
         name,
         serverType,
         location,

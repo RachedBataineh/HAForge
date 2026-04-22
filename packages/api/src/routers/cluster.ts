@@ -1,8 +1,21 @@
 import { db } from "@HAForge/db";
 import { clusters, servers, sshKeys, user } from "@HAForge/db";
-import { eq, ne } from "drizzle-orm";
+import { eq, ne, and } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
+import { SERVER_INFO_SCRIPT, parseServerInfo } from "../services/server-info";
+
+const HETZNER_API = "https://api.hetzner.cloud/v1";
+
+async function getUserApiToken(userId: string): Promise<string> {
+  const u = await db.query.user.findFirst({ where: eq(user.id, userId) });
+  return u?.hetznerApiToken || "";
+}
+
+const hetznerHeaders = (token: string) => ({
+  Authorization: `Bearer ${token}`,
+  "Content-Type": "application/json",
+});
 
 async function getServerSshKeyMaps() {
   const dbServerRecords = await db.query.servers.findMany();
@@ -31,17 +44,11 @@ async function getServerSshKeyMaps() {
 
 export const clusterRouter = router({
   hetznerFloatingIps: protectedProcedure
-    .input(z.object({ apiToken: z.string() }))
-    .query(async ({ input }) => {
-      const res = await fetch("https://api.hetzner.cloud/v1/floating_ips", {
-        headers: {
-          Authorization: `Bearer ${input.apiToken}`,
-          "Content-Type": "application/json",
-        },
-      });
-      if (!res.ok) {
-        throw new Error(`Hetzner API error: ${res.status}`);
-      }
+    .query(async ({ ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${HETZNER_API}/floating_ips`, { headers: hetznerHeaders(token) });
+      if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
       const data = await res.json();
       return data.floating_ips.map((ip: any) => ({
         id: String(ip.id),
@@ -70,17 +77,11 @@ export const clusterRouter = router({
     }),
 
   hetznerServers: protectedProcedure
-    .input(z.object({ apiToken: z.string() }))
-    .query(async ({ input }) => {
-      const res = await fetch("https://api.hetzner.cloud/v1/servers", {
-        headers: {
-          Authorization: `Bearer ${input.apiToken}`,
-          "Content-Type": "application/json",
-        },
-      });
-      if (!res.ok) {
-        throw new Error(`Hetzner API error: ${res.status}`);
-      }
+    .query(async ({ ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${HETZNER_API}/servers`, { headers: hetznerHeaders(token) });
+      if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
       const data = await res.json();
 
       const { sshKeyMap, sshKeyNameMap, sshPrivateKeyMap } = await getServerSshKeyMaps();
@@ -106,17 +107,11 @@ export const clusterRouter = router({
     }),
 
   hetznerLoadBalancers: protectedProcedure
-    .input(z.object({ apiToken: z.string() }))
-    .query(async ({ input }) => {
-      const res = await fetch("https://api.hetzner.cloud/v1/load_balancers", {
-        headers: {
-          Authorization: `Bearer ${input.apiToken}`,
-          "Content-Type": "application/json",
-        },
-      });
-      if (!res.ok) {
-        throw new Error(`Hetzner API error: ${res.status}`);
-      }
+    .query(async ({ ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${HETZNER_API}/load_balancers`, { headers: hetznerHeaders(token) });
+      if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
       const data = await res.json();
       return data.load_balancers.map((lb: any) => ({
         id: String(lb.id),
@@ -141,7 +136,6 @@ export const clusterRouter = router({
 
   hetznerCreateLoadBalancer: protectedProcedure
     .input(z.object({
-      apiToken: z.string(),
       name: z.string(),
       serverIds: z.array(z.string()).optional(),
       location: z.string().optional(),
@@ -162,7 +156,9 @@ export const clusterRouter = router({
         healthCheckTls: z.boolean().default(false),
       }).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const svc = input.service || {
         protocol: "tcp" as const,
         listenPort: 5432,
@@ -216,12 +212,9 @@ export const clusterRouter = router({
       if (input.networkId) {
         body.network = Number(input.networkId);
       }
-      const res = await fetch("https://api.hetzner.cloud/v1/load_balancers", {
+      const res = await fetch(`${HETZNER_API}/load_balancers`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${input.apiToken}`,
-          "Content-Type": "application/json",
-        },
+        headers: hetznerHeaders(token),
         body: JSON.stringify(body),
       });
       if (!res.ok) {
@@ -237,14 +230,10 @@ export const clusterRouter = router({
     }),
 
   hetznerLoadBalancerTypes: protectedProcedure
-    .input(z.object({ apiToken: z.string() }))
-    .query(async ({ input }) => {
-      const res = await fetch("https://api.hetzner.cloud/v1/load_balancer_types", {
-        headers: {
-          Authorization: `Bearer ${input.apiToken}`,
-          "Content-Type": "application/json",
-        },
-      });
+    .query(async ({ ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${HETZNER_API}/load_balancer_types`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
       const data = await res.json();
       return (data.load_balancer_types || []).map((t: any) => ({
@@ -259,14 +248,13 @@ export const clusterRouter = router({
     }),
 
   hetznerDeleteLoadBalancer: protectedProcedure
-    .input(z.object({ apiToken: z.string(), loadBalancerId: z.string() }))
-    .mutation(async ({ input }) => {
-      const res = await fetch(`https://api.hetzner.cloud/v1/load_balancers/${input.loadBalancerId}`, {
+    .input(z.object({ loadBalancerId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${HETZNER_API}/load_balancers/${input.loadBalancerId}`, {
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${input.apiToken}`,
-          "Content-Type": "application/json",
-        },
+        headers: hetznerHeaders(token),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -277,7 +265,6 @@ export const clusterRouter = router({
 
   hetznerUpdateLoadBalancer: protectedProcedure
     .input(z.object({
-      apiToken: z.string(),
       loadBalancerId: z.string(),
       algorithm: z.enum(["round_robin", "least_connections"]).optional(),
       service: z.object({
@@ -294,12 +281,14 @@ export const clusterRouter = router({
         healthCheckStatuses: z.array(z.string()),
       }).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       // Update algorithm
       if (input.algorithm) {
-        const res = await fetch(`https://api.hetzner.cloud/v1/load_balancers/${input.loadBalancerId}/actions/change_algorithm`, {
+        const res = await fetch(`${HETZNER_API}/load_balancers/${input.loadBalancerId}/actions/change_algorithm`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
+          headers: hetznerHeaders(token),
           body: JSON.stringify({ type: input.algorithm }),
         });
         if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || `Update algorithm failed: ${res.status}`); }
@@ -324,9 +313,9 @@ export const clusterRouter = router({
             tls: svc.healthCheckTls,
           };
         }
-        const updateRes = await fetch(`https://api.hetzner.cloud/v1/load_balancers/${input.loadBalancerId}/actions/update_service`, {
+        const updateRes = await fetch(`${HETZNER_API}/load_balancers/${input.loadBalancerId}/actions/update_service`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
+          headers: hetznerHeaders(token),
           body: JSON.stringify({
             listen_port: svc.listenPort,
             destination_port: svc.destinationPort,
@@ -340,14 +329,10 @@ export const clusterRouter = router({
     }),
 
   hetznerNetworks: protectedProcedure
-    .input(z.object({ apiToken: z.string() }))
-    .query(async ({ input }) => {
-      const res = await fetch("https://api.hetzner.cloud/v1/networks", {
-        headers: {
-          Authorization: `Bearer ${input.apiToken}`,
-          "Content-Type": "application/json",
-        },
-      });
+    .query(async ({ ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${HETZNER_API}/networks`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
       const data = await res.json();
       return (data.networks || []).map((n: any) => ({
@@ -359,15 +344,13 @@ export const clusterRouter = router({
     }),
 
   hetznerLoadBalancerDetails: protectedProcedure
-    .input(z.object({ apiToken: z.string(), loadBalancerId: z.string() }))
-    .query(async ({ input }) => {
+    .input(z.object({ loadBalancerId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const [lbRes, serversRes] = await Promise.all([
-        fetch(`https://api.hetzner.cloud/v1/load_balancers/${input.loadBalancerId}`, {
-          headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
-        }),
-        fetch("https://api.hetzner.cloud/v1/servers", {
-          headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
-        }),
+        fetch(`${HETZNER_API}/load_balancers/${input.loadBalancerId}`, { headers: hetznerHeaders(token) }),
+        fetch(`${HETZNER_API}/servers`, { headers: hetznerHeaders(token) }),
       ]);
       if (!lbRes.ok) throw new Error(`Hetzner API error: ${lbRes.status}`);
       const data = await lbRes.json();
@@ -452,30 +435,33 @@ export const clusterRouter = router({
         superuserUsername: z.string().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
       const [cluster] = await db
         .update(clusters)
         .set(data)
-        .where(eq(clusters.id, id))
+        .where(and(eq(clusters.id, id), eq(clusters.userId, ctx.session.user.id)))
         .returning();
+      if (!cluster) throw new Error("Cluster not found or access denied");
       return cluster;
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
-      await db.delete(clusters).where(eq(clusters.id, input.id));
+    .mutation(async ({ input, ctx }) => {
+      const result = await db.delete(clusters).where(and(eq(clusters.id, input.id), eq(clusters.userId, ctx.session.user.id)));
+      if (!result.rowCount) throw new Error("Cluster not found or access denied");
       return { success: true };
     }),
 
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const cluster = await db.query.clusters.findFirst({
-        where: eq(clusters.id, input.id),
+        where: and(eq(clusters.id, input.id), eq(clusters.userId, ctx.session.user.id)),
         with: { servers: true },
       });
+      if (!cluster) throw new Error("Cluster not found");
       return cluster;
     }),
 
@@ -551,20 +537,19 @@ export const clusterRouter = router({
             });
           }
         }
-      } catch {
-        // Skip failed fetch
+      } catch (err) {
+        console.error("Failed to fetch Hetzner servers:", err);
       }
     }
 
-    return { servers: allServers, apiToken: token };
+    return { servers: allServers };
   }),
 
   hetznerServerTypes: protectedProcedure
-    .input(z.object({ apiToken: z.string() }))
-    .query(async ({ input }) => {
-      const res = await fetch("https://api.hetzner.cloud/v1/server_types", {
-        headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
-      });
+    .query(async ({ ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${HETZNER_API}/server_types`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
       const data = await res.json();
       return data.server_types.map((t: any) => ({
@@ -580,11 +565,10 @@ export const clusterRouter = router({
     }),
 
   hetznerLocations: protectedProcedure
-    .input(z.object({ apiToken: z.string() }))
-    .query(async ({ input }) => {
-      const res = await fetch("https://api.hetzner.cloud/v1/locations", {
-        headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
-      });
+    .query(async ({ ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${HETZNER_API}/locations`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
       const data = await res.json();
       return data.locations.map((l: any) => ({
@@ -597,12 +581,12 @@ export const clusterRouter = router({
     }),
 
   hetznerImages: protectedProcedure
-    .input(z.object({ apiToken: z.string(), architecture: z.string().optional() }))
-    .query(async ({ input }) => {
+    .input(z.object({ architecture: z.string().optional() }))
+    .query(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const arch = input.architecture || "x86";
-      const res = await fetch("https://api.hetzner.cloud/v1/images?type=system&per_page=50", {
-        headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
-      });
+      const res = await fetch(`${HETZNER_API}/images?type=system&per_page=50`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
       const data = await res.json();
       const seen = new Set<string>();
@@ -624,15 +608,16 @@ export const clusterRouter = router({
 
   hetznerCreateServer: protectedProcedure
     .input(z.object({
-      apiToken: z.string(),
-      name: z.string(),
+      name: z.string().min(1).max(63),
       serverType: z.string(),
       location: z.string(),
       image: z.string(),
       sshKeyId: z.string().optional(),
       networkId: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const body: any = {
         name: input.name,
         server_type: input.serverType,
@@ -646,9 +631,9 @@ export const clusterRouter = router({
       if (input.networkId) {
         body.networks = [input.networkId];
       }
-      const res = await fetch("https://api.hetzner.cloud/v1/servers", {
+      const res = await fetch(`${HETZNER_API}/servers`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
+        headers: hetznerHeaders(token),
         body: JSON.stringify(body),
       });
       if (!res.ok) {
@@ -666,11 +651,10 @@ export const clusterRouter = router({
     }),
 
   hetznerSshKeys: protectedProcedure
-    .input(z.object({ apiToken: z.string() }))
-    .query(async ({ input }) => {
-      const res = await fetch("https://api.hetzner.cloud/v1/ssh_keys", {
-        headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
-      });
+    .query(async ({ ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${HETZNER_API}/ssh_keys`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
       const data = await res.json();
       return data.ssh_keys.map((k: any) => ({
@@ -725,8 +709,8 @@ export const clusterRouter = router({
           }
         }
       }
-    } catch {
-      // Skip failed fetch
+    } catch (err) {
+      console.error("Failed to sync Hetzner SSH keys:", err);
     }
 
     const dbKeys = await db.query.sshKeys.findMany({
@@ -754,15 +738,16 @@ export const clusterRouter = router({
 
   hetznerCreateSshKey: protectedProcedure
     .input(z.object({
-      apiToken: z.string(),
-      name: z.string(),
+      name: z.string().min(1).max(64),
       publicKey: z.string(),
       privateKey: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const res = await fetch("https://api.hetzner.cloud/v1/ssh_keys", {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${HETZNER_API}/ssh_keys`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
+        headers: hetznerHeaders(token),
         body: JSON.stringify({ name: input.name, public_key: input.publicKey }),
       });
       if (!res.ok) {
@@ -792,11 +777,13 @@ export const clusterRouter = router({
     }),
 
   hetznerDeleteSshKey: protectedProcedure
-    .input(z.object({ apiToken: z.string(), keyId: z.string() }))
-    .mutation(async ({ input }) => {
-      const res = await fetch(`https://api.hetzner.cloud/v1/ssh_keys/${input.keyId}`, {
+    .input(z.object({ keyId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${HETZNER_API}/ssh_keys/${input.keyId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${input.apiToken}`, "Content-Type": "application/json" },
+        headers: hetznerHeaders(token),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -830,39 +817,10 @@ export const clusterRouter = router({
       });
       await ssh.connect();
       try {
-        const script = `echo '---HOSTNAME---' && hostname && echo '---END---'
-echo '---OS---' && cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2 && echo '---END---'
-echo '---ARCH---' && uname -m && echo '---END---'
-echo '---CPU---' && nproc && echo '---END---'
-echo '---RAM---' && awk '/MemTotal/ {printf "%.0f", $2/1024}' /proc/meminfo && echo '---END---'
-echo '---KERNEL---' && uname -r && echo '---END---'
-echo '---UPTIME---' && uptime -p && echo '---END---'
-echo '---TIMEZONE---' && timedatectl show -p Timezone --value && echo '---END---'
-echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && echo '---END---'`;
-        const result = await ssh.exec(script);
+        const result = await ssh.exec(SERVER_INFO_SCRIPT);
         if (result.exitCode !== 0) throw new Error(result.stderr);
-
-        const extract = (tag: string) => {
-          const regex = new RegExp(`---${tag}---\\s*\\n([\\s\\S]*?)---END---`);
-          const match = result.stdout.match(regex);
-          return match ? match[1].trim() : "";
-        };
-
-        const diskParts = extract("DISK").split("|");
-        return {
-          hostname: extract("HOSTNAME"),
-          os: extract("OS"),
-          arch: extract("ARCH"),
-          cpuCores: extract("CPU"),
-          ramMB: extract("RAM"),
-          kernel: extract("KERNEL"),
-          uptime: extract("UPTIME"),
-          timezone: extract("TIMEZONE"),
-          diskTotal: diskParts[0] || "",
-          diskUsed: diskParts[1] || "",
-          diskFree: diskParts[2] || "",
-          diskPercent: diskParts[3] || "",
-        };
+        const info = parseServerInfo(result.stdout);
+        return info;
       } finally {
         await ssh.disconnect();
       }
@@ -871,7 +829,7 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
   serverSetTimezone: protectedProcedure
     .input(z.object({
       serverId: z.string(),
-      timezone: z.string(),
+      timezone: z.string().regex(/^[a-zA-Z0-9_+\-/]+$/),
     }))
     .mutation(async ({ input }) => {
       const server = await db.query.servers.findFirst({
@@ -900,14 +858,11 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
     }),
 
   hetznerServerInfo: protectedProcedure
-    .input(z.object({ apiToken: z.string(), serverId: z.string() }))
-    .query(async ({ input }) => {
-      const res = await fetch(`https://api.hetzner.cloud/v1/servers/${input.serverId}`, {
-        headers: {
-          Authorization: `Bearer ${input.apiToken}`,
-          "Content-Type": "application/json",
-        },
-      });
+    .input(z.object({ serverId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${HETZNER_API}/servers/${input.serverId}`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
       const data = await res.json();
       const s = data.server;
@@ -935,14 +890,13 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
     }),
 
   hetznerServerAction: protectedProcedure
-    .input(z.object({ apiToken: z.string(), serverId: z.string(), action: z.enum(["poweron", "poweroff", "reboot"]) }))
-    .mutation(async ({ input }) => {
-      const res = await fetch(`https://api.hetzner.cloud/v1/servers/${input.serverId}/actions/${input.action}`, {
+    .input(z.object({ serverId: z.string(), action: z.enum(["poweron", "poweroff", "reboot"]) }))
+    .mutation(async ({ input, ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${HETZNER_API}/servers/${input.serverId}/actions/${input.action}`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${input.apiToken}`,
-          "Content-Type": "application/json",
-        },
+        headers: hetznerHeaders(token),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -1002,40 +956,23 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
       });
       await ssh.connect();
       try {
-        const script = [
-          "echo '---HOSTNAME---' && hostname && echo '---END---'",
-          "echo '---OS---' && cat /etc/os-release | grep PRETTY_NAME | cut -d'\"' -f2 && echo '---END---'",
-          "echo '---ARCH---' && uname -m && echo '---END---'",
-          "echo '---CPU---' && nproc && echo '---END---'",
-          "echo '---RAM---' && awk '/MemTotal/ {printf \"%.0f\", $2/1024}' /proc/meminfo && echo '---END---'",
-          "echo '---KERNEL---' && uname -r && echo '---END---'",
-          "echo '---UPTIME---' && uptime -p && echo '---END---'",
-          "echo '---TIMEZONE---' && timedatectl show -p Timezone --value && echo '---END---'",
-          "echo '---DISK---' && df -h / | awk 'NR==2{print $2 \"|\" $3 \"|\" $4 \"|\" $5}' && echo '---END---'",
-        ].join("\n");
-        const result = await ssh.exec(script);
+        const result = await ssh.exec(SERVER_INFO_SCRIPT);
         if (result.exitCode !== 0) throw new Error(result.stderr);
-
-        const extract = (tag: string) => {
-          const regex = new RegExp(`---${tag}---\\s*\\n([\\s\\S]*?)---END---`);
-          const match = result.stdout.match(regex);
-          return match ? match[1].trim() : "";
-        };
-        const diskParts = extract("DISK").split("|");
+        const info = parseServerInfo(result.stdout);
 
         await db.update(servers).set({
-          cachedHostname: extract("HOSTNAME"),
-          cachedOs: extract("OS"),
-          cachedArch: extract("ARCH"),
-          cachedCpuCores: Number(extract("CPU")) || null,
-          cachedRamMB: Number(extract("RAM")) || null,
-          cachedKernel: extract("KERNEL"),
-          cachedUptime: extract("UPTIME"),
-          cachedTimezone: extract("TIMEZONE"),
-          cachedDiskTotal: diskParts[0] || null,
-          cachedDiskUsed: diskParts[1] || null,
-          cachedDiskFree: diskParts[2] || null,
-          cachedDiskPercent: diskParts[3] || null,
+          cachedHostname: info.hostname,
+          cachedOs: info.os,
+          cachedArch: info.arch,
+          cachedCpuCores: Number(info.cpuCores) || null,
+          cachedRamMB: Number(info.ramMB) || null,
+          cachedKernel: info.kernel,
+          cachedUptime: info.uptime,
+          cachedTimezone: info.timezone,
+          cachedDiskTotal: info.diskTotal || null,
+          cachedDiskUsed: info.diskUsed || null,
+          cachedDiskFree: info.diskFree || null,
+          cachedDiskPercent: info.diskPercent || null,
           lastFetchedAt: new Date(),
         }).where(eq(servers.id, input.serverId));
 
@@ -1076,8 +1013,8 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
 
       // Fetch server names from Hetzner API
       if (apiToken) {
-        const srvRes = await fetch("https://api.hetzner.cloud/v1/servers", {
-          headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
+        const srvRes = await fetch(`${HETZNER_API}/servers`, {
+          headers: hetznerHeaders(apiToken),
         });
         if (srvRes.ok) {
           const srvData = await srvRes.json();
@@ -1089,8 +1026,8 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
 
       if (cluster.clusterType === "hetzner_lb" && cluster.loadBalancerId && apiToken) {
         // LB mode: use health checks to determine leader
-        const lbRes = await fetch(`https://api.hetzner.cloud/v1/load_balancers/${cluster.loadBalancerId}`, {
-          headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
+        const lbRes = await fetch(`${HETZNER_API}/load_balancers/${cluster.loadBalancerId}`, {
+          headers: hetznerHeaders(apiToken),
         });
         if (lbRes.ok) {
           const lbData = await lbRes.json();
@@ -1107,8 +1044,8 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
           }
 
           // Get server power status
-          const srvRes = await fetch("https://api.hetzner.cloud/v1/servers", {
-            headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
+          const srvRes = await fetch(`${HETZNER_API}/servers`, {
+            headers: hetznerHeaders(apiToken),
           });
           const serverStatusMap = new Map<string, string>();
           if (srvRes.ok) {
@@ -1135,8 +1072,8 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
           try {
             // Check server power status first
             if (s.hetznerServerId) {
-              const srvRes = await fetch(`https://api.hetzner.cloud/v1/servers/${s.hetznerServerId}`, {
-                headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
+              const srvRes = await fetch(`${HETZNER_API}/servers/${s.hetznerServerId}`, {
+                headers: hetznerHeaders(apiToken),
               });
               if (srvRes.ok) {
                 const srvData = await srvRes.json();
@@ -1166,7 +1103,8 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
             } finally {
               await ssh.disconnect();
             }
-          } catch {
+          } catch (err) {
+            console.error(`Failed to determine role for ${s.role}:`, err);
             roles[s.role] = "unknown";
           }
         }
@@ -1176,14 +1114,14 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
       let lbName: string | null = null;
       if (cluster.clusterType === "hetzner_lb" && cluster.loadBalancerId && apiToken) {
         try {
-          const lbRes = await fetch(`https://api.hetzner.cloud/v1/load_balancers/${cluster.loadBalancerId}`, {
-            headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
+          const lbRes = await fetch(`${HETZNER_API}/load_balancers/${cluster.loadBalancerId}`, {
+            headers: hetznerHeaders(apiToken),
           });
           if (lbRes.ok) {
             const lbData = await lbRes.json();
             lbName = lbData.load_balancer?.name || null;
           }
-        } catch { /* skip */ }
+        } catch (err) { console.error("Failed to fetch LB name:", err); }
       }
 
       return { roles, serverNames, lbName };

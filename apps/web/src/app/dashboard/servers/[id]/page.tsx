@@ -49,12 +49,12 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
 
   // Hetzner API info
   const profile = useQuery(trpc.settings.getProfile.queryOptions());
-  const apiToken = profile.data?.hetznerApiToken || "";
+  const hasToken = !!profile.data?.hetznerApiToken;
 
   const hetznerInfo = useQuery(
     trpc.cluster.hetznerServerInfo.queryOptions(
-      { apiToken, serverId: dbServer?.hetznerServerId || hetznerId || "" },
-      { enabled: !!(dbServer?.hetznerServerId || hetznerId) && !!apiToken },
+      { serverId: dbServer?.hetznerServerId || hetznerId || "" },
+      { enabled: !!(dbServer?.hetznerServerId || hetznerId) },
     ),
   );
 
@@ -71,7 +71,6 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
   const serverAction = useMutation({
     mutationFn: async (action: "poweron" | "poweroff" | "reboot") => {
       return await trpcClient.cluster.hetznerServerAction.mutate({
-        apiToken,
         serverId: server?.hetznerServerId || hetznerId || "",
         action,
       });

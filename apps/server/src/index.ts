@@ -46,17 +46,32 @@ app.get("/", (c) => {
 // WebSocket terminal endpoint
 app.get(
   "/ws/terminal",
-  upgradeWebSocket((c) => {
-    return {
-      onOpen(event, ws) {
-        const url = new URL(c.req.url, `http://${c.req.header("host")}`);
-        const serverId = url.searchParams.get("serverId");
+  upgradeWebSocket(async (c) => {
+    // Authenticate WebSocket connection via session cookie
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session) {
+      return {
+        onOpen(_event: any, ws: any) {
+          ws.send(JSON.stringify({ type: "error", message: "Authentication required" }));
+          ws.close();
+        },
+      };
+    }
 
-        if (!serverId) {
+    const url = new URL(c.req.url, `http://${c.req.header("host")}`);
+    const serverId = url.searchParams.get("serverId");
+
+    if (!serverId) {
+      return {
+        onOpen(_event: any, ws: any) {
           ws.send(JSON.stringify({ type: "error", message: "Missing serverId" }));
           ws.close();
-          return;
-        }
+        },
+      };
+    }
+
+    return {
+      onOpen(event: any, ws: any) {
 
         const ssh = new Client();
         (ws as any).__ssh = ssh;
@@ -161,8 +176,8 @@ app.get(
           }
         })();
       },
-      onMessage(event, ws) {
-        const stream = (ws as any).__stream;
+      onMessage(event: any, ws: any) {
+        const stream = ws.__stream;
         if (!stream) return;
 
         const msg = event.data;

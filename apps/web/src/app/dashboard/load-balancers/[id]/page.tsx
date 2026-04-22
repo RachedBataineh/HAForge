@@ -23,12 +23,12 @@ export default function LoadBalancerDetailPage({ params }: { params: Promise<{ i
   const queryClient = useQueryClient();
 
   const profile = useQuery(trpc.settings.getProfile.queryOptions());
-  const apiToken = profile.data?.hetznerApiToken || "";
+  const hasToken = !!profile.data?.hetznerApiToken;
 
   const lb = useQuery(
     trpc.cluster.hetznerLoadBalancerDetails.queryOptions(
-      { apiToken, loadBalancerId: lbId },
-      { enabled: !!apiToken && !!lbId },
+      { loadBalancerId: lbId },
+      { enabled: hasToken && !!lbId },
     ),
   );
 
@@ -73,7 +73,6 @@ export default function LoadBalancerDetailPage({ params }: { params: Promise<{ i
   const saveMutation = useMutation({
     mutationFn: async () => {
       await trpcClient.cluster.hetznerUpdateLoadBalancer.mutate({
-        apiToken,
         loadBalancerId: lbId,
         algorithm: algorithm as "round_robin" | "least_connections",
         service: {
@@ -101,7 +100,7 @@ export default function LoadBalancerDetailPage({ params }: { params: Promise<{ i
     },
   });
 
-  if (!apiToken) {
+  if (!hasToken) {
     return (
       <div className="p-6">
         <p className="text-muted-foreground">Add your Hetzner API token in Settings first.</p>

@@ -90,7 +90,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
 
   const floatingIps = useQuery(
     trpc.cluster.hetznerFloatingIps.queryOptions(
-      { apiToken: hetznerToken },
+      undefined,
       { enabled: tokenReady && !isLb },
     ),
   );
@@ -98,7 +98,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
 
   const hetznerServers = useQuery(
     trpc.cluster.hetznerServers.queryOptions(
-      { apiToken: hetznerToken },
+      undefined,
       { enabled: tokenReady },
     ),
   );
@@ -111,7 +111,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
 
   const hetznerLoadBalancers = useQuery(
     trpc.cluster.hetznerLoadBalancers.queryOptions(
-      { apiToken: hetznerToken },
+      undefined,
       { enabled: tokenReady && isLb },
     ),
   );
