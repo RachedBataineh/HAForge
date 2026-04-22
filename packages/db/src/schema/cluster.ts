@@ -92,14 +92,14 @@ export const servers = pgTable(
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
     clusterId: text("cluster_id")
-      .notNull()
       .references(() => clusters.id, { onDelete: "cascade" }),
 
     hostname: text("hostname"),
-    ipAddress: text("ip_address").notNull(),
+    ipAddress: text("ip_address"),
     sshPort: integer("ssh_port").default(22).notNull(),
     sshUser: text("ssh_user").default("root").notNull(),
-    sshPrivateKey: text("ssh_private_key").notNull(),
+    sshPrivateKey: text("ssh_private_key"),
+    sshKeyId: text("ssh_key_id"),
 
     role: serverRoleEnum("role").notNull(),
     hetznerServerId: text("hetzner_server_id"),

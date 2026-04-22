@@ -8,7 +8,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { Client } from "ssh2";
-import { db } from "@HAForge/db";
+import { db, sshKeys } from "@HAForge/db";
 import { servers } from "@HAForge/db";
 import { eq } from "drizzle-orm";
 
@@ -108,19 +108,50 @@ app.get(
         // Fetch server from DB and connect
         (async () => {
           try {
-            const server = await db.query.servers.findFirst({
-              where: eq(servers.id, serverId),
-            });
+            let server: any = null;
+
+            if (serverId.startsWith("hetzner-")) {
+              const hetznerId = serverId.replace("hetzner-", "");
+              server = await db.query.servers.findFirst({
+                where: eq(servers.hetznerServerId, hetznerId),
+              });
+              if (!server) {
+                ws.send(JSON.stringify({ type: "error", message: "Server not found. Assign an SSH key first." }));
+                ws.close();
+                return;
+              }
+            } else {
+              server = await db.query.servers.findFirst({
+                where: eq(servers.id, serverId),
+              });
+            }
+
             if (!server) {
               ws.send(JSON.stringify({ type: "error", message: "Server not found" }));
               ws.close();
               return;
             }
+
+            // Resolve private key from ssh_keys table if needed
+            let privateKey = server.sshPrivateKey;
+            if (!privateKey && server.sshKeyId) {
+              const key = await db.query.sshKeys.findFirst({
+                where: eq(sshKeys.id, server.sshKeyId),
+              });
+              privateKey = key?.privateKey;
+            }
+
+            if (!privateKey) {
+              ws.send(JSON.stringify({ type: "error", message: "No SSH private key. Assign an SSH key first." }));
+              ws.close();
+              return;
+            }
+
             ssh.connect({
               host: server.ipAddress,
               port: server.sshPort || 22,
               username: server.sshUser || "root",
-              privateKey: server.sshPrivateKey,
+              privateKey,
               readyTimeout: 10000,
             });
           } catch (err: any) {

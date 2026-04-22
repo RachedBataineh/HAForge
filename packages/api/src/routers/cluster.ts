@@ -57,17 +57,39 @@ export const clusterRouter = router({
         throw new Error(`Hetzner API error: ${res.status}`);
       }
       const data = await res.json();
-      return data.servers.map((srv: any) => ({
-        id: String(srv.id),
-        name: srv.name,
-        publicIp: srv.public_net?.ipv4?.ip || "",
-        privateIps: (srv.private_net || []).map((net: any) => ({
-          networkId: String(net.network),
-          ip: net.ip,
-        })),
-        status: srv.status,
-        location: srv.datacenter?.location?.name || "",
-      }));
+
+      // Get SSH key assignments from DB
+      const dbServerRecords = await db.query.servers.findMany();
+      const sshKeyMap = new Map<string, { sshKeyId: string | null; sshPrivateKey: string | null }>();
+      for (const s of dbServerRecords) {
+        if (s.hetznerServerId) {
+          sshKeyMap.set(s.hetznerServerId, { sshKeyId: s.sshKeyId, sshPrivateKey: s.sshPrivateKey });
+        }
+      }
+      const allSshKeys = await db.query.sshKeys.findMany();
+      const sshKeyNameMap = new Map<string, string>();
+      for (const k of allSshKeys) {
+        sshKeyNameMap.set(k.id, k.name);
+      }
+
+      return data.servers.map((srv: any) => {
+        const hetznerId = String(srv.id);
+        const keyInfo = sshKeyMap.get(hetznerId);
+        return {
+          id: hetznerId,
+          name: srv.name,
+          publicIp: srv.public_net?.ipv4?.ip || "",
+          privateIps: (srv.private_net || []).map((net: any) => ({
+            networkId: String(net.network),
+            ip: net.ip,
+          })),
+          status: srv.status,
+          location: srv.datacenter?.location?.name || "",
+          sshKeyId: keyInfo?.sshKeyId || null,
+          sshKeyName: keyInfo?.sshKeyId ? sshKeyNameMap.get(keyInfo.sshKeyId) || null : null,
+          sshPrivateKey: keyInfo?.sshPrivateKey || null,
+        };
+      });
     }),
 
   hetznerLoadBalancers: protectedProcedure
@@ -263,6 +285,22 @@ export const clusterRouter = router({
       }
     }
 
+    // Get SSH key assignments from DB servers
+    const dbServerRecords = await db.query.servers.findMany();
+    const sshKeyMap = new Map<string, { sshKeyId: string | null; sshPrivateKey: string | null }>();
+    for (const s of dbServerRecords) {
+      if (s.hetznerServerId) {
+        sshKeyMap.set(s.hetznerServerId, { sshKeyId: s.sshKeyId, sshPrivateKey: s.sshPrivateKey });
+      }
+    }
+
+    // Get SSH key names
+    const allSshKeys = await db.query.sshKeys.findMany();
+    const sshKeyNameMap = new Map<string, string>();
+    for (const k of allSshKeys) {
+      sshKeyNameMap.set(k.id, k.name);
+    }
+
     const allServers: any[] = [];
 
     if (token) {
@@ -274,6 +312,7 @@ export const clusterRouter = router({
           const data = await res.json();
           for (const srv of data.servers || []) {
             const hetznerId = String(srv.id);
+            const keyInfo = sshKeyMap.get(hetznerId);
             allServers.push({
               id: hetznerId,
               name: srv.name,
@@ -284,6 +323,9 @@ export const clusterRouter = router({
               location: srv.datacenter?.location?.name || "",
               created: srv.created || "",
               used: usedServerIds.has(hetznerId),
+              sshKeyId: keyInfo?.sshKeyId || null,
+              sshKeyName: keyInfo?.sshKeyId ? sshKeyNameMap.get(keyInfo.sshKeyId) || null : null,
+              sshPrivateKey: keyInfo?.sshPrivateKey || null,
             });
           }
         }
@@ -715,10 +757,10 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
 
       const { SSHExecutor } = await import("../services/ssh-executor");
       const ssh = new SSHExecutor({
-        host: server.ipAddress,
+        host: server.ipAddress || "",
         port: server.sshPort || 22,
         username: server.sshUser || "root",
-        privateKey: server.sshPrivateKey,
+        privateKey: server.sshPrivateKey || "",
       });
       await ssh.connect();
       try {

@@ -210,7 +210,11 @@ export default function ServersPage() {
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Available</p>
               <div className="grid gap-3">
                 {hzAvailable.map((server: any) => (
-                  <Card key={server.id}>
+                  <Card
+                    key={server.id}
+                    className="cursor-pointer hover:border-primary/50 transition-colors"
+                    onClick={() => router.push(`/dashboard/servers/hetzner-${server.id}`)}
+                  >
                     <CardContent className="flex items-center justify-between py-3">
                       <div className="flex items-center gap-3">
                         <Server className="size-4 text-muted-foreground" />

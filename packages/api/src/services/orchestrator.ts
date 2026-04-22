@@ -1,4 +1,4 @@
-import { db, clusters, executions, executionSteps, executionLogs, servers } from "@HAForge/db";
+import { db, clusters, executions, executionSteps, executionLogs, servers, sshKeys } from "@HAForge/db";
 import { eq } from "drizzle-orm";
 import { SSHExecutor } from "./ssh-executor";
 import { generateClusterCertificates, type GeneratedCerts } from "./cert-generator";
@@ -385,6 +385,18 @@ export class Orchestrator extends EventEmitter {
   }
 
   private async connectAllServers(serverMap: Map<string, any>) {
+    // Resolve SSH private keys: prefer server.sshPrivateKey, fall back to ssh_keys table
+    for (const [id, server] of serverMap) {
+      if (!server.sshPrivateKey && server.sshKeyId) {
+        const key = await db.query.sshKeys.findFirst({
+          where: eq(sshKeys.id, server.sshKeyId),
+        });
+        if (key?.privateKey) {
+          server.sshPrivateKey = key.privateKey;
+        }
+      }
+    }
+
     const results = await Promise.allSettled(
       Array.from(serverMap.values()).map(async (server) => {
         const ssh = new SSHExecutor({

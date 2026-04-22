@@ -1,5 +1,5 @@
 import { db } from "@HAForge/db";
-import { servers } from "@HAForge/db";
+import { servers, sshKeys } from "@HAForge/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
@@ -14,7 +14,8 @@ export const serverRouter = router({
         ipAddress: z.string().min(1),
         sshPort: z.number().default(22),
         sshUser: z.string().default("root"),
-        sshPrivateKey: z.string().min(1),
+        sshPrivateKey: z.string().optional(),
+        sshKeyId: z.string().optional(),
         role: z.enum([
           "postgresql_1",
           "postgresql_2",
@@ -47,6 +48,7 @@ export const serverRouter = router({
         sshPort: z.number().optional(),
         sshUser: z.string().optional(),
         sshPrivateKey: z.string().optional(),
+        sshKeyId: z.string().optional().nullable(),
         hetznerServerId: z.string().optional(),
         privateIpAddress: z.string().optional(),
       }),
@@ -59,6 +61,62 @@ export const serverRouter = router({
         .where(eq(servers.id, id))
         .returning();
       return server;
+    }),
+
+  assignSshKey: protectedProcedure
+    .input(
+      z.object({
+        hetznerServerId: z.string(),
+        sshKeyId: z.string().nullable(),
+        ipAddress: z.string().optional(),
+        privateIpAddress: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const privateKey = input.sshKeyId
+        ? (await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, input.sshKeyId) }))?.privateKey || null
+        : null;
+
+      // Find existing server record by hetznerServerId
+      const existing = await db.query.servers.findFirst({
+        where: eq(servers.hetznerServerId, input.hetznerServerId),
+      });
+
+      if (existing) {
+        const updates: any = { sshKeyId: input.sshKeyId, sshPrivateKey: privateKey };
+        if (input.ipAddress && !existing.ipAddress) updates.ipAddress = input.ipAddress;
+        if (input.privateIpAddress && !existing.privateIpAddress) updates.privateIpAddress = input.privateIpAddress;
+        const [updated] = await db
+          .update(servers)
+          .set(updates)
+          .where(eq(servers.id, existing.id))
+          .returning();
+        return updated;
+      }
+
+      // No DB record yet — create a standalone one (no cluster)
+      const [created] = await db
+        .insert(servers)
+        .values({
+          hetznerServerId: input.hetznerServerId,
+          ipAddress: input.ipAddress || "",
+          privateIpAddress: input.privateIpAddress || "",
+          role: "postgresql_1",
+          sshKeyId: input.sshKeyId,
+          sshPrivateKey: privateKey,
+          status: "pending",
+        })
+        .returning();
+      return created;
+    }),
+
+  getByHetznerId: protectedProcedure
+    .input(z.object({ hetznerServerId: z.string() }))
+    .query(async ({ input }) => {
+      const server = await db.query.servers.findFirst({
+        where: eq(servers.hetznerServerId, input.hetznerServerId),
+      });
+      return server || null;
     }),
 
   remove: protectedProcedure

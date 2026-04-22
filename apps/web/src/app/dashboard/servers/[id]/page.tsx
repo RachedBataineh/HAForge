@@ -3,7 +3,7 @@
 import { Badge } from "@HAForge/ui/components/badge";
 import { Button } from "@HAForge/ui/components/button";
 import { Switch } from "@HAForge/ui/components/switch";
-import { ArrowLeft, Loader2, RotateCw, HardDrive, Terminal as TerminalIcon } from "lucide-react";
+import { ArrowLeft, Loader2, RotateCw, HardDrive, Terminal as TerminalIcon, KeyRound } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { trpc, trpcClient } from "@/utils/trpc";
 import OverviewTab from "./overview";
 import Terminal from "./terminal";
+import SshKeyTab from "./ssh-key-tab";
 import { PowerActionDialog } from "./power-action-dialog";
 
 const roleLabel: Record<string, string> = {
@@ -29,51 +30,74 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
   const queryClient = useQueryClient();
   const [dialogAction, setDialogAction] = useState<"poweroff" | "reboot" | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "terminal">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "terminal" | "sshkey">("overview");
 
+  const isHetznerOnly = serverId.startsWith("hetzner-");
+  const hetznerId = isHetznerOnly ? serverId.replace("hetzner-", "") : null;
+
+  // DB server data
   const servers = useQuery(trpc.cluster.allServers.queryOptions());
-  const server = ((servers.data ?? []) as any[]).find((s: any) => s.id === serverId);
+  const dbServer = ((servers.data ?? []) as any[]).find((s: any) => s.id === serverId);
+
+  // Hetzner-only: look up by hetzner server ID in DB
+  const dbServerByHetzner = useQuery(
+    trpc.server.getByHetznerId.queryOptions(
+      { hetznerServerId: hetznerId || "" },
+      { enabled: isHetznerOnly && !!hetznerId },
+    ),
+  );
+
+  // Hetzner API info
+  const profile = useQuery(trpc.settings.getProfile.queryOptions());
+  const apiToken = profile.data?.hetznerApiToken || "";
 
   const hetznerInfo = useQuery(
     trpc.cluster.hetznerServerInfo.queryOptions(
-      { apiToken: server?.clusterHetznerToken || "", serverId: server?.hetznerServerId || "" },
-      { enabled: !!server?.hetznerServerId && !!server?.clusterHetznerToken },
+      { apiToken, serverId: dbServer?.hetznerServerId || hetznerId || "" },
+      { enabled: !!(dbServer?.hetznerServerId || hetznerId) && !!apiToken },
     ),
   );
 
   const serverIsOn = hetznerInfo.data?.status === "running";
 
+  // Determine effective server record
+  const hetznerPrivateIp = hetznerInfo.data?.privateIps?.[0] || "";
+  const server = isHetznerOnly
+    ? (dbServerByHetzner.data
+        ? { ...dbServerByHetzner.data, ipAddress: hetznerInfo.data?.publicIp || dbServerByHetzner.data.ipAddress, privateIpAddress: hetznerPrivateIp || dbServerByHetzner.data.privateIpAddress, hetznerServerId: hetznerId, clusterHetznerToken: apiToken }
+        : { id: serverId, ipAddress: hetznerInfo.data?.publicIp || "", privateIpAddress: hetznerPrivateIp, hetznerServerId: hetznerId, clusterHetznerToken: apiToken, sshKeyId: null, sshUser: "root", sshPort: 22, sshPrivateKey: null, role: "", clusterId: "", clusterName: "" })
+    : dbServer;
+
   const serverAction = useMutation({
     mutationFn: async (action: "poweron" | "poweroff" | "reboot") => {
       return await trpcClient.cluster.hetznerServerAction.mutate({
-        apiToken: server!.clusterHetznerToken,
-        serverId: server!.hetznerServerId,
+        apiToken: server?.clusterHetznerToken || apiToken,
+        serverId: server?.hetznerServerId || hetznerId || "",
         action,
       });
     },
     onSuccess: (_, action) => {
       toast.success(`Server ${action === "poweron" ? "power on" : action === "poweroff" ? "power off" : "reboot"} initiated`);
-      const poll = () => {
-        let attempts = 0;
-        const maxAttempts = 15;
-        const interval = setInterval(() => {
-          attempts++;
-          queryClient.invalidateQueries(trpc.cluster.hetznerServerInfo.queryFilter());
-          if (attempts >= maxAttempts) clearInterval(interval);
-        }, 2000);
-      };
-      poll();
+      let attempts = 0;
+      const maxAttempts = 15;
+      const interval = setInterval(() => {
+        attempts++;
+        queryClient.invalidateQueries(trpc.cluster.hetznerServerInfo.queryFilter());
+        if (attempts >= maxAttempts) clearInterval(interval);
+      }, 2000);
     },
     onError: (err) => toast.error(`Failed: ${err.message}`),
   });
 
-  if (!server) {
+  if (!server && !isHetznerOnly) {
     return (
       <div className="p-6">
         <p className="text-muted-foreground">Server not found</p>
       </div>
     );
   }
+
+  const displayName = hetznerInfo.data?.name || server?.ipAddress || hetznerId || serverId;
 
   return (
     <div className="flex flex-col h-full">
@@ -85,12 +109,14 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
           </Button>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight">{server.ipAddress}</h1>
-              <Badge variant="secondary">{roleLabel[server.role] || server.role}</Badge>
+              <h1 className="text-2xl font-bold tracking-tight">{displayName}</h1>
+              {server?.role && <Badge variant="secondary">{roleLabel[server.role] || server.role}</Badge>}
             </div>
-            <p className="text-muted-foreground mt-1">
-              Cluster: <button onClick={() => router.push(`/dashboard/clusters/${server.clusterId}`)} className="underline hover:no-underline">{server.clusterName}</button>
-            </p>
+            {server?.clusterName && (
+              <p className="text-muted-foreground mt-1">
+                Cluster: <button onClick={() => router.push(`/dashboard/clusters/${server.clusterId}`)} className="underline hover:no-underline">{server.clusterName}</button>
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -129,6 +155,7 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
         {([
           { id: "overview" as const, label: "Overview", icon: HardDrive },
           { id: "terminal" as const, label: "Terminal", icon: TerminalIcon },
+          { id: "sshkey" as const, label: "SSH Key", icon: KeyRound },
         ]).map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -151,15 +178,23 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-6">
-        {activeTab === "overview" && <OverviewTab server={server} serverIsOn={serverIsOn} hetznerInfo={hetznerInfo.data} />}
-        {activeTab === "terminal" && <Terminal serverId={server.id} serverIsOn={serverIsOn} />}
+        {activeTab === "overview" && server && <OverviewTab server={server} serverIsOn={serverIsOn} hetznerInfo={hetznerInfo.data} />}
+        {activeTab === "terminal" && server && <Terminal serverId={server.id} serverIsOn={serverIsOn} />}
+        {activeTab === "sshkey" && (
+          <SshKeyTab
+            hetznerServerId={server?.hetznerServerId || hetznerId || ""}
+            currentSshKeyId={server?.sshKeyId || null}
+            ipAddress={server?.ipAddress || ""}
+            privateIpAddress={server?.privateIpAddress || ""}
+          />
+        )}
       </div>
 
       <PowerActionDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         action={dialogAction ?? "poweroff"}
-        serverName={hetznerInfo.data?.name || server.ipAddress}
+        serverName={displayName}
         onConfirm={() => serverAction.mutate(dialogAction ?? "poweroff")}
       />
     </div>

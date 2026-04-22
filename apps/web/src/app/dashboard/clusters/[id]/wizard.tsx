@@ -27,6 +27,7 @@ import {
   Loader2,
   ArrowRight,
   ArrowLeft,
+  KeyRound,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -49,12 +50,12 @@ const HA_ROLES = [
 
 interface ServerForm {
   ipAddress: string;
-  sshPrivateKey: string;
   sshUser: string;
   sshPort: number;
   hetznerServerId: string;
   privateIpAddress: string;
   sshKeyId: string;
+  sshPrivateKey: string;
 }
 
 export default function ClusterSetupWizard({ params }: { params: Promise<{ id: string }> }) {
@@ -87,10 +88,6 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const userProfile = useQuery(trpc.settings.getProfile.queryOptions());
   const hetznerToken = userProfile.data?.hetznerApiToken || "";
   const tokenReady = hetznerToken.length > 10;
-
-  // Fetch SSH keys with private keys from DB
-  const dbSshKeys = useQuery(trpc.cluster.allHetznerSshKeys.queryOptions());
-  const sshKeyOptions = ((dbSshKeys.data ?? []) as any[]).filter((k: any) => k.privateKey);
 
   const floatingIps = useQuery(
     trpc.cluster.hetznerFloatingIps.queryOptions(
@@ -308,7 +305,8 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       await addServer.mutateAsync({
         clusterId,
         ipAddress: server.ipAddress,
-        sshPrivateKey: server.sshPrivateKey,
+        sshPrivateKey: server.sshPrivateKey || undefined,
+        sshKeyId: server.sshKeyId || undefined,
         sshUser: server.sshUser,
         sshPort: server.sshPort,
         role: server.role,
@@ -324,11 +322,11 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
     if (!tokenReady) return false;
     if (isLb) {
       if (step === 0) return !!selectedLbId;
-      if (step === 1) return PG_ROLES.every((r) => pgServers[r.role].ipAddress && pgServers[r.role].sshPrivateKey);
+      if (step === 1) return PG_ROLES.every((r) => pgServers[r.role].ipAddress && pgServers[r.role].sshKeyId);
       return true;
     }
-    if (step === 0) return !!(floatingIp && floatingIpId) && HA_ROLES.every((r) => haServers[r.role].ipAddress && haServers[r.role].sshPrivateKey && haServers[r.role].hetznerServerId);
-    if (step === 1) return PG_ROLES.every((r) => pgServers[r.role].ipAddress && pgServers[r.role].sshPrivateKey);
+    if (step === 0) return !!(floatingIp && floatingIpId) && HA_ROLES.every((r) => haServers[r.role].ipAddress && haServers[r.role].sshKeyId && haServers[r.role].hetznerServerId);
+    if (step === 1) return PG_ROLES.every((r) => pgServers[r.role].ipAddress && pgServers[r.role].sshKeyId);
     return true;
   };
 
@@ -473,6 +471,8 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                             hetznerServerId: srv.id,
                             ipAddress: srv.publicIp,
                             privateIpAddress: srv.privateIps?.[0]?.ip || "",
+                            sshKeyId: srv.sshKeyId || "",
+                            sshPrivateKey: srv.sshPrivateKey || "",
                           },
                         }));
                       }
@@ -531,33 +531,18 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                     />
                   </div>
                 </div>
-                <div className="grid gap-1.5">
-                  <Label className="text-xs">SSH Private Key</Label>
-                  <Select
-                    value={haServers[r.role].sshKeyId || ""}
-                    onValueChange={(v) => {
-                      const key = sshKeyOptions.find((k: any) => k.id === v);
-                      if (key) setHaServers((prev) => ({ ...prev, [r.role]: { ...prev[r.role], sshPrivateKey: key.privateKey, sshKeyId: key.id } }));
-                    }}
-                  >
-                    <SelectTrigger className="w-full">
-                      {haServers[r.role].sshKeyId
-                        ? <span className="truncate text-xs">{sshKeyOptions.find((k: any) => k.id === haServers[r.role].sshKeyId)?.name || "Key selected"}</span>
-                        : <span className="text-muted-foreground">Select SSH key</span>}
-                    </SelectTrigger>
-                    <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
-                      {sshKeyOptions.map((k: any) => (
-                        <SelectItem key={k.id} value={k.id}>{k.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {sshKeyOptions.length === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      No SSH keys with private keys found.{" "}
-                      <a href="/dashboard/ssh-keys" className="underline hover:no-underline" target="_blank">Add one</a>.
-                    </p>
-                  )}
-                </div>
+                {haServers[r.role].sshKeyId && (
+                  <div className="text-xs text-green-600 flex items-center gap-1">
+                    <KeyRound className="size-3" />
+                    SSH key: {hetznerServerList.find((s: any) => s.id === haServers[r.role].hetznerServerId)?.sshKeyName || "Assigned"}
+                  </div>
+                )}
+                {!haServers[r.role].sshKeyId && haServers[r.role].hetznerServerId && (
+                  <div className="text-xs text-destructive flex items-center gap-1">
+                    <KeyRound className="size-3" />
+                    No SSH key assigned. <a href={`/dashboard/servers/hetzner-${haServers[r.role].hetznerServerId}`} className="underline" target="_blank">Assign one</a>.
+                  </div>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -738,6 +723,8 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                               hetznerServerId: srv.id,
                               ipAddress: srv.publicIp,
                               privateIpAddress: srv.privateIps?.[0]?.ip || "",
+                              sshKeyId: srv.sshKeyId || "",
+                              sshPrivateKey: srv.sshPrivateKey || "",
                             },
                           }));
                         }
@@ -810,33 +797,18 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                       />
                     </div>
                   </div>
-                  <div className="grid gap-1.5">
-                    <Label className="text-xs">SSH Private Key</Label>
-                    <Select
-                      value={pgServers[r.role].sshKeyId || ""}
-                      onValueChange={(v) => {
-                        const key = sshKeyOptions.find((k: any) => k.id === v);
-                        if (key) setPgServers((prev) => ({ ...prev, [r.role]: { ...prev[r.role], sshPrivateKey: key.privateKey, sshKeyId: key.id } }));
-                      }}
-                    >
-                      <SelectTrigger className="w-full">
-                        {pgServers[r.role].sshKeyId
-                          ? <span className="truncate text-xs">{sshKeyOptions.find((k: any) => k.id === pgServers[r.role].sshKeyId)?.name || "Key selected"}</span>
-                          : <span className="text-muted-foreground">Select SSH key</span>}
-                      </SelectTrigger>
-                      <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
-                        {sshKeyOptions.map((k: any) => (
-                          <SelectItem key={k.id} value={k.id}>{k.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {sshKeyOptions.length === 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        No SSH keys with private keys found.{" "}
-                        <a href="/dashboard/ssh-keys" className="underline hover:no-underline" target="_blank">Add one</a>.
-                      </p>
-                    )}
-                  </div>
+                  {pgServers[r.role].sshKeyId && (
+                    <div className="text-xs text-green-600 flex items-center gap-1">
+                      <KeyRound className="size-3" />
+                      SSH key: {hetznerServerList.find((s: any) => s.id === pgServers[r.role].hetznerServerId)?.sshKeyName || "Assigned"}
+                    </div>
+                  )}
+                  {!pgServers[r.role].sshKeyId && pgServers[r.role].hetznerServerId && (
+                    <div className="text-xs text-destructive flex items-center gap-1">
+                      <KeyRound className="size-3" />
+                      No SSH key assigned. <a href={`/dashboard/servers/hetzner-${pgServers[r.role].hetznerServerId}`} className="underline" target="_blank">Assign one</a>.
+                    </div>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
