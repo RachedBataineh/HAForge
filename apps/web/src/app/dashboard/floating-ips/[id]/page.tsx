@@ -356,14 +356,14 @@ function DeleteButton({ floatingIpId, ip, name }: any) {
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>Delete Floating IP</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Type <span className="font-mono font-semibold">{ip}</span> to confirm deletion.
+            Type <span className="font-mono font-semibold">{name}</span> to confirm deletion.
           </p>
-          <Input placeholder={ip} value={confirm} onChange={(e) => setConfirm(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && confirm === ip) deleteMutation.mutate(); }}
+          <Input placeholder={name} value={confirm} onChange={(e) => setConfirm(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && confirm === name) deleteMutation.mutate(); }}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => { setOpen(false); setConfirm(""); }}>Cancel</Button>
-            <Button variant="destructive" disabled={confirm !== ip || deleteMutation.isPending}
+            <Button variant="destructive" disabled={confirm !== name || deleteMutation.isPending}
               onClick={() => deleteMutation.mutate()}>
               {deleteMutation.isPending ? <Loader2 className="size-4 animate-spin mr-2" /> : <Trash2 className="size-4 mr-2" />}
               Delete
