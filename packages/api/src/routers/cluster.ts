@@ -143,8 +143,9 @@ export const clusterRouter = router({
     .input(z.object({
       apiToken: z.string(),
       name: z.string(),
-      serverIds: z.array(z.string()),
+      serverIds: z.array(z.string()).optional(),
       location: z.string().optional(),
+      loadBalancerType: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
       const res = await fetch("https://api.hetzner.cloud/v1/load_balancers", {
@@ -155,10 +156,10 @@ export const clusterRouter = router({
         },
         body: JSON.stringify({
           name: input.name,
-          load_balancer_type: "lb11",
+          load_balancer_type: input.loadBalancerType || "lb11",
           location: input.location || "fsn1",
           network_zone: "eu-central",
-          targets: input.serverIds.map((id) => ({
+          targets: (input.serverIds || []).map((id) => ({
             type: "server",
             server: { id: Number(id) },
           })),
@@ -195,6 +196,83 @@ export const clusterRouter = router({
         id: String(data.load_balancer.id),
         name: data.load_balancer.name,
         publicIp: data.load_balancer.public_net?.ipv4?.ip || "",
+      };
+    }),
+
+  hetznerLoadBalancerTypes: protectedProcedure
+    .input(z.object({ apiToken: z.string() }))
+    .query(async ({ input }) => {
+      const res = await fetch("https://api.hetzner.cloud/v1/load_balancer_types", {
+        headers: {
+          Authorization: `Bearer ${input.apiToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
+      const data = await res.json();
+      return (data.load_balancer_types || []).map((t: any) => ({
+        id: String(t.id),
+        name: t.name,
+        description: t.description || "",
+        maxConnections: t.max_connections || 0,
+        maxServices: t.max_services || 0,
+        maxTargets: t.max_targets || 0,
+        priceMonthly: t.prices?.[0]?.price_monthly?.gross || "",
+      }));
+    }),
+
+  hetznerDeleteLoadBalancer: protectedProcedure
+    .input(z.object({ apiToken: z.string(), loadBalancerId: z.string() }))
+    .mutation(async ({ input }) => {
+      const res = await fetch(`https://api.hetzner.cloud/v1/load_balancers/${input.loadBalancerId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${input.apiToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message || `Delete failed: ${res.status}`);
+      }
+      return { success: true };
+    }),
+
+  hetznerLoadBalancerDetails: protectedProcedure
+    .input(z.object({ apiToken: z.string(), loadBalancerId: z.string() }))
+    .query(async ({ input }) => {
+      const res = await fetch(`https://api.hetzner.cloud/v1/load_balancers/${input.loadBalancerId}`, {
+        headers: {
+          Authorization: `Bearer ${input.apiToken}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
+      const data = await res.json();
+      const lb = data.load_balancer;
+      return {
+        id: String(lb.id),
+        name: lb.name,
+        publicIp: lb.public_net?.ipv4?.ip || "",
+        privateIp: lb.private_net?.[0]?.ip || "",
+        location: lb.location?.name || "",
+        type: lb.load_balancer_type?.name || "",
+        algorithm: lb.algorithm?.type || "",
+        created: lb.created || "",
+        labels: lb.labels || {},
+        targets: (lb.targets || []).map((t: any) => ({
+          type: t.type,
+          serverId: t.server?.id ? String(t.server.id) : null,
+          status: typeof t.health_status === "string" ? t.health_status : (Array.isArray(t.health_status) ? t.health_status.map((h: any) => `${h.listen_port}: ${h.status}`).join(", ") : "unknown"),
+        })),
+        services: (lb.services || []).map((s: any) => ({
+          protocol: s.protocol,
+          listenPort: s.listen_port,
+          destinationPort: s.destination_port,
+          healthCheckProtocol: s.health_check?.protocol || "",
+          healthCheckPort: s.health_check?.port || 0,
+          healthCheckPath: s.health_check?.http?.path || "",
+        })),
       };
     }),
 
