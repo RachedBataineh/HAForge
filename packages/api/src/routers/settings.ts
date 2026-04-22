@@ -36,6 +36,15 @@ export const settingsRouter = router({
       hetznerApiToken: z.string(),
     }))
     .mutation(async ({ input, ctx }) => {
+      // Prevent duplicate Hetzner API tokens across accounts
+      if (input.hetznerApiToken) {
+        const existing = await db.query.user.findFirst({
+          where: eq(user.hetznerApiToken, input.hetznerApiToken),
+        });
+        if (existing && existing.id !== ctx.session.user.id) {
+          throw new Error("This Hetzner API token is already registered to another account.");
+        }
+      }
       await db.update(user)
         .set({ hetznerApiToken: input.hetznerApiToken || null })
         .where(eq(user.id, ctx.session.user.id));
