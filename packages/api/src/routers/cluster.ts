@@ -947,6 +947,20 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
 
       const pgServers = cluster.servers.filter((s) => s.role?.startsWith("postgresql"));
       const roles: Record<string, "leader" | "replica" | "offline" | "unknown"> = {};
+      const serverNames: Record<string, string> = {};
+
+      // Fetch server names from Hetzner API
+      if (apiToken) {
+        const srvRes = await fetch("https://api.hetzner.cloud/v1/servers", {
+          headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
+        });
+        if (srvRes.ok) {
+          const srvData = await srvRes.json();
+          for (const srv of srvData.servers || []) {
+            serverNames[String(srv.id)] = srv.name;
+          }
+        }
+      }
 
       if (cluster.clusterType === "hetzner_lb" && cluster.loadBalancerId && apiToken) {
         // LB mode: use health checks to determine leader
@@ -1033,6 +1047,6 @@ echo '---DISK---' && df -h / | awk 'NR==2{print $2 "|" $3 "|" $4 "|" $5}' && ech
         }
       }
 
-      return roles;
+      return { roles, serverNames };
     }),
 });

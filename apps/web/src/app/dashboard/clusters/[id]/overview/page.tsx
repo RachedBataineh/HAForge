@@ -183,16 +183,19 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
         <div className="grid gap-3">
           {pgServers.map((server: any) => {
             const roleInfo = ROLE_LABELS[server.role] || { label: server.role, defaultType: "Node" };
-            const pgRole = (pgRoles.data as any)?.[server.role];
+            const pgRole = (pgRoles.data as any)?.roles?.[server.role];
+            const serverName = (pgRoles.data as any)?.serverNames?.[server.hetznerServerId] || server.cachedHostname;
             const displayType = pgRole === "leader" ? "Leader" : pgRole === "replica" ? "Replica" : pgRole === "offline" ? "Offline" : roleInfo.defaultType;
             const badgeVariant = pgRole === "leader" ? "default" : pgRole === "replica" ? "secondary" : pgRole === "offline" ? "destructive" : "outline";
             return (
-              <Card key={server.id}>
+              <Card key={server.id} className="cursor-pointer hover:border-primary/50 transition-colors"
+                onClick={() => router.push(`/dashboard/servers/${server.id}`)}
+              >
                 <CardContent className="flex items-center justify-between py-3">
                   <div className="flex items-center gap-3">
                     <CheckCircle2 className="size-4 text-green-500" />
                     <div>
-                      <p className="font-medium text-sm">{roleInfo.label}</p>
+                      <p className="font-medium text-sm">{serverName || roleInfo.label}</p>
                       <p className="text-xs text-muted-foreground font-mono">{server.ipAddress}</p>
                     </div>
                   </div>
@@ -255,13 +258,16 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
           <div className="grid gap-3">
             {haServers.map((server: any) => {
               const roleInfo = ROLE_LABELS[server.role] || { label: server.role, defaultType: "Node" };
+              const serverName = (pgRoles.data as any)?.serverNames?.[server.hetznerServerId] || server.cachedHostname;
               return (
-                <Card key={server.id}>
+                <Card key={server.id} className="cursor-pointer hover:border-primary/50 transition-colors"
+                  onClick={() => router.push(`/dashboard/servers/${server.id}`)}
+                >
                   <CardContent className="flex items-center justify-between py-3">
                     <div className="flex items-center gap-3">
                       <CheckCircle2 className="size-4 text-green-500" />
                       <div>
-                        <p className="font-medium text-sm">{roleInfo.label}</p>
+                        <p className="font-medium text-sm">{serverName || roleInfo.label}</p>
                         <p className="text-xs text-muted-foreground font-mono">{server.ipAddress}</p>
                       </div>
                     </div>
