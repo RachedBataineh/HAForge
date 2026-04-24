@@ -30,9 +30,10 @@ import {
   Trash2,
   Network,
 } from "lucide-react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { trpc, trpcClient } from "@/utils/trpc";
 import { DeleteClusterDialog } from "./delete-cluster-dialog";
@@ -53,9 +54,8 @@ const statusIcon: Record<string, typeof CheckCircle2> = {
   draft: Server,
 };
 
-function ClusterCard({ cluster }: { cluster: any }) {
+function ClusterCard({ cluster, onDeleted }: { cluster: any; onDeleted: () => void }) {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const Icon = statusIcon[cluster.status] || Server;
   const clusterServers = cluster.servers ?? [];
@@ -115,10 +115,13 @@ function ClusterCard({ cluster }: { cluster: any }) {
           open={deleteOpen}
           onOpenChange={setDeleteOpen}
           clusterName={cluster.name}
-          onConfirm={() => {
-            trpcClient.cluster.delete.mutate({ id: cluster.id }).then(() => {
-              queryClient.invalidateQueries(trpc.cluster.list.queryFilter());
-            });
+          onConfirm={async () => {
+            try {
+              await trpcClient.cluster.delete.mutate({ id: cluster.id });
+              onDeleted();
+            } catch (err: any) {
+              toast.error(err.message || "Failed to delete cluster");
+            }
           }}
         />
       </div>
@@ -128,7 +131,6 @@ function ClusterCard({ cluster }: { cluster: any }) {
 
 export default function ClusterListPage() {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newClusterName, setNewClusterName] = useState("");
   const [newClusterType, setNewClusterType] = useState<"haproxy" | "hetzner_lb">("haproxy");
@@ -145,7 +147,7 @@ export default function ClusterListPage() {
       return await trpcClient.cluster.create.mutate({ name, clusterType: type });
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries(trpc.cluster.list.queryFilter());
+      clusters.refetch();
       setDialogOpen(false);
       setNewClusterName("");
       setNewClusterType("haproxy");
@@ -235,7 +237,7 @@ export default function ClusterListPage() {
         ) : (
           <div className="grid gap-4">
             {activeClusters.map((cluster: any) => (
-              <ClusterCard key={cluster.id} cluster={cluster} />
+              <ClusterCard key={cluster.id} cluster={cluster} onDeleted={() => clusters.refetch()} />
             ))}
           </div>
         )
@@ -252,7 +254,7 @@ export default function ClusterListPage() {
         ) : (
           <div className="grid gap-4">
             {draftClusters.map((cluster: any) => (
-              <ClusterCard key={cluster.id} cluster={cluster} />
+              <ClusterCard key={cluster.id} cluster={cluster} onDeleted={() => clusters.refetch()} />
             ))}
           </div>
         )

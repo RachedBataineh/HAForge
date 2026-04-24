@@ -366,10 +366,6 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo, onServerD
                         Rebuilds the server with a fresh image. All data will be erased.
                       </p>
                     </div>
-                    <div className="grid gap-1.5">
-                      <Label className="text-xs">Image</Label>
-                      <ImageSelect value={rebuildImage} onChange={setRebuildImage} />
-                    </div>
                     <Button
                       variant="outline"
                       size="sm"

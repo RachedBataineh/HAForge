@@ -23,6 +23,13 @@ export default function ClusterDetailRouter({ params }: { params: Promise<{ id: 
   };
 
   if (!cluster.data) {
+    if (cluster.isError) {
+      return (
+        <div className="p-6">
+          <p className="text-muted-foreground">Failed to load cluster. It may not exist or you don't have access.</p>
+        </div>
+      );
+    }
     return (
       <div className="p-6 space-y-6">
         <div className="flex items-center gap-3">

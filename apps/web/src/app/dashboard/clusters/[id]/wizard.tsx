@@ -288,51 +288,57 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
           }
         }
       }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save draft");
     } finally {
       setDraftSaving(false);
     }
   };
 
   const handleSaveAndDeploy = async () => {
-    if (isLb) {
-      const lb = hetznerLbList.find((l: any) => l.id === selectedLbId);
-      await updateCluster.mutateAsync({
-        id: clusterId,
-        loadBalancerId: selectedLbId,
-        loadBalancerIp: lb?.publicIp || "",
-      });
-    } else {
-      await updateCluster.mutateAsync({ id: clusterId, floatingIp, floatingIpId });
+    try {
+      if (isLb) {
+        const lb = hetznerLbList.find((l: any) => l.id === selectedLbId);
+        await updateCluster.mutateAsync({
+          id: clusterId,
+          loadBalancerId: selectedLbId,
+          loadBalancerIp: lb?.publicIp || "",
+        });
+      } else {
+        await updateCluster.mutateAsync({ id: clusterId, floatingIp, floatingIpId });
+      }
+
+      // Refetch to get the latest servers list (draft may have added some)
+      const fresh = await queryClient.fetchQuery(trpc.cluster.getById.queryOptions({ id: clusterId }));
+      const existingServers = fresh?.servers || [];
+      for (const s of existingServers) {
+        await trpcClient.server.remove.mutate({ id: s.id });
+      }
+
+      const allServers = isLb
+        ? PG_ROLES.map((r) => ({ ...pgServers[r.role], role: r.role }))
+        : [
+            ...PG_ROLES.map((r) => ({ ...pgServers[r.role], role: r.role })),
+            ...HA_ROLES.map((r) => ({ ...haServers[r.role], role: r.role })),
+          ];
+
+      for (const server of allServers) {
+        await addServer.mutateAsync({
+          clusterId,
+          ipAddress: server.ipAddress,
+          sshKeyId: server.sshKeyId || undefined,
+          sshUser: server.sshUser,
+          sshPort: server.sshPort,
+          role: server.role,
+          hetznerServerId: server.hetznerServerId || undefined,
+          privateIpAddress: server.privateIpAddress || undefined,
+        });
+      }
+
+      startDeployment.mutate();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save and deploy");
     }
-
-    // Refetch to get the latest servers list (draft may have added some)
-    const fresh = await queryClient.fetchQuery(trpc.cluster.getById.queryOptions({ id: clusterId }));
-    const existingServers = fresh?.servers || [];
-    for (const s of existingServers) {
-      await trpcClient.server.remove.mutate({ id: s.id });
-    }
-
-    const allServers = isLb
-      ? PG_ROLES.map((r) => ({ ...pgServers[r.role], role: r.role }))
-      : [
-          ...PG_ROLES.map((r) => ({ ...pgServers[r.role], role: r.role })),
-          ...HA_ROLES.map((r) => ({ ...haServers[r.role], role: r.role })),
-        ];
-
-    for (const server of allServers) {
-      await addServer.mutateAsync({
-        clusterId,
-        ipAddress: server.ipAddress,
-        sshKeyId: server.sshKeyId || undefined,
-        sshUser: server.sshUser,
-        sshPort: server.sshPort,
-        role: server.role,
-        hetznerServerId: server.hetznerServerId || undefined,
-        privateIpAddress: server.privateIpAddress || undefined,
-      });
-    }
-
-    startDeployment.mutate();
   };
 
   const canProceed = () => {

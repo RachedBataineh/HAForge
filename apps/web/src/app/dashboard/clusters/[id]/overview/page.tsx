@@ -31,7 +31,7 @@ import {
   Pause,
   Play,
 } from "lucide-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 import { toast } from "sonner";
@@ -59,7 +59,6 @@ const statusColor: Record<string, "default" | "secondary" | "destructive" | "out
 export default function ClusterOverviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: clusterId } = React.use(params);
   const router = useRouter();
-  const queryClient = useQueryClient();
 
   const cluster = useQuery(trpc.cluster.getById.queryOptions({ id: clusterId }));
   const [showPassword, setShowPassword] = useState(false);
@@ -93,7 +92,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
     },
     onSuccess: () => {
       toast.success("HAProxy updated");
-      queryClient.invalidateQueries({ queryKey: ["cluster", "pgNodeRoles"] });
+      pgRoles.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
