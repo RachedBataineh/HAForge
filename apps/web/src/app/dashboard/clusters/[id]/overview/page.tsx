@@ -339,21 +339,11 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
               <ArrowUpDown className="size-5" />
               Floating IP
             </h2>
-            <Card>
+            <Card className="cursor-pointer hover:border-primary/50 transition-colors"
+              onClick={() => router.push(`/dashboard/floating-ips/${cluster.data!.floatingIpId}`)}
+            >
               <CardContent className="py-4">
-                <div className="grid grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">IP Address</span>
-                    <p className="font-mono">{cluster.data.floatingIp}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Type</span>
-                    {floatingIpDetails.isLoading ? (
-                      <Skeleton className="h-4 w-12 mt-1" />
-                    ) : (
-                      <p className="font-mono">{floatingIpDetails.data?.type || "—"}</p>
-                    )}
-                  </div>
+                <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="text-muted-foreground">Assigned To</span>
                     {floatingIpDetails.isLoading ? (
@@ -367,6 +357,10 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                       <p className="text-muted-foreground">Unassigned</p>
                     )}
                   </div>
+                  <div>
+                    <span className="text-muted-foreground">IP Address</span>
+                    <p className="font-mono">{cluster.data.floatingIp}</p>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -379,7 +373,18 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
             </h2>
             <Card>
               <CardContent className="py-4">
-                {(() => {
+                {pgRoles.isLoading ? (
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Server</span>
+                      <Skeleton className="h-4 w-24 mt-1" />
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">IP Address</span>
+                      <Skeleton className="h-4 w-32 mt-1" />
+                    </div>
+                  </div>
+                ) : (() => {
                   const roles = (pgRoles.data as any)?.roles || {};
                   const leaderServer = pgServers.find((s: any) => roles[s.role] === "leader");
                   if (!leaderServer) {
