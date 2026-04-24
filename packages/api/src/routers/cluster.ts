@@ -1385,47 +1385,64 @@ export const clusterRouter = router({
           }
         }
       } else if (apiToken) {
-        // HAProxy mode: SSH into one node, run patronictl list, match by private IP
-        const onlineServer = pgServers.find((s) => s.ipAddress);
-        if (onlineServer) {
-          try {
-            const { SSHExecutor } = await import("../services/ssh-executor");
-            let privateKey: string | null = null;
-            if (onlineServer.sshKeyId) {
-              const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, onlineServer.sshKeyId) });
-              privateKey = key?.privateKey || null;
-            }
-            if (!privateKey) {
-              for (const s of pgServers) roles[s.role] = "unknown";
-            } else {
-              const ssh = new SSHExecutor({ host: onlineServer.ipAddress!, port: onlineServer.sshPort || 22, username: onlineServer.sshUser || "root", privateKey });
-              await ssh.connect();
-              try {
-                const result = await ssh.exec("patronictl -c /etc/patroni/config.yml list --format json 2>/dev/null || echo '[]'");
-                const parsed: any[] = JSON.parse(result.stdout || "[]");
-                // Match each server by private IP (Host field in patronictl output)
-                for (const s of pgServers) {
-                  if (!s.privateIpAddress) { roles[s.role] = "unknown"; continue; }
-                  const matched = parsed.find((p: any) => {
-                    const host = (p.Host || "").split(":")[0]; // strip port if present
-                    return host === s.privateIpAddress;
-                  });
-                  if (matched) {
-                    roles[s.role] = matched.Role?.includes("Leader") ? "leader" : "replica";
-                  } else {
-                    roles[s.role] = "unknown";
-                  }
-                }
-              } finally {
-                await ssh.disconnect();
-              }
-            }
-          } catch (err) {
-            console.error("[pgNodeRoles] Failed:", err);
+        // HAProxy mode: SSH into an online node, run patronictl list, match by private IP
+        // First check power status via Hetzner API to skip offline servers
+        const srvRes = await fetch(`${HETZNER_API}/servers`, { headers: hetznerHeaders(apiToken) });
+        const serverStatusMap = new Map<string, string>();
+        if (srvRes.ok) {
+          const srvData = await srvRes.json();
+          for (const srv of srvData.servers || []) {
+            serverStatusMap.set(String(srv.id), srv.status);
           }
         }
+        // Mark offline servers
         for (const s of pgServers) {
-          if (!roles[s.role]) roles[s.role] = "unknown";
+          if (!s.hetznerServerId) { roles[s.role] = "unknown"; continue; }
+          const status = serverStatusMap.get(s.hetznerServerId);
+          if (status !== "running") roles[s.role] = "offline";
+        }
+
+        // Find an online server to query patronictl from
+        let success = false;
+        for (const candidate of pgServers) {
+          if (roles[candidate.role] === "offline") continue;
+          if (!candidate.ipAddress || !candidate.sshKeyId) continue;
+          try {
+            const { SSHExecutor } = await import("../services/ssh-executor");
+            const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, candidate.sshKeyId) });
+            if (!key?.privateKey) continue;
+            const ssh = new SSHExecutor({ host: candidate.ipAddress, port: candidate.sshPort || 22, username: candidate.sshUser || "root", privateKey: key.privateKey });
+            await ssh.connect();
+            try {
+              const result = await ssh.exec("patronictl -c /etc/patroni/config.yml list --format json 2>/dev/null || echo '[]'");
+              const parsed: any[] = JSON.parse(result.stdout || "[]");
+              for (const s of pgServers) {
+                if (roles[s.role] === "offline") continue;
+                if (!s.privateIpAddress) { roles[s.role] = "unknown"; continue; }
+                const matched = parsed.find((p: any) => {
+                  const host = (p.Host || "").split(":")[0];
+                  return host === s.privateIpAddress;
+                });
+                if (matched) {
+                  roles[s.role] = matched.Role?.includes("Leader") ? "leader" : "replica";
+                } else {
+                  roles[s.role] = "unknown";
+                }
+              }
+              success = true;
+            } finally {
+              await ssh.disconnect();
+            }
+            if (success) break;
+          } catch (err) {
+            console.error(`[pgNodeRoles] Failed to query ${candidate.role}:`, err);
+            continue;
+          }
+        }
+        if (!success) {
+          for (const s of pgServers) {
+            if (!roles[s.role]) roles[s.role] = "unknown";
+          }
         }
       }
 
