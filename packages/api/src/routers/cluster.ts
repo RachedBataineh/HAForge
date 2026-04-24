@@ -1383,47 +1383,47 @@ export const clusterRouter = router({
           }
         }
       } else if (apiToken) {
-        // HAProxy mode: query Patroni REST API on each node
-        for (const s of pgServers) {
-          if (!s.ipAddress) { roles[s.role] = "unknown"; continue; }
+        // HAProxy mode: SSH into one node, run patronictl list, match by private IP
+        const onlineServer = pgServers.find((s) => s.ipAddress);
+        if (onlineServer) {
           try {
-            // Check server power status first
-            if (s.hetznerServerId) {
-              const srvRes = await fetch(`${HETZNER_API}/servers/${s.hetznerServerId}`, {
-                headers: hetznerHeaders(apiToken),
-              });
-              if (srvRes.ok) {
-                const srvData = await srvRes.json();
-                if (srvData.server?.status !== "running") { roles[s.role] = "offline"; continue; }
-              }
-            }
             const { SSHExecutor } = await import("../services/ssh-executor");
-            // Resolve private key
             let privateKey: string | null = null;
-            if (s.sshKeyId) {
-              const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, s.sshKeyId) });
+            if (onlineServer.sshKeyId) {
+              const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, onlineServer.sshKeyId) });
               privateKey = key?.privateKey || null;
             }
-            if (!privateKey) { roles[s.role] = "unknown"; continue; }
-
-            const ssh = new SSHExecutor({ host: s.ipAddress, port: s.sshPort || 22, username: s.sshUser || "root", privateKey });
-            await ssh.connect();
-            try {
-              const result = await ssh.exec("patronictl -c /etc/patroni/config.yml list --format json 2>/dev/null || echo '[]'");
-              const parsed = JSON.parse(result.stdout || "[]");
-              const me = parsed.find((p: any) => p.Role?.includes("Leader") || p.Role?.includes("Replica") || p.Role?.includes("Standby"));
-              if (me) {
-                roles[s.role] = me.Role?.includes("Leader") ? "leader" : "replica";
-              } else {
-                roles[s.role] = "unknown";
+            if (!privateKey) {
+              for (const s of pgServers) roles[s.role] = "unknown";
+            } else {
+              const ssh = new SSHExecutor({ host: onlineServer.ipAddress!, port: onlineServer.sshPort || 22, username: onlineServer.sshUser || "root", privateKey });
+              await ssh.connect();
+              try {
+                const result = await ssh.exec("patronictl -c /etc/patroni/config.yml list --format json 2>/dev/null || echo '[]'");
+                const parsed: any[] = JSON.parse(result.stdout || "[]");
+                // Match each server by private IP (Host field in patronictl output)
+                for (const s of pgServers) {
+                  if (!s.privateIpAddress) { roles[s.role] = "unknown"; continue; }
+                  const matched = parsed.find((p: any) => {
+                    const host = (p.Host || "").split(":")[0]; // strip port if present
+                    return host === s.privateIpAddress;
+                  });
+                  if (matched) {
+                    roles[s.role] = matched.Role?.includes("Leader") ? "leader" : "replica";
+                  } else {
+                    roles[s.role] = "unknown";
+                  }
+                }
+              } finally {
+                await ssh.disconnect();
               }
-            } finally {
-              await ssh.disconnect();
             }
           } catch (err) {
-            console.error(`Failed to determine role for ${s.role}:`, err);
-            roles[s.role] = "unknown";
+            console.error("[pgNodeRoles] Failed:", err);
           }
+        }
+        for (const s of pgServers) {
+          if (!roles[s.role]) roles[s.role] = "unknown";
         }
       }
 

@@ -422,6 +422,9 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
           {pgServers.map((server: any) => {
             const roleInfo = ROLE_LABELS[server.role] || { label: server.role, defaultType: "Node" };
             const serverName = (pgRoles.data as any)?.serverNames?.[server.hetznerServerId] || server.cachedHostname;
+            const pgRole = (pgRoles.data as any)?.roles?.[server.role];
+            const displayType = pgRole === "leader" ? "Leader" : pgRole === "replica" ? "Replica" : pgRole === "offline" ? "Offline" : "Node";
+            const badgeVariant = pgRole === "leader" ? "default" : pgRole === "replica" ? "secondary" : pgRole === "offline" ? "destructive" : "outline";
             return (
               <Card key={server.id} className="cursor-pointer hover:border-primary/50 transition-colors"
                 onClick={() => router.push(`/dashboard/servers/${server.id}`)}
@@ -439,7 +442,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                       {server.ipAddress && <p className="font-mono">Public: {server.ipAddress}</p>}
                       {server.privateIpAddress && <p className="font-mono">Private: {server.privateIpAddress}</p>}
                     </div>
-                    <Badge variant="outline" className="text-xs">Node</Badge>
+                    <Badge variant={badgeVariant} className="text-xs">{displayType}</Badge>
                   </div>
                 </CardContent>
               </Card>
