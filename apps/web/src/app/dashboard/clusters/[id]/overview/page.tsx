@@ -284,7 +284,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
           <Database className="size-5" />
           PostgreSQL Nodes
         </h2>
-        <div className="grid gap-3">
+        <div className="grid grid-cols-3 gap-3">
           {pgServers.map((server: any) => {
             const roleInfo = ROLE_LABELS[server.role] || { label: server.role, defaultType: "Node" };
             const pgRole = (pgRoles.data as any)?.roles?.[server.role];
@@ -325,7 +325,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
             <Globe className="size-5" />
             HAProxy Nodes
           </h2>
-          <div className="grid gap-3">
+          <div className="grid grid-cols-3 gap-3">
             {haServers.map((server: any) => {
               const roleInfo = ROLE_LABELS[server.role] || { label: server.role, defaultType: "Node" };
               const serverName = (pgRoles.data as any)?.serverNames?.[server.hetznerServerId] || server.cachedHostname;
