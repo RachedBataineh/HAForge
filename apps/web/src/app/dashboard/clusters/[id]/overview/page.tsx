@@ -9,7 +9,7 @@ import {
   CardTitle,
 } from "@HAForge/ui/components/card";
 import {
-  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@HAForge/ui/components/dialog";
 import { Input } from "@HAForge/ui/components/input";
 import {
@@ -75,6 +75,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
   const [destroyOpen, setDestroyOpen] = useState(false);
   const [destroyConfirm, setDestroyConfirm] = useState("");
   const [destroyMode, setDestroyMode] = useState<"delete" | "clean">("delete");
+  const [redeployOpen, setRedeployOpen] = useState(false);
 
   const destroyCluster = useMutation({
     mutationFn: async () => {
@@ -156,8 +157,8 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={startDeployment}>
-            <RotateCcw className="size-4 mr-2" />
+          <Button variant="outline" onClick={() => setRedeployOpen(true)}>
+            <RotateCcw className="size-4" />
             Redeploy
           </Button>
           {cluster.data.status === "draft" ? (
@@ -165,8 +166,8 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
               <Trash2 className="size-4" />
             </Button>
           ) : (
-            <Button variant="destructive" size="sm" className="gap-2" onClick={() => setDestroyOpen(true)}>
-              <AlertTriangle className="size-4" />
+            <Button variant="destructive" onClick={() => setDestroyOpen(true)}>
+              <AlertTriangle className="size-4 mr-2" />
               Destroy
             </Button>
           )}
@@ -342,6 +343,25 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
           </div>
         </div>
       )}
+
+      {/* Redeploy Confirmation Dialog */}
+      <Dialog open={redeployOpen} onOpenChange={setRedeployOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Redeploy Cluster</DialogTitle>
+            <DialogDescription>
+              This will wipe and reconfigure all {servers.length} servers from scratch. Existing data will be lost. Are you sure?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRedeployOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => { setRedeployOpen(false); startDeployment(); }}>
+              <RotateCcw className="size-4 mr-2" />
+              Redeploy
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Destroy Cluster Dialog */}
       <Dialog open={destroyOpen} onOpenChange={(open) => { setDestroyOpen(open); if (!open) { setDestroyConfirm(""); setDestroyMode("delete"); } }}>
