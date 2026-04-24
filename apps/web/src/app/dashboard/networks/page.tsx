@@ -78,6 +78,15 @@ export default function NetworksPage() {
         </Button>
       </div>
 
+      <div className="grid gap-4">
+        <Card>
+          <CardContent className="py-4">
+            <div className="text-2xl font-bold">{netList.length}</div>
+            <p className="text-xs text-muted-foreground">Total Networks</p>
+          </CardContent>
+        </Card>
+      </div>
+
       {networks.isLoading && (
         <div className="grid gap-3">
           {[1, 2, 3].map((i) => (

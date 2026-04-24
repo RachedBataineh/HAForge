@@ -78,6 +78,27 @@ export default function FloatingIpsPage() {
         </Button>
       </div>
 
+      <div className="grid grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="py-4">
+            <div className="text-2xl font-bold">{ipList.length}</div>
+            <p className="text-xs text-muted-foreground">Total Floating IPs</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-4">
+            <div className="text-2xl font-bold text-green-600">{ipList.filter((ip: any) => ip.serverId).length}</div>
+            <p className="text-xs text-muted-foreground">Assigned</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-4">
+            <div className="text-2xl font-bold text-blue-600">{ipList.filter((ip: any) => !ip.serverId).length}</div>
+            <p className="text-xs text-muted-foreground">Unassigned</p>
+          </CardContent>
+        </Card>
+      </div>
+
       {floatingIps.isLoading && (
         <div className="grid gap-3">
           {[1, 2, 3].map((i) => (

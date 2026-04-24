@@ -87,6 +87,21 @@ export default function LoadBalancersPage() {
         </Button>
       </div>
 
+      <div className="grid grid-cols-2 gap-4">
+        <Card>
+          <CardContent className="py-4">
+            <div className="text-2xl font-bold">{lbList.length}</div>
+            <p className="text-xs text-muted-foreground">Total Load Balancers</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-4">
+            <div className="text-2xl font-bold text-green-600">{lbList.filter((lb: any) => lb.targets?.length > 0).length}</div>
+            <p className="text-xs text-muted-foreground">Active</p>
+          </CardContent>
+        </Card>
+      </div>
+
       {loadBalancers.isLoading && (
         <div className="grid gap-3">
           {[1, 2, 3].map((i) => (
