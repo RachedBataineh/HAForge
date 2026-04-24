@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@HAForge/ui/components/select";
 import { Loader2, Save, RotateCw, AlertCircle, Trash2, AlertTriangle } from "lucide-react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import React, { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -43,8 +43,7 @@ const COMMON_TIMEZONES = [
   "Pacific/Auckland",
 ];
 
-export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { server: any; serverIsOn?: boolean; hetznerInfo?: any }) {
-  const queryClient = useQueryClient();
+export default function OverviewTab({ server, serverIsOn, hetznerInfo, onServerDataChange }: { server: any; serverIsOn?: boolean; hetznerInfo?: any; onServerDataChange?: () => void }) {
   const router = useRouter();
   const [selectedTz, setSelectedTz] = useState(server.cachedTimezone || "");
   const [refreshing, setRefreshing] = useState(false);
@@ -69,9 +68,9 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
     setRefreshing(true);
     try {
       await trpcClient.cluster.refreshServerInfo.mutate({ serverId: server.id });
-      queryClient.invalidateQueries({ queryKey: [["cluster", "allServers"]] });
-    } catch {
-      // Silently fail — cached data is still shown
+      onServerDataChange?.();
+    } catch (err) {
+      console.error("Failed to refresh server info:", err);
     } finally {
       setRefreshing(false);
     }
@@ -87,7 +86,7 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
     },
     onSuccess: () => {
       toast.success("Timezone updated");
-      queryClient.invalidateQueries({ queryKey: [["cluster", "allServers"]] });
+      onServerDataChange?.();
     },
     onError: (err) => toast.error(`Failed: ${err.message}`),
   });
@@ -100,8 +99,6 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
     },
     onSuccess: () => {
       toast.success("Server deleted");
-      queryClient.invalidateQueries({ queryKey: [["cluster", "allServers"]] });
-      queryClient.invalidateQueries({ queryKey: [["cluster", "allHetznerServers"]] });
       router.push("/dashboard/servers");
     },
     onError: (err) => toast.error(`Delete failed: ${err.message}`),
@@ -120,8 +117,6 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
       } else {
         toast.success("Cluster destroyed");
       }
-      queryClient.invalidateQueries({ queryKey: [["cluster", "allServers"]] });
-      queryClient.invalidateQueries({ queryKey: [["cluster", "allHetznerServers"]] });
       router.push("/dashboard/servers");
     },
     onError: (err) => toast.error(`Destroy failed: ${err.message}`),
@@ -135,8 +130,7 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
     },
     onSuccess: () => {
       toast.success("Server is being rebuilt with a fresh OS. This may take a few minutes.");
-      queryClient.invalidateQueries({ queryKey: [["cluster", "allServers"]] });
-      queryClient.invalidateQueries({ queryKey: [["cluster", "hetznerServerInfo"]] });
+      onServerDataChange?.();
       setRebuildOpen(false);
       setRebuildConfirm("");
     },

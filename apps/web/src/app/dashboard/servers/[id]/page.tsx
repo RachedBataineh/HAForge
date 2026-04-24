@@ -3,8 +3,9 @@
 import { Badge } from "@HAForge/ui/components/badge";
 import { Button } from "@HAForge/ui/components/button";
 import { Switch } from "@HAForge/ui/components/switch";
+import { Skeleton } from "@HAForge/ui/components/skeleton";
 import { ArrowLeft, Loader2, RotateCw, HardDrive, Terminal as TerminalIcon, KeyRound } from "lucide-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 import { toast } from "sonner";
@@ -27,7 +28,6 @@ const roleLabel: Record<string, string> = {
 export default function ServerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: serverId } = React.use(params);
   const router = useRouter();
-  const queryClient = useQueryClient();
   const [dialogAction, setDialogAction] = useState<"poweroff" | "reboot" | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"overview" | "terminal" | "sshkey">("overview");
@@ -81,7 +81,7 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
       const maxAttempts = 15;
       const interval = setInterval(() => {
         attempts++;
-        queryClient.invalidateQueries(trpc.cluster.hetznerServerInfo.queryFilter());
+        hetznerInfo.refetch();
         if (attempts >= maxAttempts) clearInterval(interval);
       }, 2000);
     },
@@ -96,7 +96,12 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
     );
   }
 
-  const displayName = hetznerInfo.data?.name || server?.ipAddress || hetznerId || serverId;
+  const displayName = hetznerInfo.data?.name
+    || dbServer?.serverName
+    || server?.ipAddress
+    || hetznerId
+    || serverId;
+  const displayNameLoading = !hetznerInfo.data && !server?.ipAddress && hetznerInfo.isLoading;
 
   return (
     <div className="flex flex-col h-full">
@@ -108,7 +113,9 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
           </Button>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight">{displayName}</h1>
+              <h1 className="text-2xl font-bold tracking-tight">
+                {displayNameLoading ? <Skeleton className="h-8 w-40" /> : displayName}
+              </h1>
               {server?.role && <Badge variant="secondary">{roleLabel[server.role] || server.role}</Badge>}
             </div>
             {server?.clusterName && (
@@ -177,7 +184,7 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-6">
-        {activeTab === "overview" && server && <OverviewTab server={server} serverIsOn={serverIsOn} hetznerInfo={hetznerInfo.data} />}
+        {activeTab === "overview" && server && <OverviewTab server={server} serverIsOn={serverIsOn} hetznerInfo={hetznerInfo.data} onServerDataChange={() => { servers.refetch(); hetznerInfo.refetch(); }} />}
         {activeTab === "terminal" && server && <Terminal serverId={server.id} serverIsOn={serverIsOn} />}
         {activeTab === "sshkey" && (
           <SshKeyTab
