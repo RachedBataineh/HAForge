@@ -412,46 +412,6 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
         </div>
       )}
 
-      {/* PostgreSQL Servers */}
-      <div>
-        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-          <Database className="size-5" />
-          PostgreSQL Nodes
-        </h2>
-        <div className="grid grid-cols-3 gap-3">
-          {pgServers.map((server: any) => {
-            const roleInfo = ROLE_LABELS[server.role] || { label: server.role, defaultType: "Node" };
-            const serverName = (pgRoles.data as any)?.serverNames?.[server.hetznerServerId] || server.cachedHostname;
-            const srvStatus = (pgRoles.data as any)?.serverStatus?.[server.hetznerServerId];
-            const pgRole = (pgRoles.data as any)?.roles?.[server.role];
-            const displayType = pgRole === "leader" ? "Leader" : pgRole === "replica" ? "Replica" : pgRole === "offline" ? "Offline" : "Node";
-            const badgeVariant = pgRole === "leader" ? "default" : pgRole === "replica" ? "secondary" : pgRole === "offline" ? "destructive" : "outline";
-            return (
-              <Card key={server.id} className="cursor-pointer hover:border-primary/50 transition-colors"
-                onClick={() => router.push(`/dashboard/servers/${server.id}`)}
-              >
-                <CardContent className="flex items-center justify-between py-3">
-                  <div className="flex items-center gap-3">
-                    <div className={`size-2.5 rounded-full ${srvStatus === "running" ? "bg-green-500" : srvStatus ? "bg-red-500" : "bg-muted-foreground/30"}`} />
-                    <div>
-                      <p className="font-medium text-sm">{serverName || roleInfo.label}</p>
-                      <p className="text-xs text-muted-foreground">{roleInfo.label}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-right text-xs text-muted-foreground space-y-0.5">
-                      {server.ipAddress && <p className="font-mono">Public: {server.ipAddress}</p>}
-                      {server.privateIpAddress && <p className="font-mono">Private: {server.privateIpAddress}</p>}
-                    </div>
-                    <Badge variant={badgeVariant} className="text-xs">{displayType}</Badge>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      </div>
-
       {/* HAProxy Nodes (HAProxy mode only) */}
       {!isLb && (
         <div>
@@ -493,6 +453,46 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
           </div>
         </div>
       )}
+
+      {/* PostgreSQL Servers */}
+      <div>
+        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+          <Database className="size-5" />
+          PostgreSQL Nodes
+        </h2>
+        <div className="grid grid-cols-3 gap-3">
+          {pgServers.map((server: any) => {
+            const roleInfo = ROLE_LABELS[server.role] || { label: server.role, defaultType: "Node" };
+            const serverName = (pgRoles.data as any)?.serverNames?.[server.hetznerServerId] || server.cachedHostname;
+            const srvStatus = (pgRoles.data as any)?.serverStatus?.[server.hetznerServerId];
+            const pgRole = (pgRoles.data as any)?.roles?.[server.role];
+            const displayType = pgRole === "leader" ? "Leader" : pgRole === "replica" ? "Replica" : pgRole === "offline" ? "Offline" : "Node";
+            const badgeVariant = pgRole === "leader" ? "default" : pgRole === "replica" ? "secondary" : pgRole === "offline" ? "destructive" : "outline";
+            return (
+              <Card key={server.id} className="cursor-pointer hover:border-primary/50 transition-colors"
+                onClick={() => router.push(`/dashboard/servers/${server.id}`)}
+              >
+                <CardContent className="flex items-center justify-between py-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`size-2.5 rounded-full ${srvStatus === "running" ? "bg-green-500" : srvStatus ? "bg-red-500" : "bg-muted-foreground/30"}`} />
+                    <div>
+                      <p className="font-medium text-sm">{serverName || roleInfo.label}</p>
+                      <p className="text-xs text-muted-foreground">{roleInfo.label}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right text-xs text-muted-foreground space-y-0.5">
+                      {server.ipAddress && <p className="font-mono">Public: {server.ipAddress}</p>}
+                      {server.privateIpAddress && <p className="font-mono">Private: {server.privateIpAddress}</p>}
+                    </div>
+                    <Badge variant={badgeVariant} className="text-xs">{displayType}</Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Redeploy Confirmation Dialog */}
       <Dialog open={redeployOpen} onOpenChange={setRedeployOpen}>
