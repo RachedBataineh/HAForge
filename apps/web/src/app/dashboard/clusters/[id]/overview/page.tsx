@@ -345,11 +345,17 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                 </div>
                 <div>
                   <span className="text-muted-foreground">Type</span>
-                  <p className="font-mono">{floatingIpDetails.data?.type || "—"}</p>
+                  {floatingIpDetails.isLoading ? (
+                    <Skeleton className="h-4 w-12 mt-1" />
+                  ) : (
+                    <p className="font-mono">{floatingIpDetails.data?.type || "—"}</p>
+                  )}
                 </div>
                 <div>
                   <span className="text-muted-foreground">Assigned To</span>
-                  {floatingIpDetails.data?.serverId ? (
+                  {floatingIpDetails.isLoading ? (
+                    <Skeleton className="h-4 w-24 mt-1" />
+                  ) : floatingIpDetails.data?.serverId ? (
                     <p className="font-mono">
                       {(pgRoles.data as any)?.serverNames?.[floatingIpDetails.data.serverId]
                         || `Server ${floatingIpDetails.data.serverId}`}
