@@ -301,15 +301,13 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                     <div>
                       <p className="font-medium text-sm">{serverName || roleInfo.label}</p>
                       <p className="text-xs text-muted-foreground">{roleInfo.label}</p>
-                      <p className="text-xs text-muted-foreground font-mono">{server.ipAddress}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    {server.privateIpAddress && (
-                      <span className="text-xs text-muted-foreground">
-                        Private: <code>{server.privateIpAddress}</code>
-                      </span>
-                    )}
+                    <div className="text-right text-xs text-muted-foreground space-y-0.5">
+                      {server.ipAddress && <p className="font-mono">Public: {server.ipAddress}</p>}
+                      {server.privateIpAddress && <p className="font-mono">Private: {server.privateIpAddress}</p>}
+                    </div>
                     <Badge variant={badgeVariant} className="text-xs">{displayType}</Badge>
                   </div>
                 </CardContent>
@@ -340,15 +338,13 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                       <div>
                         <p className="font-medium text-sm">{serverName || roleInfo.label}</p>
                         <p className="text-xs text-muted-foreground">{roleInfo.label}</p>
-                        <p className="text-xs text-muted-foreground font-mono">{server.ipAddress}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      {server.privateIpAddress && (
-                        <span className="text-xs text-muted-foreground">
-                          Private: <code>{server.privateIpAddress}</code>
-                        </span>
-                      )}
+                      <div className="text-right text-xs text-muted-foreground space-y-0.5">
+                        {server.ipAddress && <p className="font-mono">Public: {server.ipAddress}</p>}
+                        {server.privateIpAddress && <p className="font-mono">Private: {server.privateIpAddress}</p>}
+                      </div>
                       <Badge variant="secondary" className="text-xs">{roleInfo.defaultType}</Badge>
                     </div>
                   </CardContent>
