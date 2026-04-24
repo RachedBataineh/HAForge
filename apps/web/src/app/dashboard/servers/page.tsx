@@ -21,15 +21,6 @@ const roleLabel: Record<string, string> = {
   haproxy_3: "HAProxy Node 3",
 };
 
-const statusColor: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  draft: "secondary",
-  configuring: "default",
-  deploying: "default",
-  running: "default",
-  error: "destructive",
-  destroyed: "outline",
-};
-
 export default function ServersPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"cluster" | "hetzner">("cluster");
@@ -183,8 +174,22 @@ export default function ServersPage() {
                         <Server className="size-3" />
                         {server.clusterName}
                       </button>
-                      <Badge variant={statusColor[server.clusterStatus] || "outline"}>
-                        {server.clusterStatus}
+                      <Badge variant={
+                          server.haProxyPaused ? "outline"
+                          : server.serverStatus === "running" ? "default"
+                          : server.serverStatus === "off" ? "destructive"
+                          : "outline"
+                        }
+                        className={
+                          server.haProxyPaused ? "border-orange-500/50 text-orange-600"
+                          : ""
+                        }
+                      >
+                        {server.haProxyPaused ? "Paused"
+                          : server.serverStatus === "running" ? "Running"
+                          : server.serverStatus === "off" ? "Off"
+                          : server.serverStatus || "Unknown"
+                        }
                       </Badge>
                     </div>
                   </CardContent>

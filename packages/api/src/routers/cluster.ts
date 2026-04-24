@@ -3,6 +3,7 @@ import { clusters, executions, servers, sshKeys, user } from "@HAForge/db";
 import { eq, ne, and } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
+import { SSHExecutor } from "../services/ssh-executor";
 import { SERVER_INFO_SCRIPT, parseServerInfo } from "../services/server-info";
 
 const HETZNER_API = "https://api.hetzner.cloud/v1";
@@ -738,7 +739,8 @@ export const clusterRouter = router({
         allServersList.push({ ...server, clusterId: cluster.id, clusterName: cluster.name, clusterStatus: cluster.status, clusterType: cluster.clusterType });
       }
     }
-    // Enrich with Hetzner server names
+    // Enrich with Hetzner server names and power status
+    const haProxyPausedClusters = new Set<string>();
     try {
       const u = await db.query.user.findFirst({ where: eq(user.id, ctx.session.user.id) });
       const token = u?.hetznerApiToken || "";
@@ -749,14 +751,45 @@ export const clusterRouter = router({
           if (res.ok) {
             const data = await res.json();
             const nameMap: Record<string, string> = {};
-            for (const s of data.servers || []) nameMap[String(s.id)] = s.name;
+            const statusMap: Record<string, string> = {};
+            for (const s of data.servers || []) {
+              nameMap[String(s.id)] = s.name;
+              statusMap[String(s.id)] = s.status;
+            }
             for (const s of allServersList) {
-              if (s.hetznerServerId && nameMap[s.hetznerServerId]) s.serverName = nameMap[s.hetznerServerId];
+              if (s.hetznerServerId) {
+                if (nameMap[s.hetznerServerId]) s.serverName = nameMap[s.hetznerServerId];
+                if (statusMap[s.hetznerServerId]) s.serverStatus = statusMap[s.hetznerServerId];
+              }
             }
           }
         }
       }
+      // Check HAProxy active status per cluster
+      const clusterIds = [...new Set(allServersList.map((s: any) => s.clusterId).filter(Boolean))];
+      for (const cid of clusterIds) {
+        const haServers = allServersList.filter((s: any) => s.clusterId === cid && s.role?.startsWith("haproxy") && s.ipAddress && s.sshKeyId && s.serverStatus === "running");
+        const checkServer = haServers[0];
+        if (checkServer) {
+          try {
+            const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, checkServer.sshKeyId!) });
+            if (key?.privateKey) {
+              const ssh = new SSHExecutor({ host: checkServer.ipAddress!, port: checkServer.sshPort || 22, username: checkServer.sshUser || "root", privateKey: key.privateKey });
+              await ssh.connect();
+              try {
+                const result = await ssh.exec("systemctl is-active haproxy");
+                if (result.stdout?.trim() !== "active") haProxyPausedClusters.add(cid);
+              } finally {
+                await ssh.disconnect();
+              }
+            }
+          } catch { /* ignore SSH failures */ }
+        }
+      }
     } catch {}
+    for (const s of allServersList) {
+      if (haProxyPausedClusters.has(s.clusterId) && s.role?.startsWith("haproxy")) s.haProxyPaused = true;
+    }
     return allServersList;
   }),
 
