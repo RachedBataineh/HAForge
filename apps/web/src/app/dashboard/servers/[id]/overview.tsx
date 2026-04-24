@@ -180,8 +180,25 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
       {/* No cached data states */}
       {!hasCachedData && !refreshing && (
         <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            No system info available yet. Deploy this server first or click refresh.
+          <CardContent className="py-8 text-center space-y-3">
+            <div className="flex flex-col items-center gap-2">
+              {serverOff ? (
+                <>
+                  <AlertCircle className="size-8 text-muted-foreground/40" />
+                  <p className="text-muted-foreground">Server is powered off.</p>
+                  <p className="text-xs text-muted-foreground">System info will be available after the server is turned on and refreshed.</p>
+                </>
+              ) : (
+                <>
+                  <RotateCw className="size-8 text-muted-foreground/40" />
+                  <p className="text-muted-foreground">System info has not been fetched yet.</p>
+                  <Button variant="outline" size="sm" onClick={doRefresh} disabled={refreshing}>
+                    <RotateCw className="size-3.5 mr-2" />
+                    Fetch System Info
+                  </Button>
+                </>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -195,64 +212,65 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo }: { serve
         </Card>
       )}
 
+      {/* Hetzner Plan Info (from API — always available) */}
+      {hetznerInfo && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Server Details</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Name</span>
+                <p>{hetznerInfo.name}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">vCPUs</span>
+                <p>{hetznerInfo.cores}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Memory</span>
+                <p>{hetznerInfo.memory} GB</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Disk</span>
+                <p>{hetznerInfo.disk} GB</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Server Type</span>
+                <p>{hetznerInfo.serverType}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Location</span>
+                <p>{hetznerInfo.location} ({hetznerInfo.datacenter})</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Created</span>
+                <p>{new Date(hetznerInfo.created).toLocaleDateString()}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Traffic</span>
+                <p>{hetznerInfo.includedTraffic === 0
+                  ? `${((hetznerInfo.outgoingTraffic + hetznerInfo.ingoingTraffic) / 1073741824).toFixed(1)} GB / Unlimited`
+                  : `${((hetznerInfo.outgoingTraffic + hetznerInfo.ingoingTraffic) / 1073741824).toFixed(1)} / ${(hetznerInfo.includedTraffic / 1073741824).toFixed(0)} GB`}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Rescue Mode</span>
+                <p>{hetznerInfo.rescueEnabled ? "Enabled" : "Disabled"}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Backups</span>
+                <p>{hetznerInfo.backupWindow ? `Enabled (${hetznerInfo.backupWindow})` : "Disabled"}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {hasCachedData && (
         <>
-          {/* Hetzner Plan Info (from API) */}
-          {hetznerInfo && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Server Details</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Name</span>
-                    <p>{hetznerInfo.name}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">vCPUs</span>
-                    <p>{hetznerInfo.cores}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Memory</span>
-                    <p>{hetznerInfo.memory} GB</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Disk</span>
-                    <p>{hetznerInfo.disk} GB</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Server Type</span>
-                    <p>{hetznerInfo.serverType}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Location</span>
-                    <p>{hetznerInfo.location} ({hetznerInfo.datacenter})</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Created</span>
-                    <p>{new Date(hetznerInfo.created).toLocaleDateString()}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Traffic</span>
-                    <p>{hetznerInfo.includedTraffic === 0
-                      ? `${((hetznerInfo.outgoingTraffic + hetznerInfo.ingoingTraffic) / 1073741824).toFixed(1)} GB / Unlimited`
-                      : `${((hetznerInfo.outgoingTraffic + hetznerInfo.ingoingTraffic) / 1073741824).toFixed(1)} / ${(hetznerInfo.includedTraffic / 1073741824).toFixed(0)} GB`}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Rescue Mode</span>
-                    <p>{hetznerInfo.rescueEnabled ? "Enabled" : "Disabled"}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Backups</span>
-                    <p>{hetznerInfo.backupWindow ? `Enabled (${hetznerInfo.backupWindow})` : "Disabled"}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Live System Info (from SSH) */}
+          {/* Hetzner Plan Info was moved above to show even without cached data */}
+          {/* (kept section for Live System Info below) */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
