@@ -28,6 +28,7 @@ import {
   Loader2,
   ArrowLeft,
   ArrowUpDown,
+  Crown,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -329,44 +330,80 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
         </div>
       )}
 
-      {/* Floating IP (HAProxy mode only) */}
+      {/* Floating IP & Leader (HAProxy mode only) */}
       {!isLb && cluster.data?.floatingIpId && (
-        <div>
-          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-            <ArrowUpDown className="size-5" />
-            Floating IP
-          </h2>
-          <Card>
-            <CardContent className="py-4">
-              <div className="grid grid-cols-3 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">IP Address</span>
-                  <p className="font-mono">{cluster.data.floatingIp}</p>
+        <div className="grid grid-cols-2 gap-6">
+          {/* Floating IP */}
+          <div>
+            <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+              <ArrowUpDown className="size-5" />
+              Floating IP
+            </h2>
+            <Card>
+              <CardContent className="py-4">
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">IP Address</span>
+                    <p className="font-mono">{cluster.data.floatingIp}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Type</span>
+                    {floatingIpDetails.isLoading ? (
+                      <Skeleton className="h-4 w-12 mt-1" />
+                    ) : (
+                      <p className="font-mono">{floatingIpDetails.data?.type || "—"}</p>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Assigned To</span>
+                    {floatingIpDetails.isLoading ? (
+                      <Skeleton className="h-4 w-24 mt-1" />
+                    ) : floatingIpDetails.data?.serverId ? (
+                      <p className="font-mono">
+                        {(pgRoles.data as any)?.serverNames?.[floatingIpDetails.data.serverId]
+                          || `Server ${floatingIpDetails.data.serverId}`}
+                      </p>
+                    ) : (
+                      <p className="text-muted-foreground">Unassigned</p>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <span className="text-muted-foreground">Type</span>
-                  {floatingIpDetails.isLoading ? (
-                    <Skeleton className="h-4 w-12 mt-1" />
-                  ) : (
-                    <p className="font-mono">{floatingIpDetails.data?.type || "—"}</p>
-                  )}
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Assigned To</span>
-                  {floatingIpDetails.isLoading ? (
-                    <Skeleton className="h-4 w-24 mt-1" />
-                  ) : floatingIpDetails.data?.serverId ? (
-                    <p className="font-mono">
-                      {(pgRoles.data as any)?.serverNames?.[floatingIpDetails.data.serverId]
-                        || `Server ${floatingIpDetails.data.serverId}`}
-                    </p>
-                  ) : (
-                    <p className="text-muted-foreground">Unassigned</p>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
+          {/* PostgreSQL Leader */}
+          <div>
+            <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+              <Crown className="size-5" />
+              PostgreSQL Leader
+            </h2>
+            <Card>
+              <CardContent className="py-4">
+                {(() => {
+                  const roles = (pgRoles.data as any)?.roles || {};
+                  const leaderServer = pgServers.find((s: any) => roles[s.role] === "leader");
+                  if (!leaderServer) {
+                    return <p className="text-sm text-muted-foreground">No leader detected</p>;
+                  }
+                  const leaderName = leaderServer.hetznerServerId
+                    ? (pgRoles.data as any)?.serverNames?.[leaderServer.hetznerServerId] || leaderServer.cachedHostname || "Unknown"
+                    : leaderServer.cachedHostname || "Unknown";
+                  return (
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Server</span>
+                        <p className="font-medium">{leaderName}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">IP Address</span>
+                        <p className="font-mono">{leaderServer.ipAddress}</p>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          </div>
         </div>
       )}
 
