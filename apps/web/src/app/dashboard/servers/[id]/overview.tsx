@@ -54,12 +54,13 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo, onServerD
   const [rebuildImage, setRebuildImage] = useState("ubuntu-24.04");
 
   const serverOff = serverIsOn === false;
+  const noSshAccess = !server.sshKeyId || server.id.startsWith("hetzner-");
 
   // Check if cached data is stale (>5 min) and server is running → auto-refresh
   const isStale = !server.lastFetchedAt || (Date.now() - new Date(server.lastFetchedAt).getTime() > 5 * 60 * 1000);
 
   useEffect(() => {
-    if (isStale && !serverOff && !refreshing) {
+    if (isStale && !serverOff && !refreshing && !noSshAccess) {
       doRefresh();
     }
   }, [serverOff, isStale]);
@@ -176,7 +177,13 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo, onServerD
         <Card>
           <CardContent className="py-8 text-center space-y-3">
             <div className="flex flex-col items-center gap-2">
-              {serverOff ? (
+              {noSshAccess ? (
+                <>
+                  <AlertCircle className="size-8 text-muted-foreground/40" />
+                  <p className="text-muted-foreground">No SSH key assigned.</p>
+                  <p className="text-xs text-muted-foreground">Assign an SSH key to this server to fetch system info via SSH.</p>
+                </>
+              ) : serverOff ? (
                 <>
                   <AlertCircle className="size-8 text-muted-foreground/40" />
                   <p className="text-muted-foreground">Server is powered off.</p>
