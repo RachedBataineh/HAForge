@@ -13,7 +13,7 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@HAForge/ui/components/dialog";
 import { Globe, Plus, Loader2, Trash2 } from "lucide-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import React, { useState } from "react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -22,7 +22,6 @@ import { trpc, trpcClient } from "@/utils/trpc";
 
 export default function NetworksPage() {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteNet, setDeleteNet] = useState<{ id: string; name: string } | null>(null);
@@ -43,7 +42,7 @@ export default function NetworksPage() {
     },
     onSuccess: () => {
       toast.success("Network deleted");
-      queryClient.invalidateQueries(trpc.network.list.queryFilter());
+      networks.refetch();
       setDeleteOpen(false);
       setDeleteNet(null);
       setDeleteName("");

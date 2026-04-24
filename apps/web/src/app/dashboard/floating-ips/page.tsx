@@ -12,8 +12,8 @@ import {
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@HAForge/ui/components/dialog";
-import { ArrowUpDown, Plus, Loader2, Trash2, ExternalLink } from "lucide-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { ArrowUpDown, Plus, Loader2, Trash2 } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import React, { useState } from "react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -22,7 +22,6 @@ import { trpc, trpcClient } from "@/utils/trpc";
 
 export default function FloatingIpsPage() {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteIp, setDeleteIp] = useState<{ id: string; name: string; ip: string } | null>(null);
@@ -43,7 +42,7 @@ export default function FloatingIpsPage() {
     },
     onSuccess: () => {
       toast.success("Floating IP deleted");
-      queryClient.invalidateQueries(trpc.floatingIp.list.queryFilter());
+      floatingIps.refetch();
       setDeleteOpen(false);
       setDeleteIp(null);
       setDeleteConfirm("");

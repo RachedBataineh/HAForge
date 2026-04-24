@@ -13,8 +13,8 @@ import {
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@HAForge/ui/components/dialog";
-import { Network, Plus, Loader2, Trash2, ExternalLink } from "lucide-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Network, Plus, Loader2, Trash2 } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import React, { useState } from "react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -23,7 +23,6 @@ import { trpc, trpcClient } from "@/utils/trpc";
 
 export default function LoadBalancersPage() {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteLb, setDeleteLb] = useState<{ id: string; name: string } | null>(null);
@@ -52,7 +51,7 @@ export default function LoadBalancersPage() {
     },
     onSuccess: () => {
       toast.success("Load balancer deleted");
-      queryClient.invalidateQueries(trpc.cluster.hetznerLoadBalancers.queryFilter());
+      loadBalancers.refetch();
       setDeleteOpen(false);
       setDeleteLb(null);
       setDeleteName("");

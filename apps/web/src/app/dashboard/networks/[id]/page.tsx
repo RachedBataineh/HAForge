@@ -12,7 +12,7 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@HAForge/ui/components/dialog";
 import { ArrowLeft, Loader2, Globe, Server, Network, HardDrive, Plus, Trash2, Link, Unlink } from "lucide-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 import { toast } from "sonner";
@@ -74,7 +74,6 @@ function suggestSubnetIpRange(networkRange: string, existingSubnets: { ipRange: 
 export default function NetworkDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: networkId } = React.use(params);
   const router = useRouter();
-  const queryClient = useQueryClient();
 
   const profile = useQuery(trpc.settings.getProfile.queryOptions());
   const hasToken = !!profile.data?.hetznerApiToken;
@@ -85,10 +84,13 @@ export default function NetworkDetailPage({ params }: { params: Promise<{ id: st
       { enabled: hasToken },
     ),
   );
+  const networkList = useQuery(
+    trpc.network.list.queryOptions(undefined, { enabled: hasToken }),
+  );
 
   const invalidate = () => {
-    queryClient.invalidateQueries(trpc.network.details.queryFilter());
-    queryClient.invalidateQueries(trpc.network.list.queryFilter());
+    net.refetch();
+    networkList.refetch();
   };
 
   if (!hasToken) {

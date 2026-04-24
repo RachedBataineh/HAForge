@@ -12,7 +12,7 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@HAForge/ui/components/dialog";
 import { ArrowLeft, ArrowUpDown, Loader2, Link, Unlink, Trash2, ExternalLink } from "lucide-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 import { toast } from "sonner";
@@ -22,7 +22,6 @@ import { trpc, trpcClient } from "@/utils/trpc";
 export default function FloatingIpDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: floatingIpId } = React.use(params);
   const router = useRouter();
-  const queryClient = useQueryClient();
 
   const profile = useQuery(trpc.settings.getProfile.queryOptions());
   const hasToken = !!profile.data?.hetznerApiToken;
@@ -33,10 +32,13 @@ export default function FloatingIpDetailPage({ params }: { params: Promise<{ id:
       { enabled: hasToken },
     ),
   );
+  const ipList = useQuery(
+    trpc.floatingIp.list.queryOptions(undefined, { enabled: hasToken }),
+  );
 
   const invalidate = () => {
-    queryClient.invalidateQueries(trpc.floatingIp.details.queryFilter());
-    queryClient.invalidateQueries(trpc.floatingIp.list.queryFilter());
+    ip.refetch();
+    ipList.refetch();
   };
 
   if (!hasToken) {
@@ -332,7 +334,7 @@ function ReverseDnsForm({ floatingIpId, ip, currentPtr, onDone }: any) {
 
 function DeleteButton({ floatingIpId, ip, name }: any) {
   const router = useRouter();
-  const queryClient = useQueryClient();
+  const ipList = useQuery(trpc.floatingIp.list.queryOptions());
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState("");
 
@@ -342,7 +344,7 @@ function DeleteButton({ floatingIpId, ip, name }: any) {
     },
     onSuccess: () => {
       toast.success("Floating IP deleted");
-      queryClient.invalidateQueries(trpc.floatingIp.list.queryFilter());
+      ipList.refetch();
       router.push("/dashboard/floating-ips");
     },
     onError: (err: any) => toast.error(err.message),

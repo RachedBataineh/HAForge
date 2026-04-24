@@ -10,7 +10,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from "@HAForge/ui/components/select";
 import { ArrowLeft, Loader2, Server, Save } from "lucide-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState, useEffect } from "react";
 import { toast } from "sonner";
@@ -20,7 +20,6 @@ import { trpc, trpcClient } from "@/utils/trpc";
 export default function LoadBalancerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: lbId } = React.use(params);
   const router = useRouter();
-  const queryClient = useQueryClient();
 
   const profile = useQuery(trpc.settings.getProfile.queryOptions());
   const hasToken = !!profile.data?.hetznerApiToken;
@@ -93,7 +92,7 @@ export default function LoadBalancerDetailPage({ params }: { params: Promise<{ i
     onSuccess: () => {
       toast.success("Load balancer updated successfully");
       setDirty(false);
-      queryClient.invalidateQueries({ queryKey: ["cluster", "hetznerLoadBalancerDetails"] });
+      lb.refetch();
     },
     onError: (err: any) => {
       toast.error(err.message || "Failed to update load balancer");

@@ -15,7 +15,7 @@ import {
 import { Input } from "@HAForge/ui/components/input";
 import { Label } from "@HAForge/ui/components/label";
 import { KeyRound, Plus, Trash2, Loader2, Eye, Copy, CheckCircle2, AlertTriangle, Settings } from "lucide-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -23,7 +23,6 @@ import { toast } from "sonner";
 import { trpc, trpcClient } from "@/utils/trpc";
 
 export default function SshKeysPage() {
-  const queryClient = useQueryClient();
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(false);
   const [detailKey, setDetailKey] = useState<any>(null);
@@ -51,7 +50,7 @@ export default function SshKeysPage() {
     },
     onSuccess: () => {
       toast.success("SSH key created");
-      queryClient.invalidateQueries(trpc.cluster.allHetznerSshKeys.queryFilter());
+      sshKeys.refetch();
       setCreateOpen(false);
       setNewKeyName("");
       setNewPublicKey("");
@@ -68,7 +67,7 @@ export default function SshKeysPage() {
     },
     onSuccess: () => {
       toast.success("SSH key deleted");
-      queryClient.invalidateQueries(trpc.cluster.allHetznerSshKeys.queryFilter());
+      sshKeys.refetch();
       setDeleteKey(null);
     },
     onError: (err) => toast.error(err.message),
@@ -83,7 +82,7 @@ export default function SshKeysPage() {
     },
     onSuccess: () => {
       toast.success("Private key added");
-      queryClient.invalidateQueries(trpc.cluster.allHetznerSshKeys.queryFilter());
+      sshKeys.refetch();
       setAddPrivateKeyOpen(false);
       setAddPrivateKeyValue("");
       setDetailKey(null);
