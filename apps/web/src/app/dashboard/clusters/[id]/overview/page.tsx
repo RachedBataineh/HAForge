@@ -16,7 +16,6 @@ import { Input } from "@HAForge/ui/components/input";
 import {
   Database,
   Globe,
-  CheckCircle2,
   Trash2,
   RotateCcw,
   Eye,

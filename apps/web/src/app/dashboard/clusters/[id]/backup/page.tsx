@@ -1,8 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@HAForge/ui/components/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@HAForge/ui/components/card";
 import { Input } from "@HAForge/ui/components/input";
@@ -24,7 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@HAForge/ui/components/dialog";
-import { HardDrive, Plus, Trash2, Play, RotateCcw, RefreshCw, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { HardDrive, Trash2, Play, RotateCcw, RefreshCw, Loader2, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc, trpcClient } from "@/utils/trpc";
 
@@ -55,8 +54,6 @@ function BackupLogViewer({ logData }: { logData: { isLoading: boolean; data: str
 
 export default function ClusterBackup({ params }: { params: Promise<{ id: string }> }) {
   const { id: clusterId } = React.use(params);
-  const router = useRouter();
-  const queryClient = useQueryClient();
 
   const config = useQuery(trpc.backup.getConfig.queryOptions({ clusterId }));
   const backups = useQuery(trpc.backup.listBackups.queryOptions({ clusterId }, { enabled: !!config.data }));
@@ -127,7 +124,9 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
     },
     onSuccess: () => {
       toast.success("Backup configuration saved");
-      queryClient.invalidateQueries({ queryKey: ["backup"] });
+      config.refetch();
+      backups.refetch();
+      backupLog.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -141,7 +140,9 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
       setConfigured(false);
       setBucket(""); setAccessKey(""); setSecretKey(""); setPathPrefix("");
       setEnabled(false);
-      queryClient.invalidateQueries({ queryKey: ["backup"] });
+      config.refetch();
+      backups.refetch();
+      backupLog.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -187,7 +188,7 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
     },
     onSuccess: () => {
       toast.success("Backup deleted");
-      queryClient.invalidateQueries({ queryKey: ["backup", "listBackups"] });
+      backups.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
