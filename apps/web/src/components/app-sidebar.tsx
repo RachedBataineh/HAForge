@@ -59,9 +59,9 @@ export function AppSidebar() {
             <SidebarMenu>
               {navItems.map((item) => (
                 <SidebarMenuItem key={item.title} style={{ paddingBlock: '2px' }}>
-                  <SidebarMenuButton
+              <SidebarMenuButton
                     render={<Link href={item.href} />}
-                    isActive={pathname === item.href}
+                    isActive={item.href === "/dashboard" ? pathname === "/dashboard" : pathname === item.href || pathname.startsWith(item.href + "/")}
                     tooltip={item.title}
                     style={{ height: '40px' }}
                   >
@@ -81,7 +81,7 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton
               render={<Link href="/dashboard/settings" />}
-              isActive={false}
+              isActive={pathname === "/dashboard/settings" || pathname.startsWith("/dashboard/settings/")}
               tooltip="Settings"
               style={{ height: '40px' }}
             >
