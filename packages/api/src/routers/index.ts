@@ -5,6 +5,7 @@ import { executionRouter } from "./execution";
 import { settingsRouter } from "./settings";
 import { networkRouter } from "./network";
 import { floatingIpRouter } from "./floating-ip";
+import { backupRouter } from "./backup";
 
 export const appRouter = router({
   healthCheck: publicProcedure.query(() => {
@@ -16,5 +17,6 @@ export const appRouter = router({
   settings: settingsRouter,
   network: networkRouter,
   floatingIp: floatingIpRouter,
+  backup: backupRouter,
 });
 export type AppRouter = typeof appRouter;

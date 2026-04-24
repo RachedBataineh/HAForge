@@ -1,16 +1,19 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import React from "react";
+import React, { useState } from "react";
 import { Skeleton } from "@HAForge/ui/components/skeleton";
+import { Database, HardDrive } from "lucide-react";
 
 import { trpc } from "@/utils/trpc";
 import ClusterSetupWizard from "./wizard";
 import ClusterOverview from "./overview/page";
+import ClusterBackup from "./backup/page";
 
 export default function ClusterDetailRouter({ params }: { params: Promise<{ id: string }> }) {
   const { id: clusterId } = React.use(params);
   const cluster = useQuery(trpc.cluster.getById.queryOptions({ id: clusterId }));
+  const [activeTab, setActiveTab] = useState<"overview" | "backup">("overview");
 
   if (!cluster.data) {
     return (
@@ -35,7 +38,38 @@ export default function ClusterDetailRouter({ params }: { params: Promise<{ id: 
   const isDraft = cluster.data.status === "draft";
 
   if (!isDraft) {
-    return <ClusterOverview params={params} />;
+    return (
+      <div>
+        <div className="border-b px-6">
+          <div className="flex gap-1">
+            <button
+              onClick={() => setActiveTab("overview")}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === "overview"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Database className="size-4" />
+              Overview
+            </button>
+            <button
+              onClick={() => setActiveTab("backup")}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === "backup"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <HardDrive className="size-4" />
+              Backup
+            </button>
+          </div>
+        </div>
+        {activeTab === "overview" && <ClusterOverview params={params} />}
+        {activeTab === "backup" && <ClusterBackup params={params} />}
+      </div>
+    );
   }
 
   return <ClusterSetupWizard params={params} />;
