@@ -27,6 +27,7 @@ import {
   AlertTriangle,
   Loader2,
   ArrowLeft,
+  ArrowUpDown,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -60,6 +61,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
 
   const cluster = useQuery(trpc.cluster.getById.queryOptions({ id: clusterId }));
   const [showPassword, setShowPassword] = useState(false);
+  const [showUrl, setShowUrl] = useState(false);
 
   const pgRoles = useQuery(
     trpc.cluster.pgNodeRoles.queryOptions(
@@ -69,6 +71,12 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
   );
 
   const isLb = cluster.data?.clusterType === "hetzner_lb";
+  const floatingIpDetails = useQuery(
+    trpc.floatingIp.details.queryOptions(
+      { floatingIpId: cluster.data?.floatingIpId || "" },
+      { enabled: !isLb && !!cluster.data?.floatingIpId },
+    ),
+  );
   const servers = cluster.data?.servers ?? [];
   const pgServers = servers.filter((s: any) => s.role?.startsWith("postgresql"));
   const haServers = servers.filter((s: any) => s.role?.startsWith("haproxy"));
@@ -146,6 +154,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
   const connectionHost = isLb
     ? cluster.data.loadBalancerIp || ""
     : cluster.data.floatingIp || "";
+  const pgUrl = `postgresql://${cluster.data.superuserUsername || "postgres"}:${cluster.data.superuserPassword}@${connectionHost}:5432/postgres`;
 
   return (
     <div className="p-6 space-y-6">
@@ -195,7 +204,29 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
             Connection Info
           </h2>
           <Card>
-            <CardContent className="py-4">
+            <CardContent className="py-4 space-y-4">
+              <div className="text-sm">
+                <span className="text-muted-foreground">PostgreSQL URL</span>
+                <div className="flex items-center gap-1 flex-wrap">
+                  <p className="font-mono break-all">
+                    {showUrl ? pgUrl : "•".repeat(pgUrl.length)}
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => setShowUrl(!showUrl)}
+                  >
+                    {showUrl ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => { navigator.clipboard.writeText(pgUrl); toast.success("URL copied"); }}
+                  >
+                    <Copy className="size-3.5" />
+                  </Button>
+                </div>
+              </div>
               <div className="grid grid-cols-5 gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">Host</span>
@@ -235,8 +266,8 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                 </div>
                 <div>
                   <span className="text-muted-foreground">Password</span>
-                  <div className="flex items-center gap-1">
-                    <p className="font-mono">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <p className="font-mono break-all">
                       {showPassword ? (cluster.data.superuserPassword || "N/A") : "••••••••"}
                     </p>
                     <Button
@@ -295,6 +326,41 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
               </CardContent>
             </Card>
           )}
+        </div>
+      )}
+
+      {/* Floating IP (HAProxy mode only) */}
+      {!isLb && cluster.data?.floatingIpId && (
+        <div>
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <ArrowUpDown className="size-5" />
+            Floating IP
+          </h2>
+          <Card>
+            <CardContent className="py-4">
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground">IP Address</span>
+                  <p className="font-mono">{cluster.data.floatingIp}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Type</span>
+                  <p className="font-mono">{floatingIpDetails.data?.type || "—"}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Assigned To</span>
+                  {floatingIpDetails.data?.serverId ? (
+                    <p className="font-mono">
+                      {(pgRoles.data as any)?.serverNames?.[floatingIpDetails.data.serverId]
+                        || `Server ${floatingIpDetails.data.serverId}`}
+                    </p>
+                  ) : (
+                    <p className="text-muted-foreground">Unassigned</p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
 
