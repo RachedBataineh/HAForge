@@ -44,12 +44,11 @@ const CRON_PRESETS = [
   { label: "Custom", value: "" },
 ];
 
-function BackupLogViewer({ clusterId }: { clusterId: string }) {
-  const log = useQuery(trpc.backup.getBackupLog.queryOptions({ clusterId }));
-  if (log.isLoading) return <Skeleton className="h-32 w-full" />;
+function BackupLogViewer({ logData }: { logData: { isLoading: boolean; data: string | null | undefined } }) {
+  if (logData.isLoading) return <Skeleton className="h-32 w-full" />;
   return (
     <pre className="bg-muted rounded-lg p-3 text-xs font-mono overflow-auto max-h-64 whitespace-pre-wrap">
-      {log.data || "No log data"}
+      {logData.data || "No log data"}
     </pre>
   );
 }
@@ -61,6 +60,7 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
 
   const config = useQuery(trpc.backup.getConfig.queryOptions({ clusterId }));
   const backups = useQuery(trpc.backup.listBackups.queryOptions({ clusterId }, { enabled: !!config.data }));
+  const backupLog = useQuery(trpc.backup.getBackupLog.queryOptions({ clusterId }, { enabled: !!config.data }));
 
   const [endpoint, setEndpoint] = useState("https://s3.amazonaws.com");
   const [region, setRegion] = useState("us-east-1");
@@ -153,9 +153,11 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
     onSuccess: (data) => {
       if (data.success) {
         toast.success("Backup completed successfully");
-        queryClient.invalidateQueries({ queryKey: ["backup", "listBackups"] });
+        backups.refetch();
+        backupLog.refetch();
       } else {
         toast.error("Backup failed: " + (data.output || "Unknown error"));
+        backupLog.refetch();
       }
     },
     onError: (err) => toast.error(err.message),
@@ -173,6 +175,8 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
       }
       setRestoreOpen(false);
       setRestoreConfirm("");
+      backups.refetch();
+      backupLog.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -353,7 +357,7 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
             <CardTitle>Backup History</CardTitle>
             <CardDescription>Backups stored in your S3 bucket</CardDescription>
           </div>
-          <Button variant="ghost" size="icon-sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["backup", "listBackups"] })}>
+          <Button variant="ghost" size="icon-sm" onClick={() => backups.refetch()}>
             <RefreshCw className="size-4" />
           </Button>
         </CardHeader>
@@ -412,12 +416,12 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
               <CardTitle>Backup Log</CardTitle>
               <CardDescription>Last 50 lines from the backup log on the server</CardDescription>
             </div>
-            <Button variant="ghost" size="icon-sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["backup", "getBackupLog"] })}>
+            <Button variant="ghost" size="icon-sm" onClick={() => backupLog.refetch()}>
               <RefreshCw className="size-4" />
             </Button>
           </CardHeader>
           <CardContent>
-            <BackupLogViewer clusterId={clusterId} />
+            <BackupLogViewer logData={backupLog} />
           </CardContent>
         </Card>
       )}

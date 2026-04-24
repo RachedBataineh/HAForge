@@ -148,6 +148,7 @@ export const backupRouter = router({
     .mutation(async ({ input, ctx }) => {
       const cluster = await db.query.clusters.findFirst({
         where: and(eq(clusters.id, input.clusterId), eq(clusters.userId, ctx.session.user.id)),
+        with: { servers: true },
       });
       if (!cluster) throw new Error("Cluster not found or access denied");
 
@@ -191,52 +192,75 @@ export const backupRouter = router({
 
       // Deploy to leader node if enabled
       if (input.enabled) {
-        const { ssh, server } = await getClusterLeaderSsh(input.clusterId, ctx.session.user.id);
-        try {
-          // Install awscli via pip (apt version is often outdated)
-          await ssh.exec("which aws 2>/dev/null || (apt-get update -qq && apt-get install -y -qq python3-pip 2>&1 | tail -3 && pip3 install --break-system-packages awscli 2>&1 | tail -3)");
+        // Deploy to ALL PG nodes so any node can become leader
+        const pgServers = cluster.servers.filter((s) => s.role?.startsWith("postgresql"));
+        const { SSHExecutor } = await import("../services/ssh-executor");
 
-          // Write AWS credentials using printf
-          await ssh.exec("mkdir -p ~/.aws");
-          await ssh.exec(`printf '[default]\\naws_access_key_id = ${input.s3AccessKey}\\naws_secret_access_key = ${secretKey}\\n' > ~/.aws/credentials`);
-          await ssh.exec("chmod 600 ~/.aws/credentials");
-          await ssh.exec(`printf '[default]\\nregion = ${input.s3Region}\\n' > ~/.aws/config`);
+        for (const pgServer of pgServers) {
+          if (!pgServer.ipAddress || !pgServer.sshKeyId) continue;
+          const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, pgServer.sshKeyId) });
+          if (!key?.privateKey) continue;
 
-          // Deploy backup script
-          const prefix = input.s3PathPrefix || "";
-          const script = backupScriptContent(
-            server.privateIpAddress || "",
-            input.s3Bucket,
-            prefix,
-            input.s3Endpoint,
-            input.s3Region,
-            input.retentionCount,
-            cluster.superuserUsername || "postgres",
-            "postgres",
-            cluster.superuserPassword || "",
-          );
-          await ssh.exec("mkdir -p /opt/haforge");
-          await ssh.exec(`cat > /opt/haforge/backup.sh << 'HAFORGE_SCRIPT_EOF'\n${script}\nHAFORGE_SCRIPT_EOF`);
-          await ssh.exec("chmod +x /opt/haforge/backup.sh");
+          try {
+            const ssh = new SSHExecutor({ host: pgServer.ipAddress, port: pgServer.sshPort || 22, username: pgServer.sshUser || "root", privateKey: key.privateKey });
+            await ssh.connect();
+            try {
+              // Install awscli
+              await ssh.exec("which aws 2>/dev/null || (apt-get update -qq && apt-get install -y -qq python3-pip 2>&1 | tail -3 && pip3 install --break-system-packages awscli 2>&1 | tail -3)");
 
-          // Create log file
-          await ssh.exec("touch /var/log/haforge-backup.log && chmod 644 /var/log/haforge-backup.log");
+              // Write AWS credentials
+              await ssh.exec("mkdir -p ~/.aws");
+              await ssh.exec(`printf '[default]\\naws_access_key_id = ${input.s3AccessKey}\\naws_secret_access_key = ${secretKey}\\n' > ~/.aws/credentials`);
+              await ssh.exec("chmod 600 ~/.aws/credentials");
+              await ssh.exec(`printf '[default]\\nregion = ${input.s3Region}\\n' > ~/.aws/config`);
 
-          // Update crontab
-          await ssh.exec(`(crontab -l 2>/dev/null | grep -v 'haforge/backup.sh'; echo "${input.cronSchedule} /opt/haforge/backup.sh >> /var/log/haforge-backup.log 2>&1") | crontab -`);
-        } finally {
-          await ssh.disconnect();
+              // Deploy backup script (each node gets its own private IP)
+              const prefix = input.s3PathPrefix || "";
+              const script = backupScriptContent(
+                pgServer.privateIpAddress || "",
+                input.s3Bucket,
+                prefix,
+                input.s3Endpoint,
+                input.s3Region,
+                input.retentionCount,
+                cluster.superuserUsername || "postgres",
+                "postgres",
+                cluster.superuserPassword || "",
+              );
+              await ssh.exec("mkdir -p /opt/haforge");
+              await ssh.exec(`cat > /opt/haforge/backup.sh << 'HAFORGE_SCRIPT_EOF'\n${script}\nHAFORGE_SCRIPT_EOF`);
+              await ssh.exec("chmod +x /opt/haforge/backup.sh");
+
+              // Create log file
+              await ssh.exec("touch /var/log/haforge-backup.log && chmod 644 /var/log/haforge-backup.log");
+
+              // Set cron on all nodes (script skips non-leaders automatically)
+              await ssh.exec(`(crontab -l 2>/dev/null | grep -v 'haforge/backup.sh'; echo "${input.cronSchedule} /opt/haforge/backup.sh >> /var/log/haforge-backup.log 2>&1") | crontab -`);
+            } finally {
+              await ssh.disconnect();
+            }
+          } catch (err) {
+            console.error(`Failed to deploy backup to ${pgServer.role}:`, err);
+          }
         }
       } else {
-        // Disable: remove cron entry
-        try {
-          const { ssh } = await getClusterLeaderSsh(input.clusterId, ctx.session.user.id);
+        // Disable: remove cron from all PG nodes
+        const pgServers = cluster.servers.filter((s) => s.role?.startsWith("postgresql"));
+        const { SSHExecutor } = await import("../services/ssh-executor");
+        for (const pgServer of pgServers) {
+          if (!pgServer.ipAddress || !pgServer.sshKeyId) continue;
           try {
-            await ssh.exec(`crontab -l 2>/dev/null | grep -v 'haforge/backup.sh' | crontab -`);
-          } finally {
-            await ssh.disconnect();
-          }
-        } catch { /* ignore if can't connect */ }
+            const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, pgServer.sshKeyId) });
+            if (!key?.privateKey) continue;
+            const ssh = new SSHExecutor({ host: pgServer.ipAddress, port: pgServer.sshPort || 22, username: pgServer.sshUser || "root", privateKey: key.privateKey });
+            await ssh.connect();
+            try {
+              await ssh.exec(`crontab -l 2>/dev/null | grep -v 'haforge/backup.sh' | crontab -`);
+            } finally {
+              await ssh.disconnect();
+            }
+          } catch { /* ignore */ }
+        }
       }
 
       return { success: true };
@@ -247,19 +271,28 @@ export const backupRouter = router({
     .mutation(async ({ input, ctx }) => {
       const cluster = await db.query.clusters.findFirst({
         where: and(eq(clusters.id, input.clusterId), eq(clusters.userId, ctx.session.user.id)),
+        with: { servers: true },
       });
       if (!cluster) throw new Error("Cluster not found or access denied");
 
-      // Remove cron + script from server
-      try {
-        const { ssh } = await getClusterLeaderSsh(input.clusterId, ctx.session.user.id);
+      // Remove cron + script + creds from ALL PG nodes
+      const pgServers = cluster.servers.filter((s) => s.role?.startsWith("postgresql"));
+      const { SSHExecutor } = await import("../services/ssh-executor");
+      for (const pgServer of pgServers) {
+        if (!pgServer.ipAddress || !pgServer.sshKeyId) continue;
         try {
-          await ssh.exec(`crontab -l 2>/dev/null | grep -v 'haforge/backup.sh' | crontab -`);
-          await ssh.exec("rm -f /opt/haforge/backup.sh ~/.aws/credentials ~/.aws/config");
-        } finally {
-          await ssh.disconnect();
-        }
-      } catch { /* ignore */ }
+          const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, pgServer.sshKeyId) });
+          if (!key?.privateKey) continue;
+          const ssh = new SSHExecutor({ host: pgServer.ipAddress, port: pgServer.sshPort || 22, username: pgServer.sshUser || "root", privateKey: key.privateKey });
+          await ssh.connect();
+          try {
+            await ssh.exec(`crontab -l 2>/dev/null | grep -v 'haforge/backup.sh' | crontab -`);
+            await ssh.exec("rm -f /opt/haforge/backup.sh ~/.aws/credentials ~/.aws/config");
+          } finally {
+            await ssh.disconnect();
+          }
+        } catch { /* ignore */ }
+      }
 
       // Delete DB record
       const existing = await db.query.clusterBackups.findFirst({
