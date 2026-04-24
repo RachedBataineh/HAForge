@@ -199,15 +199,39 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
               <div className="grid grid-cols-5 gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">Host</span>
-                  <p className="font-mono">{connectionHost}</p>
+                  <div className="flex items-center gap-1">
+                    <p className="font-mono">{connectionHost}</p>
+                    <Button variant="ghost" size="icon-sm" onClick={() => { navigator.clipboard.writeText(connectionHost); toast.success("Host copied"); }}>
+                      <Copy className="size-3.5" />
+                    </Button>
+                  </div>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Port</span>
-                  <p className="font-mono">5432</p>
+                  <div className="flex items-center gap-1">
+                    <p className="font-mono">5432</p>
+                    <Button variant="ghost" size="icon-sm" onClick={() => { navigator.clipboard.writeText("5432"); toast.success("Port copied"); }}>
+                      <Copy className="size-3.5" />
+                    </Button>
+                  </div>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">User</span>
-                  <p className="font-mono">{cluster.data.superuserUsername || "postgres"}</p>
+                  <span className="text-muted-foreground">Username</span>
+                  <div className="flex items-center gap-1">
+                    <p className="font-mono">{cluster.data.superuserUsername || "postgres"}</p>
+                    <Button variant="ghost" size="icon-sm" onClick={() => { navigator.clipboard.writeText(cluster.data.superuserUsername || "postgres"); toast.success("User copied"); }}>
+                      <Copy className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Database</span>
+                  <div className="flex items-center gap-1">
+                    <p className="font-mono">postgres</p>
+                    <Button variant="ghost" size="icon-sm" onClick={() => { navigator.clipboard.writeText("postgres"); toast.success("Database copied"); }}>
+                      <Copy className="size-3.5" />
+                    </Button>
+                  </div>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Password</span>
@@ -233,10 +257,6 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                       <Copy className="size-3.5" />
                     </Button>
                   </div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Database</span>
-                  <p className="font-mono">postgres</p>
                 </div>
               </div>
             </CardContent>
