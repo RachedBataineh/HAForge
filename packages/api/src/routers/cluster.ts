@@ -1443,6 +1443,65 @@ export const clusterRouter = router({
         } catch (err) { console.error("Failed to fetch LB name:", err); }
       }
 
-      return { roles, serverNames, serverStatus, lbName };
+      // Check HAProxy service status on HA nodes
+      let haProxyActive: boolean | null = null;
+      if (cluster.clusterType !== "hetzner_lb") {
+        const haServers = cluster.servers.filter((s) => s.role?.startsWith("haproxy"));
+        const checkServer = haServers.find((s) => s.ipAddress && s.sshKeyId);
+        if (checkServer) {
+          try {
+            const { SSHExecutor } = await import("../services/ssh-executor");
+            const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, checkServer.sshKeyId!) });
+            if (key?.privateKey) {
+              const ssh = new SSHExecutor({ host: checkServer.ipAddress!, port: checkServer.sshPort || 22, username: checkServer.sshUser || "root", privateKey: key.privateKey });
+              await ssh.connect();
+              try {
+                const result = await ssh.exec("systemctl is-active haproxy");
+                haProxyActive = result.stdout?.trim() === "active";
+              } finally {
+                await ssh.disconnect();
+              }
+            }
+          } catch { haProxyActive = null; }
+        }
+      }
+
+      return { roles, serverNames, serverStatus, lbName, haProxyActive };
+    }),
+  toggleHaProxy: protectedProcedure
+    .input(z.object({ clusterId: z.string(), action: z.enum(["start", "stop"]) }))
+    .mutation(async ({ input, ctx }) => {
+      const cluster = await db.query.clusters.findFirst({
+        where: and(eq(clusters.id, input.clusterId), eq(clusters.userId, ctx.session.user.id)),
+        with: { servers: true },
+      });
+      if (!cluster) throw new Error("Cluster not found or access denied");
+      if (cluster.clusterType === "hetzner_lb") throw new Error("Not supported for LB mode");
+
+      const haServers = cluster.servers.filter((s) => s.role?.startsWith("haproxy"));
+      const results: { server: string; success: boolean; error?: string }[] = [];
+
+      for (const s of haServers) {
+        if (!s.ipAddress || !s.sshKeyId) {
+          results.push({ server: s.role, success: false, error: "No IP or SSH key" });
+          continue;
+        }
+        try {
+          const { SSHExecutor } = await import("../services/ssh-executor");
+          const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, s.sshKeyId) });
+          if (!key?.privateKey) { results.push({ server: s.role, success: false, error: "No private key" }); continue; }
+          const ssh = new SSHExecutor({ host: s.ipAddress, port: s.sshPort || 22, username: s.sshUser || "root", privateKey: key.privateKey });
+          await ssh.connect();
+          try {
+            await ssh.exec(`sudo systemctl ${input.action} haproxy`);
+            results.push({ server: s.role, success: true });
+          } finally {
+            await ssh.disconnect();
+          }
+        } catch (err: any) {
+          results.push({ server: s.role, success: false, error: err.message });
+        }
+      }
+      return { results };
     }),
 });

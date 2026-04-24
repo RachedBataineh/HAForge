@@ -29,6 +29,8 @@ import {
   ArrowLeft,
   ArrowUpDown,
   Crown,
+  Pause,
+  Play,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -86,6 +88,16 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
   const [destroyConfirm, setDestroyConfirm] = useState("");
   const [destroyMode, setDestroyMode] = useState<"delete" | "clean">("delete");
   const [redeployOpen, setRedeployOpen] = useState(false);
+  const toggleHaProxy = useMutation({
+    mutationFn: async (action: "start" | "stop") => {
+      return trpcClient.cluster.toggleHaProxy.mutate({ clusterId, action });
+    },
+    onSuccess: () => {
+      toast.success("HAProxy updated");
+      queryClient.invalidateQueries({ queryKey: ["cluster", "pgNodeRoles"] });
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
   const destroyCluster = useMutation({
     mutationFn: async () => {
@@ -184,6 +196,20 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
             <RotateCcw className="size-4" />
             Redeploy
           </Button>
+          {!isLb && cluster.data.status === "running" && (() => {
+            const haProxyActive = (pgRoles.data as any)?.haProxyActive;
+            const paused = haProxyActive === false;
+            return haProxyActive !== null && haProxyActive !== undefined && (
+              <Button
+                variant={paused ? "default" : "outline"}
+                onClick={() => toggleHaProxy.mutate(paused ? "start" : "stop")}
+                disabled={toggleHaProxy.isPending}
+              >
+                {toggleHaProxy.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : paused ? <Play className="size-4" /> : <Pause className="size-4" />}
+                {paused ? "Resume" : "Pause"}
+              </Button>
+            );
+          })()}
           {cluster.data.status === "draft" ? (
             <Button variant="destructive" size="icon" onClick={deleteDraft}>
               <Trash2 className="size-4" />
@@ -425,6 +451,10 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
               const serverName = (pgRoles.data as any)?.serverNames?.[server.hetznerServerId] || server.cachedHostname;
               const srvStatus = (pgRoles.data as any)?.serverStatus?.[server.hetznerServerId];
               const isMaster = floatingIpDetails.data?.serverId === server.hetznerServerId;
+              const haProxyActive = (pgRoles.data as any)?.haProxyActive;
+              const dotColor = haProxyActive === false && srvStatus === "running"
+                ? "bg-orange-500"
+                : srvStatus === "running" ? "bg-green-500" : srvStatus ? "bg-red-500" : "bg-muted-foreground/30";
               const displayType = isMaster ? "Master" : "Backup";
               const badgeVariant = isMaster ? "default" : "secondary";
               return (
@@ -433,7 +463,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                 >
                   <CardContent className="flex items-center justify-between py-3">
                     <div className="flex items-center gap-3">
-                      <div className={`size-2.5 rounded-full ${srvStatus === "running" ? "bg-green-500" : srvStatus ? "bg-red-500" : "bg-muted-foreground/30"}`} />
+                      <div className={`size-2.5 rounded-full ${dotColor}`} />
                       <div>
                         <p className="font-medium text-sm">{serverName || roleInfo.label}</p>
                         <p className="text-xs text-muted-foreground">{roleInfo.label}</p>
