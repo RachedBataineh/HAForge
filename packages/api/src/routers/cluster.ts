@@ -106,6 +106,22 @@ export const clusterRouter = router({
       }
       return Array.from(ids);
     }),
+  usedFloatingIpIds: protectedProcedure
+    .input(z.object({ excludeClusterId: z.string().optional() }))
+    .query(async ({ input, ctx }) => {
+      const allClusters = await db.query.clusters.findMany({
+        where: and(
+          ne(clusters.status, "draft"),
+          eq(clusters.userId, ctx.session.user.id),
+        ),
+      });
+      const ids = new Set<string>();
+      for (const c of allClusters) {
+        if (c.id === input.excludeClusterId) continue;
+        if (c.floatingIpId) ids.add(c.floatingIpId);
+      }
+      return Array.from(ids);
+    }),
 
   hetznerServers: protectedProcedure
     .query(async ({ ctx }) => {

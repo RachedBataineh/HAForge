@@ -95,7 +95,14 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
     ),
   );
   const floatingIpList = (floatingIps.data ?? []) as any[];
-
+  const usedFloatingIpIds = useQuery(
+    trpc.cluster.usedFloatingIpIds.queryOptions(
+      { excludeClusterId: clusterId },
+      { enabled: !isLb },
+    ),
+  );
+  const usedFipIdSet = new Set((usedFloatingIpIds.data ?? []) as string[]);
+  const availableFloatingIps = floatingIpList.filter((ip: any) => !usedFipIdSet.has(ip.id));
   const hetznerServers = useQuery(
     trpc.cluster.hetznerServers.queryOptions(
       undefined,
@@ -418,11 +425,11 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
               {floatingIps.isError && (
                 <p className="text-sm text-destructive">Failed to fetch floating IPs. Check your API token in Settings.</p>
               )}
-              {floatingIpList.length > 0 && (
+              {availableFloatingIps.length > 0 && (
                 <Select
                   value={floatingIpId}
                   onValueChange={(val) => {
-                    const selected = floatingIpList.find((ip: any) => ip.id === val);
+                    const selected = availableFloatingIps.find((ip: any) => ip.id === val);
                     if (selected) {
                       setFloatingIpId(selected.id);
                       setFloatingIp(selected.ip);
@@ -431,11 +438,11 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                 >
                   <SelectTrigger>
                     {floatingIpId
-                      ? floatingIpList.find((ip: any) => ip.id === floatingIpId)?.ip || floatingIpId
+                      ? availableFloatingIps.find((ip: any) => ip.id === floatingIpId)?.ip || floatingIpId
                       : "Select a Floating IP"}
                   </SelectTrigger>
                   <SelectContent className="!w-auto min-w-[300px]" side="bottom">
-                    {floatingIpList.map((ip: any) => (
+                    {availableFloatingIps.map((ip: any) => (
                       <SelectItem key={ip.id} value={ip.id}>
                         {ip.ip} {ip.name ? `(${ip.name})` : ""} - {ip.homeLocation}
                       </SelectItem>
@@ -443,7 +450,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                   </SelectContent>
                 </Select>
               )}
-              {floatingIpList.length === 0 && !floatingIps.isLoading && !floatingIps.isError && (
+              {availableFloatingIps.length === 0 && !floatingIps.isLoading && !floatingIps.isError && (
                 <p className="text-sm text-muted-foreground">
                   No floating IPs found in your Hetzner account. Create one first.
                 </p>
