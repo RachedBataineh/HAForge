@@ -161,7 +161,6 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
-      </div>
 
       {/* Change Password */}
       <Card>
@@ -211,6 +210,7 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }
