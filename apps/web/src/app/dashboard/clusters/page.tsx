@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@HAForge/ui/components/card";
+import { Skeleton } from "@HAForge/ui/components/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -194,11 +195,22 @@ export default function ClusterListPage() {
       </div>
 
       {clusters.isLoading && (
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            Loading clusters...
-          </CardContent>
-        </Card>
+        <div className="grid gap-4">
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <Skeleton className="size-5 rounded-full" />
+                  <div className="space-y-2 flex-1">
+                    <Skeleton className="h-5 w-40" />
+                    <Skeleton className="h-3 w-56" />
+                  </div>
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </div>
+              </CardHeader>
+            </Card>
+          ))}
+        </div>
       )}
 
       {clusters.data && clusters.data.length === 0 && (

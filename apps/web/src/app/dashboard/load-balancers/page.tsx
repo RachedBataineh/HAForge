@@ -3,6 +3,7 @@
 import { Badge } from "@HAForge/ui/components/badge";
 import { Button } from "@HAForge/ui/components/button";
 import { Card, CardContent } from "@HAForge/ui/components/card";
+import { Skeleton } from "@HAForge/ui/components/skeleton";
 import { Input } from "@HAForge/ui/components/input";
 import { Label } from "@HAForge/ui/components/label";
 import { Separator } from "@HAForge/ui/components/separator";
@@ -87,12 +88,22 @@ export default function LoadBalancersPage() {
       </div>
 
       {loadBalancers.isLoading && (
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            <Loader2 className="size-4 animate-spin mx-auto mb-2" />
-            Loading load balancers...
-          </CardContent>
-        </Card>
+        <div className="grid gap-3">
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardContent className="flex items-center justify-between py-3">
+                <div className="flex items-center gap-3">
+                  <Skeleton className="size-4 rounded-full" />
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-4 w-36" />
+                    <Skeleton className="h-3 w-28" />
+                  </div>
+                </div>
+                <Skeleton className="h-5 w-16 rounded-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       )}
 
       {!loadBalancers.isLoading && lbList.length === 0 && (
