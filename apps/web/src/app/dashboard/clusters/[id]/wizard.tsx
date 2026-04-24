@@ -470,6 +470,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
           )}
 
           {/* HAProxy Server Cards */}
+          <div className="grid grid-cols-3 gap-4">
           {HA_ROLES.map((r) => (
             <Card key={r.role}>
               <CardHeader className="pb-3">
@@ -593,6 +594,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
               </CardContent>
             </Card>
           ))}
+          </div>
         </div>
       )}
 
@@ -721,7 +723,8 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
             <p className="text-sm text-destructive py-4">Failed to fetch servers. Check your API token in Settings.</p>
           )}
           {hetznerServerList.length > 0 ? (
-            PG_ROLES.map((r) => (
+            <div className="grid grid-cols-3 gap-4">
+              {PG_ROLES.map((r) => (
               <Card key={r.role}>
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
@@ -857,7 +860,8 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                   </Button>
                 </CardContent>
               </Card>
-            ))
+            ))}
+            </div>
           ) : (
             <p className="text-sm text-muted-foreground py-4">No servers found. Create servers in the Servers page first.</p>
           )}
