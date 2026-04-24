@@ -3,8 +3,6 @@ import { redirect } from "next/navigation";
 
 import { authClient } from "@/lib/auth-client";
 
-import DashboardContent from "./dashboard";
-
 export default async function DashboardPage() {
   const session = await authClient.getSession({
     fetchOptions: {
@@ -17,5 +15,5 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  return <DashboardContent />;
+  redirect("/dashboard/clusters");
 }

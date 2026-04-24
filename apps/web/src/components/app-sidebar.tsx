@@ -14,12 +14,11 @@ import {
   SidebarRail,
   SidebarSeparator,
 } from "@HAForge/ui/components/sidebar";
-import { Database, Home, Server, HardDrive, Settings, KeyRound, Network, Globe, ArrowUpDown } from "lucide-react";
+import { Database, Server, HardDrive, Settings, KeyRound, Network, Globe, ArrowUpDown } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navItems = [
-  { title: "Dashboard", href: "/dashboard" as const, icon: Home },
   { title: "Clusters", href: "/dashboard/clusters" as const, icon: Server },
   { title: "Servers", href: "/dashboard/servers" as const, icon: HardDrive },
   { title: "Load Balancers", href: "/dashboard/load-balancers" as const, icon: Network },
@@ -39,7 +38,7 @@ export function AppSidebar() {
             <SidebarMenuButton
               size="lg"
               isActive={false}
-              render={<Link href="/" />}
+              render={<Link href="/dashboard/clusters" />}
             >
               <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                 <Database className="size-4" />
@@ -61,7 +60,7 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.title} style={{ paddingBlock: '2px' }}>
               <SidebarMenuButton
                     render={<Link href={item.href} />}
-                    isActive={item.href === "/dashboard" ? pathname === "/dashboard" : pathname === item.href || pathname.startsWith(item.href + "/")}
+                    isActive={pathname === item.href || pathname.startsWith(item.href + "/")}
                     tooltip={item.title}
                     style={{ height: '40px' }}
                   >
