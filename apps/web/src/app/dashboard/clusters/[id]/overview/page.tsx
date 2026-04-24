@@ -462,6 +462,9 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
             {haServers.map((server: any) => {
               const roleInfo = ROLE_LABELS[server.role] || { label: server.role, defaultType: "Node" };
               const serverName = (pgRoles.data as any)?.serverNames?.[server.hetznerServerId] || server.cachedHostname;
+              const isMaster = floatingIpDetails.data?.serverId === server.hetznerServerId;
+              const displayType = isMaster ? "Master" : "Backup";
+              const badgeVariant = isMaster ? "default" : "secondary";
               return (
                 <Card key={server.id} className="cursor-pointer hover:border-primary/50 transition-colors"
                   onClick={() => router.push(`/dashboard/servers/${server.id}`)}
@@ -479,7 +482,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                         {server.ipAddress && <p className="font-mono">Public: {server.ipAddress}</p>}
                         {server.privateIpAddress && <p className="font-mono">Private: {server.privateIpAddress}</p>}
                       </div>
-                      <Badge variant="secondary" className="text-xs">{roleInfo.defaultType}</Badge>
+                      <Badge variant={badgeVariant} className="text-xs">{displayType}</Badge>
                     </div>
                   </CardContent>
                 </Card>
