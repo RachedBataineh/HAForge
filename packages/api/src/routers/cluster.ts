@@ -738,6 +738,25 @@ export const clusterRouter = router({
         allServersList.push({ ...server, clusterId: cluster.id, clusterName: cluster.name, clusterStatus: cluster.status, clusterType: cluster.clusterType });
       }
     }
+    // Enrich with Hetzner server names
+    try {
+      const u = await db.query.user.findFirst({ where: eq(user.id, ctx.session.user.id) });
+      const token = u?.hetznerApiToken || "";
+      if (token) {
+        const hzIds = [...new Set(allServersList.map((s) => s.hetznerServerId).filter(Boolean))];
+        if (hzIds.length > 0) {
+          const res = await fetch("https://api.hetzner.cloud/v1/servers", { headers: { Authorization: `Bearer ${token}` } });
+          if (res.ok) {
+            const data = await res.json();
+            const nameMap: Record<string, string> = {};
+            for (const s of data.servers || []) nameMap[String(s.id)] = s.name;
+            for (const s of allServersList) {
+              if (s.hetznerServerId && nameMap[s.hetznerServerId]) s.serverName = nameMap[s.hetznerServerId];
+            }
+          }
+        }
+      }
+    } catch {}
     return allServersList;
   }),
 

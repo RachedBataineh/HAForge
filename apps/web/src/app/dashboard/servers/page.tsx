@@ -4,7 +4,7 @@ import { Badge } from "@HAForge/ui/components/badge";
 import { Button } from "@HAForge/ui/components/button";
 import { Card, CardContent } from "@HAForge/ui/components/card";
 import { Skeleton } from "@HAForge/ui/components/skeleton";
-import { HardDrive, Database, Server, Plus } from "lucide-react";
+import { HardDrive, Server, Plus, Database } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
@@ -117,7 +117,7 @@ export default function ServersPage() {
       {activeTab === "cluster" && (
         <>
           {servers.isLoading && (
-            <div className="grid gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {[1, 2, 3].map((i) => (
                 <Card key={i}>
                   <CardContent className="flex items-center justify-between py-3">
@@ -145,7 +145,7 @@ export default function ServersPage() {
           )}
 
           {serverList.length > 0 && (
-            <div className="grid gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {serverList.map((server: any) => (
                 <Card
                   key={server.id}
@@ -154,18 +154,21 @@ export default function ServersPage() {
                 >
                   <CardContent className="flex items-center justify-between py-3">
                     <div className="flex items-center gap-3">
-                      <Server className="size-4 text-muted-foreground" />
+                      <HardDrive className="size-4 text-muted-foreground" />
                       <div>
                         <p className="font-medium text-sm">
-                          {server.ipAddress}
-                          {server.privateIpAddress && (
+                          {server.serverName || server.ipAddress}
+                          {!server.serverName && server.privateIpAddress && (
                             <span className="text-muted-foreground text-xs ml-2">
                               ({server.privateIpAddress})
                             </span>
                           )}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {roleLabel[server.role] || server.role}
+                          {server.serverName ? server.ipAddress : (roleLabel[server.role] || server.role)}
+                          {server.serverName && server.privateIpAddress && (
+                            <span className="ml-2">({server.privateIpAddress})</span>
+                          )}
                         </p>
                       </div>
                     </div>
@@ -177,7 +180,7 @@ export default function ServersPage() {
                         }}
                         className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                       >
-                        <Database className="size-3" />
+                        <Server className="size-3" />
                         {server.clusterName}
                       </button>
                       <Badge variant={statusColor[server.clusterStatus] || "outline"}>
@@ -196,7 +199,7 @@ export default function ServersPage() {
       {activeTab === "hetzner" && (
         <>
           {hetznerServers.isLoading && (
-            <div className="grid gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {[1, 2, 3].map((i) => (
                 <Card key={i}>
                   <CardContent className="flex items-center justify-between py-3">
@@ -230,7 +233,7 @@ export default function ServersPage() {
           {hzAvailable.length > 0 && (
             <div>
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Available</p>
-              <div className="grid gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 {hzAvailable.map((server: any) => (
                   <Card
                     key={server.id}
@@ -239,7 +242,7 @@ export default function ServersPage() {
                   >
                     <CardContent className="flex items-center justify-between py-3">
                       <div className="flex items-center gap-3">
-                        <Server className="size-4 text-muted-foreground" />
+                        <HardDrive className="size-4 text-muted-foreground" />
                         <div>
                           <p className="font-medium text-sm">{server.name}</p>
                           <p className="text-xs text-muted-foreground">
