@@ -14,8 +14,9 @@ import {
 } from "@HAForge/ui/components/dialog";
 import { Input } from "@HAForge/ui/components/input";
 import { Label } from "@HAForge/ui/components/label";
-import { KeyRound, Plus, Trash2, Loader2, Eye, Copy, CheckCircle2, AlertTriangle } from "lucide-react";
+import { KeyRound, Plus, Trash2, Loader2, Eye, Copy, CheckCircle2, AlertTriangle, Settings } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -23,6 +24,7 @@ import { trpc, trpcClient } from "@/utils/trpc";
 
 export default function SshKeysPage() {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [createOpen, setCreateOpen] = useState(false);
   const [detailKey, setDetailKey] = useState<any>(null);
   const [addPrivateKeyOpen, setAddPrivateKeyOpen] = useState(false);
@@ -35,6 +37,8 @@ export default function SshKeysPage() {
   const [newPrivateKey, setNewPrivateKey] = useState("");
 
   const sshKeys = useQuery(trpc.cluster.allHetznerSshKeys.queryOptions());
+  const profile = useQuery(trpc.settings.getProfile.queryOptions());
+  const hasToken = !!profile.data?.hetznerApiToken;
   const keys = (sshKeys.data ?? []) as any[];
 
   const createKey = useMutation({
@@ -104,7 +108,7 @@ export default function SshKeysPage() {
             Manage SSH keys across your Hetzner projects
           </p>
         </div>
-        <Button className="gap-2" onClick={() => setCreateOpen(true)} disabled={!newKeyName}>
+        <Button className="gap-2" onClick={() => setCreateOpen(true)}>
           <Plus className="size-4" />
           Add SSH Key
         </Button>
@@ -149,9 +153,31 @@ export default function SshKeysPage() {
 
       {!sshKeys.isLoading && keys.length === 0 && (
         <Card>
-          <CardContent className="py-12 text-center">
-            <KeyRound className="size-12 text-muted-foreground/30 mx-auto mb-4" />
-            <p className="text-muted-foreground">No SSH keys found. Create a cluster with an API token or add a key manually.</p>
+          <CardContent className="py-12 text-center space-y-4">
+            <KeyRound className="size-12 text-muted-foreground/30 mx-auto" />
+            <div className="space-y-1">
+              <p className="font-medium">No SSH keys yet</p>
+              <p className="text-sm text-muted-foreground">
+                SSH keys are needed to connect to your servers via terminal and run deployment commands.
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-3">
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="size-4 mr-2" />
+                Add SSH Key
+              </Button>
+              {!hasToken && (
+                <Button variant="outline" onClick={() => router.push("/dashboard/settings")}>
+                  <Settings className="size-4 mr-2" />
+                  Add Hetzner API Token
+                </Button>
+              )}
+            </div>
+            {hasToken && (
+              <p className="text-xs text-muted-foreground">
+                Keys from your Hetzner account will sync automatically.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
