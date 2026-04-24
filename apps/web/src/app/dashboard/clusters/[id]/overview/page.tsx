@@ -300,6 +300,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                     <CheckCircle2 className="size-4 text-green-500" />
                     <div>
                       <p className="font-medium text-sm">{serverName || roleInfo.label}</p>
+                      <p className="text-xs text-muted-foreground">{roleInfo.label}</p>
                       <p className="text-xs text-muted-foreground font-mono">{server.ipAddress}</p>
                     </div>
                   </div>
@@ -338,6 +339,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                       <CheckCircle2 className="size-4 text-green-500" />
                       <div>
                         <p className="font-medium text-sm">{serverName || roleInfo.label}</p>
+                        <p className="text-xs text-muted-foreground">{roleInfo.label}</p>
                         <p className="text-xs text-muted-foreground font-mono">{server.ipAddress}</p>
                       </div>
                     </div>
