@@ -383,23 +383,51 @@ export const backupRouter = router({
         const prefix = config.s3PathPrefix ? `${config.s3PathPrefix}/` : "";
         const s3Path = `s3://${config.s3Bucket}/${prefix}${input.filename}`;
         const localPath = `/tmp/${input.filename}`;
+        const dbUser = cluster.superuserUsername || "postgres";
+        const dbPass = cluster.superuserPassword || "";
+
+        // Log restore start
+        await ssh.exec(`echo "$(date '+%Y-%m-%d %H:%M:%S') [haforge-backup] Starting restore: ${input.filename} -> ${input.targetDb}" >> /var/log/haforge-backup.log`);
 
         // Download from S3
-        await ssh.exec(`aws s3 cp "${s3Path}" "${localPath}" --endpoint-url "${config.s3Endpoint}" --region "${config.s3Region}"`);
-
-        // If target is postgres, restore directly (terminate connections first)
-        if (input.targetDb === "postgres") {
-          await ssh.exec(`sudo -u postgres psql -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='postgres' AND pid <> pg_backend_pid();" 2>/dev/null || true`);
-          await ssh.exec(`pg_restore -U ${cluster.superuserUsername || "postgres"} -d postgres -c --if-exists "${localPath}" 2>&1 || true`);
-        } else {
-          // Create target DB if not exists, then restore
-          await ssh.exec(`sudo -u postgres psql -c "CREATE DATABASE \\"${input.targetDb}\\"" 2>/dev/null || true`);
-          await ssh.exec(`pg_restore -U ${cluster.superuserUsername || "postgres"} -d "${input.targetDb}" "${localPath}" 2>&1 || true`);
+        const downloadResult = await ssh.exec(`aws s3 cp "${s3Path}" "${localPath}" --endpoint-url "${config.s3Endpoint}" --region "${config.s3Region}" 2>&1`);
+        if (downloadResult.stdout?.includes("error") || downloadResult.stderr?.includes("error")) {
+          throw new Error(`Download failed: ${downloadResult.stdout || downloadResult.stderr}`);
         }
+
+        // Verify file downloaded
+        const checkFile = await ssh.exec(`test -f "${localPath}" && stat -c%s "${localPath}" || echo "0"`);
+        const fileSize = checkFile.stdout?.trim() || "0";
+        if (fileSize === "0") {
+          throw new Error("Downloaded file is empty or missing");
+        }
+        await ssh.exec(`echo "$(date '+%Y-%m-%d %H:%M:%S') [haforge-backup] Downloaded ${input.filename} (${fileSize} bytes)" >> /var/log/haforge-backup.log`);
+
+        // Restore
+        let restoreCmd: string;
+        if (input.targetDb === "postgres") {
+          // Restore to postgres DB: clean existing objects first, then restore
+          restoreCmd = `PGPASSWORD="${dbPass}" pg_restore -U "${dbUser}" -h 127.0.0.1 -d postgres --clean --if-exists "${localPath}" 2>&1`;
+        } else {
+          // Create target DB if not exists, then restore into it
+          await ssh.exec(`PGPASSWORD="${dbPass}" psql -U "${dbUser}" -h 127.0.0.1 -c "CREATE DATABASE \\"${input.targetDb}\\"" 2>/dev/null || true`);
+          restoreCmd = `PGPASSWORD="${dbPass}" pg_restore -U "${dbUser}" -h 127.0.0.1 -d "${input.targetDb}" "${localPath}" 2>&1`;
+        }
+
+        const restoreResult = await ssh.exec(restoreCmd);
+        const restoreOutput = restoreResult.stdout || restoreResult.stderr || "";
+
+        // pg_restore outputs warnings to stderr but that's normal — only fail on fatal errors
+        const hasFatalError = restoreOutput.toLowerCase().includes("error:") && !restoreOutput.includes("does not exist");
+        await ssh.exec(`echo "$(date '+%Y-%m-%d %H:%M:%S') [haforge-backup] Restore ${hasFatalError ? "FAILED" : "completed"}: ${input.filename}" >> /var/log/haforge-backup.log`);
 
         // Cleanup
         await ssh.exec(`rm -f "${localPath}"`);
-        return { success: true };
+
+        if (hasFatalError) {
+          return { success: false, output: restoreOutput };
+        }
+        return { success: true, output: restoreOutput || "Restore completed" };
       } finally {
         await ssh.disconnect();
       }

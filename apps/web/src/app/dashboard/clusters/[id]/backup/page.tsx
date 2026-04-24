@@ -24,7 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@HAForge/ui/components/dialog";
-import { HardDrive, Plus, Trash2, Play, RotateCcw, RefreshCw, Loader2, CheckCircle2, XCircle, Download } from "lucide-react";
+import { HardDrive, Plus, Trash2, Play, RotateCcw, RefreshCw, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { trpc, trpcClient } from "@/utils/trpc";
 
@@ -165,8 +165,12 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
     mutationFn: async () => {
       return trpcClient.backup.restoreBackup.mutate({ clusterId, filename: restoreFile, targetDb: restoreDb });
     },
-    onSuccess: () => {
-      toast.success("Restore completed");
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Restore completed");
+      } else {
+        toast.error("Restore failed: " + (data.output || "Unknown error"));
+      }
       setRestoreOpen(false);
       setRestoreConfirm("");
     },
@@ -380,9 +384,9 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
                       variant="ghost"
                       size="icon-sm"
                       onClick={() => { setRestoreFile(backup.filename); setRestoreOpen(true); }}
-                      title="Restore"
+                      title="Restore this backup"
                     >
-                      <Download className="size-3.5" />
+                      <RotateCcw className="size-3.5" />
                     </Button>
                     <Button
                       variant="ghost"
