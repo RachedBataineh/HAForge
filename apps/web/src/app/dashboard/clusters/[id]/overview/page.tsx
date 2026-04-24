@@ -422,6 +422,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
           {pgServers.map((server: any) => {
             const roleInfo = ROLE_LABELS[server.role] || { label: server.role, defaultType: "Node" };
             const serverName = (pgRoles.data as any)?.serverNames?.[server.hetznerServerId] || server.cachedHostname;
+            const srvStatus = (pgRoles.data as any)?.serverStatus?.[server.hetznerServerId];
             const pgRole = (pgRoles.data as any)?.roles?.[server.role];
             const displayType = pgRole === "leader" ? "Leader" : pgRole === "replica" ? "Replica" : pgRole === "offline" ? "Offline" : "Node";
             const badgeVariant = pgRole === "leader" ? "default" : pgRole === "replica" ? "secondary" : pgRole === "offline" ? "destructive" : "outline";
@@ -431,7 +432,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
               >
                 <CardContent className="flex items-center justify-between py-3">
                   <div className="flex items-center gap-3">
-                    <CheckCircle2 className="size-4 text-green-500" />
+                    <div className={`size-2.5 rounded-full ${srvStatus === "running" ? "bg-green-500" : srvStatus ? "bg-red-500" : "bg-muted-foreground/30"}`} />
                     <div>
                       <p className="font-medium text-sm">{serverName || roleInfo.label}</p>
                       <p className="text-xs text-muted-foreground">{roleInfo.label}</p>
@@ -462,6 +463,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
             {haServers.map((server: any) => {
               const roleInfo = ROLE_LABELS[server.role] || { label: server.role, defaultType: "Node" };
               const serverName = (pgRoles.data as any)?.serverNames?.[server.hetznerServerId] || server.cachedHostname;
+              const srvStatus = (pgRoles.data as any)?.serverStatus?.[server.hetznerServerId];
               const isMaster = floatingIpDetails.data?.serverId === server.hetznerServerId;
               const displayType = isMaster ? "Master" : "Backup";
               const badgeVariant = isMaster ? "default" : "secondary";
@@ -471,7 +473,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                 >
                   <CardContent className="flex items-center justify-between py-3">
                     <div className="flex items-center gap-3">
-                      <CheckCircle2 className="size-4 text-green-500" />
+                      <div className={`size-2.5 rounded-full ${srvStatus === "running" ? "bg-green-500" : srvStatus ? "bg-red-500" : "bg-muted-foreground/30"}`} />
                       <div>
                         <p className="font-medium text-sm">{serverName || roleInfo.label}</p>
                         <p className="text-xs text-muted-foreground">{roleInfo.label}</p>

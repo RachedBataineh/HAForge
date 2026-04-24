@@ -1327,8 +1327,9 @@ export const clusterRouter = router({
       const pgServers = cluster.servers.filter((s) => s.role?.startsWith("postgresql"));
       const roles: Record<string, "leader" | "replica" | "offline" | "unknown"> = {};
       const serverNames: Record<string, string> = {};
+      const serverStatus: Record<string, string> = {};
 
-      // Fetch server names from Hetzner API
+      // Fetch server names and status from Hetzner API
       if (apiToken) {
         const srvRes = await fetch(`${HETZNER_API}/servers`, {
           headers: hetznerHeaders(apiToken),
@@ -1337,6 +1338,7 @@ export const clusterRouter = router({
           const srvData = await srvRes.json();
           for (const srv of srvData.servers || []) {
             serverNames[String(srv.id)] = srv.name;
+            serverStatus[String(srv.id)] = srv.status;
           }
         }
       }
@@ -1441,6 +1443,6 @@ export const clusterRouter = router({
         } catch (err) { console.error("Failed to fetch LB name:", err); }
       }
 
-      return { roles, serverNames, lbName };
+      return { roles, serverNames, serverStatus, lbName };
     }),
 });
