@@ -10,8 +10,9 @@ import {
 } from "@HAForge/ui/components/card";
 import { Progress } from "@HAForge/ui/components/progress";
 import { useQuery } from "@tanstack/react-query";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
+import { ArrowLeft } from "lucide-react";
 
 import { trpc, trpcClient } from "@/utils/trpc";
 
@@ -131,6 +132,7 @@ function FullLogEntry({ server }: { server: any }) {
 
 export default function DeployPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: clusterId } = React.use(params);
+  const router = useRouter();
   const searchParams = useSearchParams();
   const executionId = searchParams.get("executionId") || "";
 
@@ -193,7 +195,12 @@ export default function DeployPage({ params }: { params: Promise<{ id: string }>
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
-        <h1 className="text-3xl font-bold">Cluster Deployment</h1>
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon-sm" onClick={() => router.push(`/dashboard/clusters/${clusterId}`)}>
+            <ArrowLeft className="size-4" />
+          </Button>
+          <h1 className="text-3xl font-bold">Cluster Deployment</h1>
+        </div>
         <Badge variant={STATUS_COLORS[execution.data?.status || "running"]} className="text-sm px-3 py-1">
           {execution.data?.status || "running"}
         </Badge>

@@ -342,13 +342,18 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">
-          {cluster.data?.name || "Cluster Setup"}
-        </h1>
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="icon-sm" onClick={() => router.push("/dashboard/clusters")}>
+          <ArrowLeft className="size-4" />
+        </Button>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {cluster.data?.name || "Cluster Setup"}
+          </h1>
         <p className="text-muted-foreground">
           {isLb ? "Configure your 3-server PostgreSQL cluster with Hetzner Load Balancer" : "Configure your 6-server HA cluster with HAProxy"}
         </p>
+        </div>
       </div>
 
       {/* No API token warning */}

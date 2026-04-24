@@ -25,6 +25,7 @@ import {
   Cloud,
   AlertTriangle,
   Loader2,
+  ArrowLeft,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -135,9 +136,13 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold tracking-tight">{cluster.data.name}</h1>
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon-sm" onClick={() => router.push("/dashboard/clusters")}>
+            <ArrowLeft className="size-4" />
+          </Button>
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold tracking-tight">{cluster.data.name}</h1>
             <Badge variant={statusColor[cluster.data.status] || "outline"}>
               {cluster.data.status}
             </Badge>
@@ -148,6 +153,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
           <p className="text-muted-foreground mt-1">
             {servers.length} servers configured
           </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={startDeployment}>
