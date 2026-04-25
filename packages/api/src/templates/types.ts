@@ -1,4 +1,5 @@
 export type TargetRole =
+  | "all"
   | "all_pg"
   | "all_ha"
   | "postgresql_1"
@@ -20,7 +21,7 @@ export interface FileStep {
 }
 
 export interface StepDefinition {
-  phase: "postgres" | "haproxy";
+  phase: "postgres" | "haproxy" | "hardening";
   stepNumber: number;
   name: string;
   targetRole: TargetRole;

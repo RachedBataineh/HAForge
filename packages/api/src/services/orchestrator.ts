@@ -4,6 +4,7 @@ import { SSHExecutor } from "./ssh-executor";
 import { generateClusterCertificates, type GeneratedCerts } from "./cert-generator";
 import { resolveVariables, type VariableMap } from "./variable-resolver";
 import { getClusterSteps, getLbClusterSteps, type StepDefinition, type TargetRole } from "../templates/cluster-steps";
+import { getHardeningSteps } from "../templates/hardening/hardening-steps";
 import { generatePassword, SERVER_INFO_SCRIPT, parseServerInfo } from "./server-info";
 import { EventEmitter } from "events";
 import {
@@ -23,8 +24,15 @@ export interface OrchestratorEvents {
   failed: (executionId: string, error: string) => void;
 }
 
-function getTargetServerRoles(targetRole: TargetRole): string[] {
+function getTargetServerRoles(targetRole: TargetRole, serverMap?: Map<string, any>): string[] {
   switch (targetRole) {
+    case "all":
+      // Dynamic: target all servers that exist in the cluster
+      if (serverMap) {
+        const roles = Array.from(serverMap.values()).map((s: any) => s.role).filter(Boolean);
+        return [...new Set(roles)];
+      }
+      return ["postgresql_1", "postgresql_2", "postgresql_3", "haproxy_1", "haproxy_2", "haproxy_3"];
     case "all_pg":
       return ["postgresql_1", "postgresql_2", "postgresql_3"];
     case "all_ha":
@@ -133,36 +141,36 @@ export class Orchestrator extends EventEmitter {
     isLb: boolean,
     cluster: any,
   ) {
+    const hardeningStepCount = getHardeningSteps().length;
+    const adminUsername = vars.ADMIN_USERNAME;
+
     try {
-      // Phase 0: Connect to all servers
+      // Phase 0: Connect to all servers as root
       await this.connectAllServers(serverMap);
 
       // Phase 0.5: Generate and upload certificates
       const certs = generateClusterCertificates(
-        [
-          vars.IP_ADDRESS_NODE_1,
-          vars.IP_ADDRESS_NODE_2,
-          vars.IP_ADDRESS_NODE_3,
-        ],
-        [
-          vars.PRIVATE_IP_NODE_1,
-          vars.PRIVATE_IP_NODE_2,
-          vars.PRIVATE_IP_NODE_3,
-        ],
+        [vars.IP_ADDRESS_NODE_1, vars.IP_ADDRESS_NODE_2, vars.IP_ADDRESS_NODE_3],
+        [vars.PRIVATE_IP_NODE_1, vars.PRIVATE_IP_NODE_2, vars.PRIVATE_IP_NODE_3],
       );
-
       await this.uploadCertificates(certs, serverMap);
 
       // Execute steps
       for (const stepRecord of stepRecords) {
-        if (this.cancelled) {
-          await this.markExecutionFailed("Cancelled by user");
-          return;
-        }
+        if (this.cancelled) { await this.markExecutionFailed("Cancelled by user"); return; }
 
         const steps = isLb ? getLbClusterSteps() : getClusterSteps();
         const stepDef = steps.find((s) => s.stepNumber === stepRecord.stepNumber);
         if (!stepDef) continue;
+
+        // After hardening steps: disconnect root, reconnect as admin user
+        if (stepRecord.stepNumber === hardeningStepCount + 1) {
+          await this.disconnectAll();
+          for (const [id, server] of serverMap) {
+            server.sshUser = adminUsername;
+          }
+          await this.connectAllServers(serverMap);
+        }
 
         await this.executeStep(stepRecord, stepDef, serverMap, vars);
       }
@@ -189,6 +197,11 @@ export class Orchestrator extends EventEmitter {
 
       // Cache server info after successful deployment
       await this.cacheServerInfo();
+
+      // Update server records: sshUser is now the admin user
+      for (const server of Array.from(serverMap.values())) {
+        await db.update(servers).set({ sshUser: adminUsername }).where(eq(servers.id, server.id));
+      }
 
       // Mark execution completed
       await db
@@ -234,7 +247,7 @@ export class Orchestrator extends EventEmitter {
     initStep(this.executionId!, stepRecord.id, stepDef.name);
 
     try {
-      const targetRoles = getTargetServerRoles(stepDef.targetRole as TargetRole);
+      const targetRoles = getTargetServerRoles(stepDef.targetRole as TargetRole, serverMap);
       const targetServers = Array.from(serverMap.values()).filter((s) =>
         targetRoles.includes(s.role),
       );
@@ -426,7 +439,8 @@ export class Orchestrator extends EventEmitter {
 
       const nodeKey = `node${i + 1}` as keyof typeof certs.etcdNodes;
 
-      // Create directories before moving files
+      // Stop etcd before re-uploading certs, create directories
+      await ssh.exec("sudo systemctl stop etcd 2>/dev/null || true");
       await ssh.exec("sudo mkdir -p /etc/etcd/ssl /var/lib/postgresql/ssl");
 
       // Upload CA cert
@@ -441,6 +455,11 @@ export class Orchestrator extends EventEmitter {
       await ssh.uploadFile(certs.etcdNodes[nodeKey].key, `/tmp/etcd-node${i + 1}.key`);
       await ssh.exec(`sudo mv /tmp/etcd-node${i + 1}.key /etc/etcd/ssl/`);
 
+      // Fix ownership immediately
+      await ssh.exec("sudo chown -R etcd:etcd /etc/etcd/ssl/");
+      await ssh.exec("sudo chmod 600 /etc/etcd/ssl/etcd-node*.key");
+      await ssh.exec("sudo chmod 644 /etc/etcd/ssl/etcd-node*.crt /etc/etcd/ssl/ca.crt");
+
       // Upload PostgreSQL server cert
       await ssh.uploadFile(certs.postgresServer.cert, "/tmp/server.crt");
       await ssh.exec("sudo mv /tmp/server.crt /var/lib/postgresql/ssl/");
@@ -450,6 +469,8 @@ export class Orchestrator extends EventEmitter {
 
       await ssh.uploadFile(certs.postgresServer.req, "/tmp/server.req");
       await ssh.exec("sudo mv /tmp/server.req /var/lib/postgresql/ssl/");
+
+      await ssh.exec("sudo chown postgres:postgres /var/lib/postgresql/ssl/server.*");
     }
   }
 
@@ -610,6 +631,7 @@ export class Orchestrator extends EventEmitter {
       SUPERUSER_PASSWORD: cluster.superuserPassword || "",
       SUPERUSER_USERNAME: cluster.superuserUsername || "postgres",
       REPLICATION_PASSWORD: cluster.replicationPassword || "",
+      ADMIN_USERNAME: cluster.adminUsername || "haforge",
     };
   }
 

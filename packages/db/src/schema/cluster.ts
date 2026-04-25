@@ -71,6 +71,7 @@ export const clusters = pgTable("cluster", {
   superuserPassword: text("superuser_password"),
   replicationPassword: text("replication_password"),
   superuserUsername: text("superuser_username").default("postgres"),
+  adminUsername: text("admin_username").default("haforge"),
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")

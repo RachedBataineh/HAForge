@@ -481,6 +481,7 @@ export const clusterRouter = router({
         loadBalancerIp: z.string().optional(),
         wizardStep: z.number().optional(),
         superuserUsername: z.string().optional(),
+        adminUsername: z.string().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {

@@ -136,6 +136,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const [selectedLbId, setSelectedLbId] = useState("");
   const [createLbName, setCreateLbName] = useState("");
   const [superuserUsername, setSuperuserUsername] = useState("postgres");
+  const [adminUsername, setAdminUsername] = useState("haforge");
 
   const [pgServers, setPgServers] = useState<Record<string, ServerForm>>({
     postgresql_1: { ipAddress: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
@@ -183,6 +184,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
     if (c.floatingIpId) setFloatingIpId(c.floatingIpId);
     if (c.loadBalancerId) setSelectedLbId(c.loadBalancerId);
     if (c.superuserUsername) setSuperuserUsername(c.superuserUsername);
+    if (c.adminUsername) setAdminUsername(c.adminUsername);
 
     const servers = c.servers ?? [];
     if (servers.length > 0) {
@@ -256,6 +258,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       }
       if (currentStep >= 1) {
         clusterData.superuserUsername = superuserUsername;
+        clusterData.adminUsername = adminUsername;
       }
       await updateCluster.mutateAsync(clusterData);
 
@@ -699,6 +702,25 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       {/* Step 1: PostgreSQL Nodes */}
       {step === 1 && tokenReady && (
         <div className="grid gap-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Server Security</CardTitle>
+              <CardDescription>A dedicated admin user will be created on every server. Root login will be disabled.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-1.5 max-w-xs">
+                <Label className="text-xs">Admin Username</Label>
+                <Input
+                  placeholder="haforge"
+                  value={adminUsername}
+                  onChange={(e) => setAdminUsername(e.target.value.replace(/[^a-z_][a-z0-9_-]*/g, ""))}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                This user will be created with sudo access. Root SSH login will be disabled for security.
+              </p>
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Database Settings</CardTitle>
