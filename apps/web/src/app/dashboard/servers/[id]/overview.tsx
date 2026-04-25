@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@HAForge/ui/components/select";
-import { Loader2, Save, RotateCw, AlertCircle, Trash2, AlertTriangle } from "lucide-react";
+import { Loader2, Save, RotateCw, AlertCircle, Trash2, AlertTriangle, Copy } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import React, { useState, useEffect } from "react";
 import { toast } from "sonner";
@@ -158,11 +158,25 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo, onServerD
           <div className="grid grid-cols-3 gap-4 text-sm">
             <div>
               <span className="text-muted-foreground">Public IP</span>
-              <p className="font-mono">{server.ipAddress}</p>
+              <div className="flex items-center gap-2">
+                <p className="font-mono">{server.ipAddress}</p>
+                {server.ipAddress && (
+                  <button className="text-muted-foreground hover:text-foreground" onClick={() => { navigator.clipboard.writeText(server.ipAddress); toast.success("Public IP copied"); }}>
+                    <Copy className="size-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
             <div>
               <span className="text-muted-foreground">Private IP</span>
-              <p className="font-mono">{server.privateIpAddress || "N/A"}</p>
+              <div className="flex items-center gap-2">
+                <p className="font-mono">{server.privateIpAddress || "N/A"}</p>
+                {server.privateIpAddress && (
+                  <button className="text-muted-foreground hover:text-foreground" onClick={() => { navigator.clipboard.writeText(server.privateIpAddress); toast.success("Private IP copied"); }}>
+                    <Copy className="size-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
             <div>
               <span className="text-muted-foreground">SSH User / Port</span>
@@ -220,7 +234,7 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo, onServerD
             <CardTitle className="text-base">Server Details</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">Name</span>
                 <p>{hetznerInfo.name}</p>
@@ -289,7 +303,7 @@ export default function OverviewTab({ server, serverIsOn, hetznerInfo, onServerD
               </div>
             </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">Operating System</span>
                   <p>{server.cachedOs}</p>

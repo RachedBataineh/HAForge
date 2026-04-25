@@ -1181,7 +1181,7 @@ export const clusterRouter = router({
         cores: s.server_type?.cores || 0,
         memory: s.server_type?.memory || 0,
         disk: s.server_type?.disk || 0,
-        location: s.datacenter?.location?.name || "",
+        location: s.datacenter?.location?.city || s.datacenter?.location?.name || "",
         datacenter: s.datacenter?.name || "",
         publicIp: s.public_net?.ipv4?.ip || "",
         privateIps: (s.private_net || []).map((n: any) => n.ip),
