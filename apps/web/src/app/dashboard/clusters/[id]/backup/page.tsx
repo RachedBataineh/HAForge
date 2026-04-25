@@ -6,7 +6,6 @@ import { Button } from "@HAForge/ui/components/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@HAForge/ui/components/card";
 import { Input } from "@HAForge/ui/components/input";
 import { Label } from "@HAForge/ui/components/label";
-import { Badge } from "@HAForge/ui/components/badge";
 import { Skeleton } from "@HAForge/ui/components/skeleton";
 import {
   Select,
@@ -25,6 +24,7 @@ import {
 } from "@HAForge/ui/components/dialog";
 import { HardDrive, Trash2, Play, RotateCcw, RefreshCw, Loader2, CheckCircle2, AlertTriangle, Settings } from "lucide-react";
 import { toast } from "sonner";
+import { Switch } from "@HAForge/ui/components/switch";
 import { trpc, trpcClient } from "@/utils/trpc";
 import Link from "next/link";
 
@@ -204,6 +204,7 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
 
   return (
     <div className="p-6 space-y-6">
+      <div className="grid grid-cols-2 gap-6">
       {/* Bucket Configuration */}
       <Card>
         <CardHeader>
@@ -256,16 +257,11 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
           <CardDescription>Configure automatic backup schedule and retention policy</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Label>Automatic Backups</Label>
-              <Badge variant={enabled ? "default" : "secondary"}>{enabled ? "Enabled" : "Disabled"}</Badge>
-            </div>
-            <Button variant={enabled ? "destructive" : "default"} size="sm" onClick={() => setEnabled(!enabled)}>
-              {enabled ? "Disable" : "Enable"}
-            </Button>
+          <div className="flex items-center gap-3">
+            <Label>{enabled ? "Automatic backups enabled" : "Automatic backups disabled"}</Label>
+            <Switch checked={enabled} onCheckedChange={setEnabled} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 max-w-sm">
             <div>
               <Label className="text-xs">Schedule</Label>
               <Select value={cronPreset} onValueChange={(val) => {
@@ -318,6 +314,7 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
           </div>
         </CardContent>
       </Card>
+      </div>
 
       {/* Backup History */}
       <Card>
