@@ -458,4 +458,33 @@ export const backupRouter = router({
         await ssh.disconnect();
       }
     }),
+
+  downloadBackup: protectedProcedure
+    .input(z.object({ clusterId: z.string(), filename: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const s3 = await getUserS3Config(ctx.session.user.id);
+      if (!s3) throw new Error("S3 storage not configured. Add your S3 credentials in Settings.");
+
+      const cluster = await db.query.clusters.findFirst({
+        where: and(eq(clusters.id, input.clusterId), eq(clusters.userId, ctx.session.user.id)),
+      });
+      if (!cluster) throw new Error("Cluster not found or access denied");
+
+      const config = await db.query.clusterBackups.findFirst({
+        where: eq(clusterBackups.clusterId, input.clusterId),
+      });
+      if (!config) throw new Error("Backup not configured");
+
+      const { ssh } = await getClusterLeaderSsh(input.clusterId, ctx.session.user.id);
+      try {
+        const localPath = `/tmp/haforge_dl_${input.filename}`;
+        await ssh.exec(`aws s3 cp "s3://${config.s3Bucket}/${input.filename}" "${localPath}" --endpoint-url "${s3.s3Endpoint}" --region "${s3.s3Region}" 2>&1`);
+        const result = await ssh.exec(`base64 "${localPath}"`);
+        await ssh.exec(`rm -f "${localPath}"`);
+        if (!result.stdout) throw new Error("Failed to read backup file");
+        return { data: result.stdout.replace(/\n/g, ""), filename: input.filename };
+      } finally {
+        await ssh.disconnect();
+      }
+    }),
 });

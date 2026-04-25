@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@HAForge/ui/components/dialog";
-import { HardDrive, Trash2, Play, RotateCcw, RefreshCw, Loader2, CheckCircle2, AlertTriangle, Settings } from "lucide-react";
+import { HardDrive, Trash2, Play, RotateCcw, RefreshCw, Loader2, CheckCircle2, AlertTriangle, Settings, Download } from "lucide-react";
 import { toast } from "sonner";
 import { Switch } from "@HAForge/ui/components/switch";
 import { trpc, trpcClient } from "@/utils/trpc";
@@ -171,6 +171,29 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
     onSuccess: () => {
       toast.success("Backup deleted");
       backups.refetch();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const downloadBackup = useMutation({
+    mutationFn: async (filename: string) => {
+      return trpcClient.backup.downloadBackup.mutate({ clusterId, filename });
+    },
+    onSuccess: (data) => {
+      const byteChars = atob(data.data);
+      const byteNumbers = new Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) {
+        byteNumbers[i] = byteChars.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray]);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = data.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Download started");
     },
     onError: (err) => toast.error(err.message),
   });
@@ -357,6 +380,15 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
                       title="Restore this backup"
                     >
                       <RotateCcw className="size-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => downloadBackup.mutate(backup.filename)}
+                      disabled={downloadBackup.isPending}
+                      title="Download"
+                    >
+                      {downloadBackup.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
                     </Button>
                     <Button
                       variant="ghost"
