@@ -5,6 +5,17 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../index";
 import bcrypt from "bcryptjs";
 
+export async function getUserS3Config(userId: string) {
+  const u = await db.query.user.findFirst({ where: eq(user.id, userId) });
+  if (!u?.s3Endpoint || !u?.s3AccessKey || !u?.s3SecretKey) return null;
+  return {
+    s3Endpoint: u.s3Endpoint,
+    s3Region: u.s3Region || "us-east-1",
+    s3AccessKey: u.s3AccessKey,
+    s3SecretKey: u.s3SecretKey,
+  };
+}
+
 export const settingsRouter = router({
   getProfile: protectedProcedure.query(async ({ ctx }) => {
     const u = await db.query.user.findFirst({
@@ -17,6 +28,10 @@ export const settingsRouter = router({
       email: u.email,
       image: u.image,
       hetznerApiToken: u.hetznerApiToken || "",
+      s3Endpoint: u.s3Endpoint || "",
+      s3Region: u.s3Region || "",
+      s3AccessKey: u.s3AccessKey || "",
+      s3SecretKey: u.s3SecretKey ? "••••••••" : "",
     };
   }),
 
@@ -48,6 +63,33 @@ export const settingsRouter = router({
       await db.update(user)
         .set({ hetznerApiToken: input.hetznerApiToken || null })
         .where(eq(user.id, ctx.session.user.id));
+      return { success: true };
+    }),
+
+  updateS3Config: protectedProcedure
+    .input(z.object({
+      s3Endpoint: z.string(),
+      s3Region: z.string(),
+      s3AccessKey: z.string(),
+      s3SecretKey: z.string(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const existing = await db.query.user.findFirst({
+        where: eq(user.id, ctx.session.user.id),
+      });
+      if (!existing) throw new Error("User not found");
+
+      let secretKey = input.s3SecretKey;
+      if (secretKey === "••••••••" && existing.s3SecretKey) {
+        secretKey = existing.s3SecretKey;
+      }
+
+      await db.update(user).set({
+        s3Endpoint: input.s3Endpoint || null,
+        s3Region: input.s3Region || null,
+        s3AccessKey: input.s3AccessKey || null,
+        s3SecretKey: (input.s3Endpoint && input.s3AccessKey) ? secretKey : null,
+      }).where(eq(user.id, ctx.session.user.id));
       return { success: true };
     }),
 

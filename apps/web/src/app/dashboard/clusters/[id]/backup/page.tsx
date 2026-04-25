@@ -23,16 +23,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@HAForge/ui/components/dialog";
-import { HardDrive, Trash2, Play, RotateCcw, RefreshCw, Loader2, CheckCircle2 } from "lucide-react";
+import { HardDrive, Trash2, Play, RotateCcw, RefreshCw, Loader2, CheckCircle2, AlertTriangle, Settings } from "lucide-react";
 import { toast } from "sonner";
 import { trpc, trpcClient } from "@/utils/trpc";
-
-const S3_PRESETS = [
-  { name: "AWS S3", endpoint: "https://s3.amazonaws.com", region: "us-east-1" },
-  { name: "Wasabi US East", endpoint: "https://s3.wasabisys.com", region: "us-east-1" },
-  { name: "Wasabi EU Central", endpoint: "https://s3.eu-central-1.wasabisys.com", region: "eu-central-1" },
-  { name: "MinIO (Custom)", endpoint: "", region: "" },
-];
+import Link from "next/link";
 
 const CRON_PRESETS = [
   { label: "Every 6 hours", value: "0 */6 * * *" },
@@ -55,16 +49,14 @@ function BackupLogViewer({ logData }: { logData: { isLoading: boolean; data: str
 export default function ClusterBackup({ params }: { params: Promise<{ id: string }> }) {
   const { id: clusterId } = React.use(params);
 
+  const profile = useQuery(trpc.settings.getProfile.queryOptions());
+  const s3Configured = !!(profile.data?.s3Endpoint && profile.data?.s3AccessKey);
+
   const config = useQuery(trpc.backup.getConfig.queryOptions({ clusterId }));
-  const backups = useQuery(trpc.backup.listBackups.queryOptions({ clusterId }, { enabled: !!config.data }));
+  const backups = useQuery(trpc.backup.listBackups.queryOptions({ clusterId }, { enabled: !!config.data && s3Configured }));
   const backupLog = useQuery(trpc.backup.getBackupLog.queryOptions({ clusterId }, { enabled: !!config.data }));
 
-  const [endpoint, setEndpoint] = useState("https://s3.amazonaws.com");
-  const [region, setRegion] = useState("us-east-1");
   const [bucket, setBucket] = useState("");
-  const [accessKey, setAccessKey] = useState("");
-  const [secretKey, setSecretKey] = useState("");
-  const [pathPrefix, setPathPrefix] = useState("");
   const [cronSchedule, setCronSchedule] = useState("0 2 * * *");
   const [cronPreset, setCronPreset] = useState("Daily at 2 AM");
   const [retention, setRetention] = useState(7);
@@ -80,17 +72,11 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
   // Load existing config
   React.useEffect(() => {
     if (config.data) {
-      setEndpoint(config.data.s3Endpoint);
-      setRegion(config.data.s3Region);
       setBucket(config.data.s3Bucket);
-      setAccessKey(config.data.s3AccessKey);
-      setSecretKey(config.data.s3SecretKey);
-      setPathPrefix(config.data.s3PathPrefix || "");
       setCronSchedule(config.data.cronSchedule);
       setRetention(config.data.retentionCount);
       setEnabled(!!config.data.enabled);
       setConfigured(true);
-      // Match preset
       const preset = CRON_PRESETS.find((p) => p.value === config.data!.cronSchedule);
       setCronPreset(preset ? preset.label : "Custom");
     }
@@ -98,9 +84,7 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
 
   const testConnection = useMutation({
     mutationFn: async () => {
-      return trpcClient.backup.testConnection.mutate({
-        clusterId, endpoint, region, bucket, accessKey, secretKey,
-      });
+      return trpcClient.backup.testConnection.mutate({ clusterId, bucket });
     },
     onSuccess: (data) => {
       setTestResult(data);
@@ -116,9 +100,7 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
   const saveConfig = useMutation({
     mutationFn: async () => {
       return trpcClient.backup.saveConfig.mutate({
-        clusterId, s3Endpoint: endpoint, s3Region: region, s3Bucket: bucket,
-        s3AccessKey: accessKey, s3SecretKey: secretKey,
-        s3PathPrefix: pathPrefix || undefined,
+        clusterId, s3Bucket: bucket,
         cronSchedule, retentionCount: retention, enabled,
       });
     },
@@ -138,7 +120,7 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
     onSuccess: () => {
       toast.success("Backup configuration removed");
       setConfigured(false);
-      setBucket(""); setAccessKey(""); setSecretKey(""); setPathPrefix("");
+      setBucket("");
       setEnabled(false);
       config.refetch();
       backups.refetch();
@@ -193,69 +175,64 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
     onError: (err) => toast.error(err.message),
   });
 
+  // S3 not configured in Settings — show banner
+  if (!profile.isLoading && !s3Configured) {
+    return (
+      <div className="p-6">
+        <Card className="border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-orange-700 dark:text-orange-400">
+              <AlertTriangle className="size-5" />
+              S3 Storage Not Configured
+            </CardTitle>
+            <CardDescription>
+              Configure your S3 storage credentials in Settings before setting up backups. All clusters share the same S3 credentials, but each cluster uses its own bucket.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/dashboard/settings">
+              <Button variant="outline" className="gap-2">
+                <Settings className="size-4" />
+                Go to Settings
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6">
-      {/* S3 Configuration */}
+      {/* Bucket Configuration */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <HardDrive className="size-5" />
-            S3 Storage Configuration
+            S3 Bucket
           </CardTitle>
           <CardDescription>
-            Configure an S3-compatible storage to store your PostgreSQL backups
+            Each cluster uses its own S3 bucket for backups. Your S3 credentials are configured in{" "}
+            <Link href="/dashboard/settings" className="text-primary underline underline-offset-2 hover:text-primary/80">
+              Settings
+            </Link>.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label className="text-xs">Provider Preset</Label>
-            <Select value={endpoint} onValueChange={(val) => {
-              const preset = S3_PRESETS.find((p) => p.endpoint === val);
-              if (preset) { setEndpoint(preset.endpoint); setRegion(preset.region); }
-            }}>
-              <SelectTrigger className="mt-1.5"><SelectValue placeholder="Select provider" /></SelectTrigger>
-              <SelectContent>
-                {S3_PRESETS.map((p) => (
-                  <SelectItem key={p.name} value={p.endpoint || "custom"}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label className="text-xs">Endpoint URL</Label>
-              <Input className="mt-1.5" placeholder="https://s3.amazonaws.com" value={endpoint} onChange={(e) => setEndpoint(e.target.value)} />
-            </div>
-            <div>
-              <Label className="text-xs">Region</Label>
-              <Input className="mt-1.5" placeholder="us-east-1" value={region} onChange={(e) => setRegion(e.target.value)} />
-            </div>
-          </div>
-          <div>
             <Label className="text-xs">Bucket Name</Label>
-            <Input className="mt-1.5" placeholder="my-postgresql-backups" value={bucket} onChange={(e) => setBucket(e.target.value)} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label className="text-xs">Access Key ID</Label>
-              <Input className="mt-1.5" placeholder="AKIA..." value={accessKey} onChange={(e) => setAccessKey(e.target.value)} />
-            </div>
-            <div>
-              <Label className="text-xs">Secret Access Key</Label>
-              <Input className="mt-1.5" type="password" placeholder="••••••••" value={secretKey} onChange={(e) => setSecretKey(e.target.value)} />
-            </div>
-          </div>
-          <div>
-            <Label className="text-xs">Path Prefix (optional)</Label>
-            <Input className="mt-1.5" placeholder="backups/cluster-1/" value={pathPrefix} onChange={(e) => setPathPrefix(e.target.value)} />
+            <Input
+              className="mt-1.5"
+              placeholder="my-postgresql-backups"
+              value={bucket}
+              onChange={(e) => setBucket(e.target.value)}
+            />
           </div>
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
               onClick={() => testConnection.mutate()}
-              disabled={testConnection.isPending || !bucket || !accessKey || !secretKey}
+              disabled={testConnection.isPending || !bucket}
             >
               {testConnection.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <CheckCircle2 className="size-4 mr-2" />}
               Test Connection
@@ -272,7 +249,7 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
           <div className="flex items-center gap-2 pt-2">
             <Button
               onClick={() => saveConfig.mutate()}
-              disabled={saveConfig.isPending || !bucket || !accessKey}
+              disabled={saveConfig.isPending || !bucket}
             >
               {saveConfig.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <HardDrive className="size-4 mr-2" />}
               Save Configuration
@@ -328,7 +305,7 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
           <div className="flex items-center gap-2">
             <Button
               onClick={() => saveConfig.mutate()}
-              disabled={saveConfig.isPending || !bucket || !accessKey}
+              disabled={saveConfig.isPending || !bucket}
             >
               {saveConfig.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <HardDrive className="size-4 mr-2" />}
               Save & Deploy

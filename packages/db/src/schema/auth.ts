@@ -8,6 +8,10 @@ export const user = pgTable("user", {
   emailVerified: boolean("email_verified").default(false).notNull(),
   image: text("image"),
   hetznerApiToken: text("hetzner_api_token"),
+  s3Endpoint: text("s3_endpoint"),
+  s3Region: text("s3_region"),
+  s3AccessKey: text("s3_access_key"),
+  s3SecretKey: text("s3_secret_key"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()

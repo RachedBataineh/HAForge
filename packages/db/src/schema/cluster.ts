@@ -276,12 +276,7 @@ export const clusterBackups = pgTable("cluster_backups", {
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
   clusterId: text("cluster_id").notNull(),
-  s3Endpoint: text("s3_endpoint").notNull(),
-  s3Region: text("s3_region").notNull(),
   s3Bucket: text("s3_bucket").notNull(),
-  s3AccessKey: text("s3_access_key").notNull(),
-  s3SecretKey: text("s3_secret_key").notNull(),
-  s3PathPrefix: text("s3_path_prefix"),
   cronSchedule: text("cron_schedule").notNull().default("0 2 * * *"),
   retentionCount: integer("retention_count").notNull().default(7),
   enabled: integer("enabled").notNull().default(0),
