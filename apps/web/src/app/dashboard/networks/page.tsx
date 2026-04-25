@@ -50,6 +50,30 @@ export default function NetworksPage() {
     onError: (err) => toast.error(`Failed: ${err.message}`),
   });
 
+  if (profile.isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <h1 className="text-2xl font-bold tracking-tight">Networks</h1>
+        <div className="grid gap-3">
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardContent className="flex items-center justify-between py-3">
+                <div className="flex items-center gap-3">
+                  <Skeleton className="size-4 rounded-full" />
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-40" />
+                  </div>
+                </div>
+                <Skeleton className="h-5 w-20 rounded-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   if (!hasToken) {
     return (
       <div className="p-6 space-y-6">

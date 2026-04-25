@@ -5,6 +5,7 @@ import { Button } from "@HAForge/ui/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@HAForge/ui/components/card";
 import { Input } from "@HAForge/ui/components/input";
 import { Label } from "@HAForge/ui/components/label";
+import { Skeleton } from "@HAForge/ui/components/skeleton";
 import { Separator } from "@HAForge/ui/components/separator";
 import {
   Select, SelectContent, SelectItem, SelectTrigger,
@@ -99,6 +100,21 @@ export default function LoadBalancerDetailPage({ params }: { params: Promise<{ i
     },
   });
 
+  if (profile.isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="flex items-center gap-3">
+          <Skeleton className="size-8 rounded-md" />
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-48" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+        </div>
+        <Skeleton className="h-32 w-full rounded-lg" />
+      </div>
+    );
+  }
+
   if (!hasToken) {
     return (
       <div className="p-6">
@@ -109,9 +125,17 @@ export default function LoadBalancerDetailPage({ params }: { params: Promise<{ i
 
   if (lb.isLoading) {
     return (
-      <div className="p-6 flex items-center gap-2 text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-        Loading load balancer details...
+      <div className="p-6 space-y-6">
+        <div className="flex items-center gap-3">
+          <Skeleton className="size-8 rounded-md" />
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-48" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+        </div>
+        <Skeleton className="h-32 w-full rounded-lg" />
+        <Skeleton className="h-48 w-full rounded-lg" />
+        <Skeleton className="h-32 w-full rounded-lg" />
       </div>
     );
   }

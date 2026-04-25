@@ -5,13 +5,14 @@ import { Button } from "@HAForge/ui/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@HAForge/ui/components/card";
 import { Input } from "@HAForge/ui/components/input";
 import { Label } from "@HAForge/ui/components/label";
+import { Skeleton } from "@HAForge/ui/components/skeleton";
 import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from "@HAForge/ui/components/select";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@HAForge/ui/components/dialog";
-import { ArrowLeft, Loader2, Globe, Server, Network, HardDrive, Plus, Trash2, Link, Unlink } from "lucide-react";
+import { ArrowLeft, Loader2, Globe, Network, HardDrive, Plus, Trash2, Link, Unlink } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
@@ -93,12 +94,40 @@ export default function NetworkDetailPage({ params }: { params: Promise<{ id: st
     networkList.refetch();
   };
 
+  if (profile.isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="flex items-center gap-3">
+          <Skeleton className="size-8 rounded-md" />
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-48" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+        </div>
+        <Skeleton className="h-32 w-full rounded-lg" />
+      </div>
+    );
+  }
+
   if (!hasToken) {
     return <div className="p-6"><p className="text-muted-foreground">Add your Hetzner API token in Settings first.</p></div>;
   }
 
   if (net.isLoading) {
-    return <div className="p-6 flex items-center gap-2 text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading network details...</div>;
+    return (
+      <div className="p-6 space-y-6">
+        <div className="flex items-center gap-3">
+          <Skeleton className="size-8 rounded-md" />
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-48" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+        </div>
+        <Skeleton className="h-32 w-full rounded-lg" />
+        <Skeleton className="h-24 w-full rounded-lg" />
+        <Skeleton className="h-24 w-full rounded-lg" />
+      </div>
+    );
   }
 
   const data = net.data;
