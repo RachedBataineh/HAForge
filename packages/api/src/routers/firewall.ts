@@ -121,8 +121,11 @@ export const firewallRouter = router({
             direction: r.direction,
             protocol: r.protocol,
           };
-          if (r.port && ["tcp", "udp"].includes(r.protocol)) {
-            rule.port = r.port;
+          if (r.port) {
+            const trimmed = r.port.trim();
+            if (/^\d+-\d+$/.test(trimmed) || /^\d+$/.test(trimmed)) {
+              rule.port = trimmed;
+            }
           }
           // Hetzner requires BOTH source_ips and destination_ips on every rule
           if (r.direction === "in") {
@@ -187,13 +190,18 @@ export const firewallRouter = router({
 
       // Update rules via set_rules action (required for applied firewalls)
       if (input.rules) {
-        const rules = input.rules.map((r) => {
+        const rules = input.rules.map((r, idx) => {
           const rule: any = {
             direction: r.direction,
             protocol: r.protocol,
           };
-          if (r.port && ["tcp", "udp"].includes(r.protocol)) {
-            rule.port = r.port;
+          if (r.port) {
+            const trimmed = r.port.trim();
+            if (/^\d+-\d+$/.test(trimmed) || /^\d+$/.test(trimmed)) {
+              rule.port = trimmed;
+            } else {
+              console.error(`[firewall.update] Invalid port value at rules[${idx}]: "${trimmed}", skipping`);
+            }
           }
           if (r.direction === "in") {
             rule.source_ips = r.source_ips && r.source_ips.length > 0 ? r.source_ips : ["0.0.0.0/0", "::/0"];
@@ -205,6 +213,7 @@ export const firewallRouter = router({
           if (r.description) rule.description = r.description;
           return rule;
         });
+        console.log("[firewall.update] Sending rules to Hetzner:", JSON.stringify(rules, null, 2));
         const res = await fetch(`${API}/firewalls/${input.firewallId}/actions/set_rules`, {
           method: "POST",
           headers: headers(token),
@@ -212,6 +221,7 @@ export const firewallRouter = router({
         });
         if (!res.ok) {
           const err = await res.json();
+          console.error("[firewall.update] Hetzner error:", JSON.stringify(err, null, 2));
           throw new Error(err.error?.message || `Update rules failed: ${res.status}`);
         }
       }

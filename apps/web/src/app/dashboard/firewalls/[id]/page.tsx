@@ -24,6 +24,7 @@ interface Rule {
   direction: "in" | "out";
   protocol: "tcp" | "udp" | "icmp" | "esp" | "gre";
   port: string;
+  portRange: string;
   ips: string;
   description: string;
 }
@@ -159,13 +160,18 @@ function RulesCard({
   const [hasChanges, setHasChanges] = useState(false);
 
   const toLocalRules = (apiRules: any[]): Rule[] =>
-    apiRules.map((r: any) => ({
-      direction,
-      protocol: r.protocol || "tcp",
-      port: r.port || "",
-      ips: (r[ipField] || []).join(", ") || "0.0.0.0/0, ::/0",
-      description: r.description || "",
-    }));
+    apiRules.map((r: any) => {
+      const rawPort = r.port || "";
+      const isRange = rawPort.includes("-");
+      return {
+        direction,
+        protocol: r.protocol || "tcp",
+        port: isRange ? rawPort.split("-")[0].trim() : rawPort,
+        portRange: isRange ? rawPort.split("-")[1].trim() : "",
+        ips: (r[ipField] || []).join(", ") || "0.0.0.0/0, ::/0",
+        description: r.description || "",
+      };
+    });
 
   useEffect(() => {
     if (!editing) {
@@ -185,7 +191,7 @@ function RulesCard({
   };
 
   const addRule = () => {
-    setRules([...rules, { direction, protocol: "tcp", port: "", ips: "0.0.0.0/0, ::/0", description: "" }]);
+    setRules([...rules, { direction, protocol: "tcp", port: "", portRange: "", ips: "0.0.0.0/0, ::/0", description: "" }]);
     setHasChanges(true);
   };
 
@@ -210,23 +216,44 @@ function RulesCard({
       const allRules = [
         ...(direction === "in"
           ? rules.map(r => r)
-          : allInboundRules.map((r: any) => ({ direction: "in" as const, protocol: r.protocol, port: r.port || "", ips: (r.sourceIps || []).join(", ") || "0.0.0.0/0, ::/0", description: r.description || "" }))
+          : allInboundRules.map((r: any) => {
+            const rawPort = r.port || "";
+            const isRange = rawPort.includes("-");
+            return { direction: "in" as const, protocol: r.protocol, port: isRange ? rawPort.split("-")[0].trim() : rawPort, portRange: isRange ? rawPort.split("-")[1].trim() : "", ips: (r.sourceIps || []).join(", ") || "0.0.0.0/0, ::/0", description: r.description || "" };
+          })
         ),
         ...(direction === "out"
           ? rules.map(r => r)
-          : allOutboundRules.map((r: any) => ({ direction: "out" as const, protocol: r.protocol, port: r.port || "", ips: (r.destinationIps || []).join(", ") || "0.0.0.0/0, ::/0", description: r.description || "" }))
+          : allOutboundRules.map((r: any) => {
+            const rawPort = r.port || "";
+            const isRange = rawPort.includes("-");
+            return { direction: "out" as const, protocol: r.protocol, port: isRange ? rawPort.split("-")[0].trim() : rawPort, portRange: isRange ? rawPort.split("-")[1].trim() : "", ips: (r.destinationIps || []).join(", ") || "0.0.0.0/0, ::/0", description: r.description || "" };
+          })
         ),
       ];
-      return trpcClient.firewall.update.mutate({
-        firewallId,
-        rules: allRules.map((r) => ({
+      const payload = allRules.map((r) => {
+        const p = (r.port || "").trim();
+        const pr = (r.portRange || "").trim();
+        let port: string | undefined;
+        if (p && pr) {
+          const start = Math.min(Number(p), Number(pr));
+          const end = Math.max(Number(p), Number(pr));
+          port = `${start}-${end}`;
+        } else {
+          port = p || pr || undefined;
+        }
+        return {
           direction: r.direction,
           protocol: r.protocol as "tcp" | "udp" | "icmp" | "esp" | "gre",
-          port: r.port || undefined,
+          port,
           source_ips: r.direction === "in" ? r.ips.split(",").map((s: string) => s.trim()).filter(Boolean) : [],
           destination_ips: r.direction === "out" ? r.ips.split(",").map((s: string) => s.trim()).filter(Boolean) : [],
           description: r.description || undefined,
-        })),
+        };
+      });
+      return trpcClient.firewall.update.mutate({
+        firewallId,
+        rules: payload,
       });
     },
     onSuccess: () => {
@@ -290,11 +317,21 @@ function RulesCard({
 function RuleDisplay({ rule, direction }: { rule: Rule; direction: "in" | "out" }) {
   const ips = rule.ips || "0.0.0.0/0, ::/0";
   const ipList = ips.split(",").map((s) => s.trim()).filter(Boolean);
+  let portLabel = "";
+  if (["icmp", "esp", "gre"].includes(rule.protocol)) {
+    portLabel = "—";
+  } else if (rule.port) {
+    portLabel = rule.port;
+  } else if (rule.portRange) {
+    portLabel = rule.portRange;
+  } else {
+    portLabel = "Any";
+  }
 
   return (
     <div className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm">
       <Badge variant="secondary" className="w-14 justify-center font-mono text-xs">{rule.protocol.toUpperCase()}</Badge>
-      <span className="font-mono text-xs min-w-[60px]">{rule.port || (["icmp", "esp", "gre"].includes(rule.protocol) ? "—" : "Any")}</span>
+      <span className="font-mono text-xs min-w-[60px]">{portLabel}</span>
       <div className="flex items-center gap-1.5 flex-1 flex-wrap">
         {ipList.map((ip, j) => (
           <Badge key={j} variant="outline" className="font-mono text-xs">
@@ -336,8 +373,14 @@ function RuleEditor({ rule, index, direction, onUpdate, onRemove }: {
         </div>
         {needsPort && (
           <div className="grid gap-1">
-            <Label className="text-xs text-muted-foreground">Port / Range</Label>
-            <Input className="w-36 h-8 text-xs font-mono" placeholder="e.g. 22, 80, 443 or 8000-9000" value={rule.port} onChange={(e) => onUpdate("port", e.target.value)} />
+            <Label className="text-xs text-muted-foreground">Port</Label>
+            <Input className="w-24 h-8 text-xs font-mono" placeholder="e.g. 22" value={rule.port} onChange={(e) => onUpdate("port", e.target.value.replace(/[^\d]/g, ""))} />
+          </div>
+        )}
+        {needsPort && (
+          <div className="grid gap-1">
+            <Label className="text-xs text-muted-foreground">To Port</Label>
+            <Input className="w-28 h-8 text-xs font-mono" placeholder="e.g. 50" value={rule.portRange} onChange={(e) => onUpdate("portRange", e.target.value.replace(/[^\d]/g, ""))} />
           </div>
         )}
         <div className="ml-auto">
