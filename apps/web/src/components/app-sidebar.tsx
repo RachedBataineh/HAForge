@@ -14,7 +14,7 @@ import {
   SidebarRail,
   SidebarSeparator,
 } from "@HAForge/ui/components/sidebar";
-import { Database, Server, HardDrive, Settings, KeyRound, Network, Globe, ArrowUpDown } from "lucide-react";
+import { Database, Server, HardDrive, Settings, KeyRound, Network, Globe, ArrowUpDown, Shield } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -24,6 +24,7 @@ const navItems = [
   { title: "Load Balancers", href: "/dashboard/load-balancers" as const, icon: Network },
   { title: "Networks", href: "/dashboard/networks" as const, icon: Globe },
   { title: "Floating IPs", href: "/dashboard/floating-ips" as const, icon: ArrowUpDown },
+  { title: "Firewalls", href: "/dashboard/firewalls" as const, icon: Shield },
   { title: "SSH Keys", href: "/dashboard/ssh-keys" as const, icon: KeyRound },
 ];
 
