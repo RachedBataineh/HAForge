@@ -243,7 +243,7 @@ function SubnetsSection({ data, networkId, onDone, router, serversBySubnet, lbsB
     <>
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold flex items-center gap-2">
-          <Network className="size-5" /> Subnets ({data.subnets.length})
+          <Globe className="size-5" /> Subnets ({data.subnets.length})
         </h2>
         <Button size="sm" variant="outline" className="gap-1" onClick={() => setAddOpen(true)}>
           <Plus className="size-3.5" /> Add Subnet
@@ -326,7 +326,7 @@ function SubnetCard({ subnet, data, networkId, onDone, router, servers, loadBala
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="size-8 rounded-md bg-primary/10 flex items-center justify-center">
-                <Network className="size-4 text-primary" />
+                <Globe className="size-4 text-primary" />
               </div>
               <div>
                 <p className="font-mono font-semibold text-sm">{subnet.ipRange}</p>
@@ -336,7 +336,6 @@ function SubnetCard({ subnet, data, networkId, onDone, router, servers, loadBala
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Badge variant="secondary">{subnet.type}</Badge>
               <Badge variant="outline">{servers.length} server{servers.length !== 1 ? "s" : ""}</Badge>
               <Badge variant="outline">{loadBalancers.length} LB{loadBalancers.length !== 1 ? "s" : ""}</Badge>
               <Button variant="ghost" size="icon-sm" onClick={onDelete} disabled={deleting}>
@@ -347,6 +346,45 @@ function SubnetCard({ subnet, data, networkId, onDone, router, servers, loadBala
         </CardHeader>
 
         <CardContent className="pt-0 space-y-4">
+          {/* Load Balancers in this subnet */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <Network className="size-3" /> Load Balancers
+              </h4>
+              <Button size="sm" variant="ghost" className="h-6 text-xs gap-1"
+                onClick={() => setAttachOpen("lb")}
+                disabled={availableLBs.length === 0}
+              >
+                <Plus className="size-3" /> Attach
+              </Button>
+            </div>
+            {loadBalancers.length === 0 ? (
+              <p className="text-xs text-muted-foreground pl-0.5">No load balancers in this subnet.</p>
+            ) : (
+              <div className="space-y-1">
+                {loadBalancers.map((lb: any) => (
+                  <div key={lb.id} className="flex items-center justify-between rounded-md border px-3 py-2 group">
+                    <div
+                      className="flex items-center gap-2 cursor-pointer hover:opacity-80 flex-1 min-w-0"
+                      onClick={() => router.push(`/dashboard/load-balancers/${lb.id}`)}
+                    >
+                      <Network className="size-3.5 text-muted-foreground shrink-0" />
+                      <span className="text-sm truncate">{lb.name}</span>
+                      {lb.privateIp && <span className="text-xs font-mono text-muted-foreground">{lb.privateIp}</span>}
+                    </div>
+                    <Button variant="ghost" size="icon-sm" className="opacity-0 group-hover:opacity-100"
+                      onClick={() => detachLbMutation.mutate({ networkId, loadBalancerId: lb.id })}
+                      disabled={detachLbMutation.isPending}
+                    >
+                      <Unlink className="size-3 text-muted-foreground hover:text-destructive" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Servers in this subnet */}
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -385,45 +423,6 @@ function SubnetCard({ subnet, data, networkId, onDone, router, servers, loadBala
                         <Unlink className="size-3 text-muted-foreground hover:text-destructive" />
                       </Button>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Load Balancers in this subnet */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                <Globe className="size-3" /> Load Balancers
-              </h4>
-              <Button size="sm" variant="ghost" className="h-6 text-xs gap-1"
-                onClick={() => setAttachOpen("lb")}
-                disabled={availableLBs.length === 0}
-              >
-                <Plus className="size-3" /> Attach
-              </Button>
-            </div>
-            {loadBalancers.length === 0 ? (
-              <p className="text-xs text-muted-foreground pl-0.5">No load balancers in this subnet.</p>
-            ) : (
-              <div className="space-y-1">
-                {loadBalancers.map((lb: any) => (
-                  <div key={lb.id} className="flex items-center justify-between rounded-md border px-3 py-2 group">
-                    <div
-                      className="flex items-center gap-2 cursor-pointer hover:opacity-80 flex-1 min-w-0"
-                      onClick={() => router.push(`/dashboard/load-balancers/${lb.id}`)}
-                    >
-                      <Globe className="size-3.5 text-muted-foreground shrink-0" />
-                      <span className="text-sm truncate">{lb.name}</span>
-                      {lb.privateIp && <span className="text-xs font-mono text-muted-foreground">{lb.privateIp}</span>}
-                    </div>
-                    <Button variant="ghost" size="icon-sm" className="opacity-0 group-hover:opacity-100"
-                      onClick={() => detachLbMutation.mutate({ networkId, loadBalancerId: lb.id })}
-                      disabled={detachLbMutation.isPending}
-                    >
-                      <Unlink className="size-3 text-muted-foreground hover:text-destructive" />
-                    </Button>
                   </div>
                 ))}
               </div>
