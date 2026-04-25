@@ -41,6 +41,7 @@ export function getHaproxySteps(): StepDefinition[] {
           content: `global
     log /dev/log local0
     maxconn 4096
+    stats socket /run/haproxy/admin.sock mode 660 level admin
 
 defaults
     log global

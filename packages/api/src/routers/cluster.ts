@@ -652,21 +652,21 @@ export const clusterRouter = router({
         }
       }
 
-      // 3. Release Floating IP (HAProxy mode)
+      // 3. Unassign Floating IP (HAProxy mode) — keep it in Hetzner account
       if (cluster.floatingIpId) {
         try {
-          const res = await fetch(`${HETZNER_API}/floating_ips/${cluster.floatingIpId}`, {
-            method: "DELETE",
+          const res = await fetch(`${HETZNER_API}/floating_ips/${cluster.floatingIpId}/actions/unassign`, {
+            method: "POST",
             headers: hetznerHeaders(token),
           });
           if (res.ok) {
-            results.push({ resource: `Floating IP ${cluster.floatingIp}`, action: "released", status: "ok" });
+            results.push({ resource: `Floating IP ${cluster.floatingIp}`, action: "unassigned (kept in account)", status: "ok" });
           } else {
             const err = await res.json().catch(() => ({}));
-            results.push({ resource: `Floating IP ${cluster.floatingIp}`, action: "release", status: "failed", error: err.error?.message || `HTTP ${res.status}` });
+            results.push({ resource: `Floating IP ${cluster.floatingIp}`, action: "unassign", status: "failed", error: err.error?.message || `HTTP ${res.status}` });
           }
         } catch (err: any) {
-          results.push({ resource: `Floating IP ${cluster.floatingIp}`, action: "release", status: "failed", error: err.message });
+          results.push({ resource: `Floating IP ${cluster.floatingIp}`, action: "unassign", status: "failed", error: err.message });
         }
       }
 

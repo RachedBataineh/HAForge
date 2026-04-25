@@ -621,7 +621,7 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                     <li>Load Balancer: {cluster.data.loadBalancerIp || cluster.data.loadBalancerId} — deleted</li>
                   )}
                   {!isLb && cluster.data.floatingIp && (
-                    <li>Floating IP: {cluster.data.floatingIp} — released</li>
+                    <li>Floating IP: {cluster.data.floatingIp} — unassigned (kept in account)</li>
                   )}
                   <li>All cluster data, execution history, and logs — deleted</li>
                 </ul>
