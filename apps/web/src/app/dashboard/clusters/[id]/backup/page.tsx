@@ -63,6 +63,7 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
   const [enabled, setEnabled] = useState(false);
   const [configured, setConfigured] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; output: string } | null>(null);
+  const [downloadingFiles, setDownloadingFiles] = useState<Set<string>>(new Set());
 
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [restoreFile, setRestoreFile] = useState("");
@@ -175,11 +176,10 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
     onError: (err) => toast.error(err.message),
   });
 
-  const downloadBackup = useMutation({
-    mutationFn: async (filename: string) => {
-      return trpcClient.backup.downloadBackup.mutate({ clusterId, filename });
-    },
-    onSuccess: (data) => {
+  const handleDownload = async (filename: string) => {
+    setDownloadingFiles((prev) => new Set(prev).add(filename));
+    try {
+      const data = await trpcClient.backup.downloadBackup.mutate({ clusterId, filename });
       const byteChars = atob(data.data);
       const byteNumbers = new Array(byteChars.length);
       for (let i = 0; i < byteChars.length; i++) {
@@ -194,9 +194,16 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
       a.click();
       URL.revokeObjectURL(url);
       toast.success("Download started");
-    },
-    onError: (err) => toast.error(err.message),
-  });
+    } catch (err: any) {
+      toast.error(err.message || "Download failed");
+    } finally {
+      setDownloadingFiles((prev) => {
+        const next = new Set(prev);
+        next.delete(filename);
+        return next;
+      });
+    }
+  };
 
   // S3 not configured in Settings — show banner
   if (!profile.isLoading && !s3Configured) {
@@ -384,11 +391,10 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      onClick={() => downloadBackup.mutate(backup.filename)}
-                      disabled={downloadBackup.isPending}
+                      onClick={() => handleDownload(backup.filename)}
                       title="Download"
                     >
-                      {downloadBackup.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+                      {downloadingFiles.has(backup.filename) ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
                     </Button>
                     <Button
                       variant="ghost"
