@@ -12,7 +12,7 @@ import {
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@HAForge/ui/components/dialog";
-import { ArrowLeft, ArrowUpDown, Loader2, Link, Unlink, Trash2, ExternalLink } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, Loader2, Link, Unlink, Trash2, ExternalLink, Copy } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
@@ -110,10 +110,18 @@ export default function FloatingIpDetailPage({ params }: { params: Promise<{ id:
             <CardTitle className="text-base">Details</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">IP Address</span>
-                <p className="font-mono">{data.ip}</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-mono">{data.ip}</p>
+                  <button
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => { navigator.clipboard.writeText(data.ip); toast.success("IP copied"); }}
+                  >
+                    <Copy className="size-3.5" />
+                  </button>
+                </div>
               </div>
               <div>
                 <span className="text-muted-foreground">Type</span>
@@ -141,11 +149,11 @@ export default function FloatingIpDetailPage({ params }: { params: Promise<{ id:
           </CardContent>
         </Card>
 
-        {/* Assignment */}
-        <AssignmentCard data={data} floatingIpId={floatingIpId} onDone={invalidate} router={router} />
-
-        {/* Reverse DNS */}
-        <ReverseDnsCard data={data} floatingIpId={floatingIpId} onDone={invalidate} />
+        {/* Assignment & Reverse DNS */}
+        <div className="grid grid-cols-2 gap-6">
+          <AssignmentCard data={data} floatingIpId={floatingIpId} onDone={invalidate} router={router} />
+          <ReverseDnsCard data={data} floatingIpId={floatingIpId} onDone={invalidate} />
+        </div>
 
         {/* Danger Zone */}
         <Card className="border-destructive/30">
