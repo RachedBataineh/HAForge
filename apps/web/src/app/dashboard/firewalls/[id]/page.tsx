@@ -7,18 +7,26 @@ import { Input } from "@HAForge/ui/components/input";
 import { Label } from "@HAForge/ui/components/label";
 import { Skeleton } from "@HAForge/ui/components/skeleton";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@HAForge/ui/components/select";
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@HAForge/ui/components/dialog";
-import { ArrowLeft, Shield, Loader2, Trash2, Plus, Server, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
+import { ArrowLeft, Shield, Loader2, Trash2, Plus, Server, ArrowDownToLine, ArrowUpFromLine, Save, X } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { toast } from "sonner";
 
 import { trpc, trpcClient } from "@/utils/trpc";
+
+interface Rule {
+  direction: "in" | "out";
+  protocol: "tcp" | "udp" | "icmp" | "esp" | "gre";
+  port: string;
+  ips: string;
+  description: string;
+}
 
 export default function FirewallDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: firewallId } = React.use(params);
@@ -73,63 +81,24 @@ export default function FirewallDetailPage({ params }: { params: Promise<{ id: s
       {/* Content */}
       <div className="flex-1 overflow-auto p-6 space-y-6">
         <div className="grid grid-cols-2 gap-6">
-          {/* Inbound Rules */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <ArrowDownToLine className="size-4" />
-                  Inbound Rules
-                </CardTitle>
-                <CardDescription>{data.inboundRules.length} rule{data.inboundRules.length !== 1 ? "s" : ""}</CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {data.inboundRules.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No inbound rules. All inbound traffic is blocked.</p>
-              ) : (
-                <div className="space-y-2">
-                  {data.inboundRules.map((rule: any, i: number) => (
-                    <div key={i} className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm">
-                      <Badge variant="secondary" className="w-12 justify-center">{rule.protocol.toUpperCase()}</Badge>
-                      <span className="font-mono text-xs">{rule.port || "All"}</span>
-                      <span className="text-xs text-muted-foreground flex-1 truncate">{rule.sourceIps.join(", ") || "0.0.0.0/0"}</span>
-                      {rule.description && <span className="text-xs text-muted-foreground truncate">{rule.description}</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Outbound Rules */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <ArrowUpFromLine className="size-4" />
-                  Outbound Rules
-                </CardTitle>
-                <CardDescription>{data.outboundRules.length} rule{data.outboundRules.length !== 1 ? "s" : ""}</CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {data.outboundRules.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No outbound rules. All outbound traffic is allowed.</p>
-              ) : (
-                <div className="space-y-2">
-                  {data.outboundRules.map((rule: any, i: number) => (
-                    <div key={i} className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm">
-                      <Badge variant="secondary" className="w-12 justify-center">{rule.protocol.toUpperCase()}</Badge>
-                      <span className="font-mono text-xs">{rule.port || "All"}</span>
-                      <span className="text-xs text-muted-foreground flex-1 truncate">{rule.destinationIps.join(", ") || "0.0.0.0/0"}</span>
-                      {rule.description && <span className="text-xs text-muted-foreground truncate">{rule.description}</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <RulesCard
+            title="Inbound Rules"
+            icon={<ArrowDownToLine className="size-4" />}
+            direction="in"
+            firewallId={firewallId}
+            allInboundRules={data.inboundRules}
+            allOutboundRules={data.outboundRules}
+            onDone={invalidate}
+          />
+          <RulesCard
+            title="Outbound Rules"
+            icon={<ArrowUpFromLine className="size-4" />}
+            direction="out"
+            firewallId={firewallId}
+            allInboundRules={data.inboundRules}
+            allOutboundRules={data.outboundRules}
+            onDone={invalidate}
+          />
         </div>
 
         {/* Applied Servers */}
@@ -164,6 +133,244 @@ export default function FirewallDetailPage({ params }: { params: Promise<{ id: s
             )}
           </CardContent>
         </Card>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Rules Card with inline editing ──────────────── */
+
+function RulesCard({
+  title, icon, direction, firewallId, allInboundRules, allOutboundRules, onDone,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  direction: "in" | "out";
+  firewallId: string;
+  allInboundRules: any[];
+  allOutboundRules: any[];
+  onDone: () => void;
+}) {
+  const apiRules = direction === "in" ? allInboundRules : allOutboundRules;
+  const ipField = direction === "in" ? "sourceIps" : "destinationIps";
+
+  const [editing, setEditing] = useState(false);
+  const [rules, setRules] = useState<Rule[]>([]);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  const toLocalRules = (apiRules: any[]): Rule[] =>
+    apiRules.map((r: any) => ({
+      direction,
+      protocol: r.protocol || "tcp",
+      port: r.port || "",
+      ips: (r[ipField] || []).join(", ") || "0.0.0.0/0, ::/0",
+      description: r.description || "",
+    }));
+
+  useEffect(() => {
+    if (!editing) {
+      setRules(toLocalRules(apiRules));
+      setHasChanges(false);
+    }
+  }, [apiRules, editing]);
+
+  const startEdit = () => {
+    setRules(toLocalRules(apiRules));
+    setEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setHasChanges(false);
+  };
+
+  const addRule = () => {
+    setRules([...rules, { direction, protocol: "tcp", port: "", ips: "0.0.0.0/0, ::/0", description: "" }]);
+    setHasChanges(true);
+  };
+
+  const removeRule = (i: number) => {
+    setRules(rules.filter((_, idx) => idx !== i));
+    setHasChanges(true);
+  };
+
+  const updateRule = (i: number, field: keyof Rule, value: string) => {
+    const updated = [...rules];
+    updated[i] = { ...updated[i], [field]: value };
+    // Clear port when switching to non-port protocols
+    if (field === "protocol" && ["icmp", "esp", "gre"].includes(value)) {
+      updated[i].port = "";
+    }
+    setRules(updated);
+    setHasChanges(true);
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const allRules = [
+        ...(direction === "in"
+          ? rules.map(r => r)
+          : allInboundRules.map((r: any) => ({ direction: "in" as const, protocol: r.protocol, port: r.port || "", ips: (r.sourceIps || []).join(", ") || "0.0.0.0/0, ::/0", description: r.description || "" }))
+        ),
+        ...(direction === "out"
+          ? rules.map(r => r)
+          : allOutboundRules.map((r: any) => ({ direction: "out" as const, protocol: r.protocol, port: r.port || "", ips: (r.destinationIps || []).join(", ") || "0.0.0.0/0, ::/0", description: r.description || "" }))
+        ),
+      ];
+      return trpcClient.firewall.update.mutate({
+        firewallId,
+        rules: allRules.map((r) => ({
+          direction: r.direction,
+          protocol: r.protocol as "tcp" | "udp" | "icmp" | "esp" | "gre",
+          port: r.port || undefined,
+          source_ips: r.direction === "in" ? r.ips.split(",").map((s: string) => s.trim()).filter(Boolean) : [],
+          destination_ips: r.direction === "out" ? r.ips.split(",").map((s: string) => s.trim()).filter(Boolean) : [],
+          description: r.description || undefined,
+        })),
+      });
+    },
+    onSuccess: () => {
+      toast.success("Rules updated");
+      setEditing(false);
+      setHasChanges(false);
+      onDone();
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
+
+  const displayRules = editing ? rules : toLocalRules(apiRules);
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle className="text-base flex items-center gap-2">{icon} {title}</CardTitle>
+          <CardDescription>{displayRules.length} rule{displayRules.length !== 1 ? "s" : ""}</CardDescription>
+        </div>
+        <div className="flex items-center gap-2">
+          {editing ? (
+            <>
+              <Button variant="outline" size="sm" onClick={addRule} className="gap-1">
+                <Plus className="size-3.5" /> Add Rule
+              </Button>
+              <Button variant="outline" size="sm" onClick={cancelEdit}>Cancel</Button>
+              <Button size="sm" onClick={() => saveMutation.mutate()} disabled={!hasChanges || saveMutation.isPending} className="gap-1">
+                {saveMutation.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+                Save
+              </Button>
+            </>
+          ) : (
+            <Button variant="outline" size="sm" onClick={startEdit}>Edit Rules</Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {displayRules.length === 0 && !editing ? (
+          <p className="text-sm text-muted-foreground py-2">
+            {direction === "in" ? "No inbound rules. All inbound traffic is blocked." : "No outbound rules. All outbound traffic is allowed."}
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {displayRules.map((rule, i) => (
+              editing ? (
+                <RuleEditor key={i} rule={rule} index={i} direction={direction} onUpdate={(field, val) => updateRule(i, field, val)} onRemove={() => removeRule(i)} />
+              ) : (
+                <RuleDisplay key={i} rule={rule} direction={direction} />
+              )
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ─── Rule Display (read-only) ─────────────────────── */
+
+function RuleDisplay({ rule, direction }: { rule: Rule; direction: "in" | "out" }) {
+  const ips = rule.ips || "0.0.0.0/0, ::/0";
+  const ipList = ips.split(",").map((s) => s.trim()).filter(Boolean);
+
+  return (
+    <div className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm">
+      <Badge variant="secondary" className="w-14 justify-center font-mono text-xs">{rule.protocol.toUpperCase()}</Badge>
+      <span className="font-mono text-xs min-w-[60px]">{rule.port || (["icmp", "esp", "gre"].includes(rule.protocol) ? "—" : "Any")}</span>
+      <div className="flex items-center gap-1.5 flex-1 flex-wrap">
+        {ipList.map((ip, j) => (
+          <Badge key={j} variant="outline" className="font-mono text-xs">
+            {ip === "0.0.0.0/0" ? "Any IPv4" : ip === "::/0" ? "Any IPv6" : ip}
+          </Badge>
+        ))}
+      </div>
+      {rule.description && <span className="text-xs text-muted-foreground truncate max-w-[150px]">{rule.description}</span>}
+    </div>
+  );
+}
+
+/* ─── Rule Editor (inline) ─────────────────────────── */
+
+function RuleEditor({ rule, index, direction, onUpdate, onRemove }: {
+  rule: Rule;
+  index: number;
+  direction: "in" | "out";
+  onUpdate: (field: keyof Rule, value: string) => void;
+  onRemove: () => void;
+}) {
+  const needsPort = !["icmp", "esp", "gre"].includes(rule.protocol);
+
+  return (
+    <div className="rounded-md border p-3 space-y-2 bg-card">
+      <div className="flex items-center gap-2">
+        <div className="grid gap-1">
+          <Label className="text-xs text-muted-foreground">Protocol</Label>
+          <Select value={rule.protocol} onValueChange={(v) => v && onUpdate("protocol", v)}>
+            <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tcp">TCP</SelectItem>
+              <SelectItem value="udp">UDP</SelectItem>
+              <SelectItem value="icmp">ICMP</SelectItem>
+              <SelectItem value="esp">ESP</SelectItem>
+              <SelectItem value="gre">GRE</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {needsPort && (
+          <div className="grid gap-1">
+            <Label className="text-xs text-muted-foreground">Port / Range</Label>
+            <Input className="w-36 h-8 text-xs font-mono" placeholder="e.g. 22, 80, 443 or 8000-9000" value={rule.port} onChange={(e) => onUpdate("port", e.target.value)} />
+          </div>
+        )}
+        <div className="ml-auto">
+          <Button variant="ghost" size="icon-sm" onClick={onRemove} className="text-muted-foreground hover:text-destructive">
+            <X className="size-3.5" />
+          </Button>
+        </div>
+      </div>
+      <div className="grid gap-1">
+        <Label className="text-xs text-muted-foreground">{direction === "in" ? "Source IPs" : "Destination IPs"}</Label>
+        <div className="flex items-center gap-2">
+          <Input className="flex-1 h-8 text-xs font-mono" value={rule.ips} onChange={(e) => onUpdate("ips", e.target.value)} placeholder="0.0.0.0/0, ::/0" />
+          <Button variant="outline" size="sm" className="h-8 text-xs shrink-0" onClick={() => {
+            const current = rule.ips.split(",").map((s) => s.trim()).filter(Boolean);
+            const hasV4 = current.includes("0.0.0.0/0");
+            const newIps = hasV4 ? current.filter((ip) => ip !== "0.0.0.0/0") : [...current.filter((ip) => ip !== "0.0.0.0/0"), "0.0.0.0/0"];
+            onUpdate("ips", newIps.join(", "));
+          }}>
+            {rule.ips.includes("0.0.0.0/0") ? "Any IPv4 ✓" : "Any IPv4"}
+          </Button>
+          <Button variant="outline" size="sm" className="h-8 text-xs shrink-0" onClick={() => {
+            const current = rule.ips.split(",").map((s) => s.trim()).filter(Boolean);
+            const hasV6 = current.includes("::/0");
+            const newIps = hasV6 ? current.filter((ip) => ip !== "::/0") : [...current.filter((ip) => ip !== "::/0"), "::/0"];
+            onUpdate("ips", newIps.join(", "));
+          }}>
+            {rule.ips.includes("::/0") ? "Any IPv6 ✓" : "Any IPv6"}
+          </Button>
+        </div>
+      </div>
+      <div className="grid gap-1">
+        <Label className="text-xs text-muted-foreground">Description</Label>
+        <Input className="h-8 text-xs" placeholder="Optional description" value={rule.description} onChange={(e) => onUpdate("description", e.target.value)} />
       </div>
     </div>
   );

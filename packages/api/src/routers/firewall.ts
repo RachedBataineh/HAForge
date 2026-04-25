@@ -116,14 +116,25 @@ export const firewallRouter = router({
       if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const body: any = {
         name: input.name,
-        rules: (input.rules || []).map((r) => ({
-          direction: r.direction,
-          protocol: r.protocol,
-          ...(r.port ? { port: r.port } : {}),
-          ...(r.source_ips ? { source_ips: r.source_ips } : {}),
-          ...(r.destination_ips ? { destination_ips: r.destination_ips } : {}),
-          ...(r.description ? { description: r.description } : {}),
-        })),
+        rules: (input.rules || []).map((r) => {
+          const rule: any = {
+            direction: r.direction,
+            protocol: r.protocol,
+          };
+          if (r.port && ["tcp", "udp"].includes(r.protocol)) {
+            rule.port = r.port;
+          }
+          // Hetzner requires BOTH source_ips and destination_ips on every rule
+          if (r.direction === "in") {
+            rule.source_ips = r.source_ips && r.source_ips.length > 0 ? r.source_ips : ["0.0.0.0/0", "::/0"];
+            rule.destination_ips = [];
+          } else {
+            rule.source_ips = [];
+            rule.destination_ips = r.destination_ips && r.destination_ips.length > 0 ? r.destination_ips : ["0.0.0.0/0", "::/0"];
+          }
+          if (r.description) rule.description = r.description;
+          return rule;
+        }),
       };
       if (input.applyToServerIds?.length) {
         body.apply_to = input.applyToServerIds.map((id) => ({
@@ -160,27 +171,51 @@ export const firewallRouter = router({
     .mutation(async ({ input, ctx }) => {
       const token = await getUserApiToken(ctx.session.user.id);
       if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
-      const body: any = {};
-      if (input.name) body.name = input.name;
+
+      // Update name via PUT if provided
+      if (input.name) {
+        const res = await fetch(`${API}/firewalls/${input.firewallId}`, {
+          method: "PUT",
+          headers: headers(token),
+          body: JSON.stringify({ name: input.name }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error?.message || `Update name failed: ${res.status}`);
+        }
+      }
+
+      // Update rules via set_rules action (required for applied firewalls)
       if (input.rules) {
-        body.rules = input.rules.map((r) => ({
-          direction: r.direction,
-          protocol: r.protocol,
-          ...(r.port ? { port: r.port } : {}),
-          ...(r.source_ips ? { source_ips: r.source_ips } : {}),
-          ...(r.destination_ips ? { destination_ips: r.destination_ips } : {}),
-          ...(r.description ? { description: r.description } : {}),
-        }));
+        const rules = input.rules.map((r) => {
+          const rule: any = {
+            direction: r.direction,
+            protocol: r.protocol,
+          };
+          if (r.port && ["tcp", "udp"].includes(r.protocol)) {
+            rule.port = r.port;
+          }
+          if (r.direction === "in") {
+            rule.source_ips = r.source_ips && r.source_ips.length > 0 ? r.source_ips : ["0.0.0.0/0", "::/0"];
+            rule.destination_ips = [];
+          } else {
+            rule.source_ips = [];
+            rule.destination_ips = r.destination_ips && r.destination_ips.length > 0 ? r.destination_ips : ["0.0.0.0/0", "::/0"];
+          }
+          if (r.description) rule.description = r.description;
+          return rule;
+        });
+        const res = await fetch(`${API}/firewalls/${input.firewallId}/actions/set_rules`, {
+          method: "POST",
+          headers: headers(token),
+          body: JSON.stringify({ rules }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error?.message || `Update rules failed: ${res.status}`);
+        }
       }
-      const res = await fetch(`${API}/firewalls/${input.firewallId}`, {
-        method: "PUT",
-        headers: headers(token),
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error?.message || `Update failed: ${res.status}`);
-      }
+
       return { success: true };
     }),
 
