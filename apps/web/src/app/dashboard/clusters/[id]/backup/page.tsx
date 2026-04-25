@@ -246,15 +246,6 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2 pt-2">
-            <Button
-              onClick={() => saveConfig.mutate()}
-              disabled={saveConfig.isPending || !bucket}
-            >
-              {saveConfig.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <HardDrive className="size-4 mr-2" />}
-              Save Configuration
-            </Button>
-          </div>
         </CardContent>
       </Card>
 
