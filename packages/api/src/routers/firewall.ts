@@ -199,8 +199,6 @@ export const firewallRouter = router({
             const trimmed = r.port.trim();
             if (/^\d+-\d+$/.test(trimmed) || /^\d+$/.test(trimmed)) {
               rule.port = trimmed;
-            } else {
-              console.error(`[firewall.update] Invalid port value at rules[${idx}]: "${trimmed}", skipping`);
             }
           }
           if (r.direction === "in") {
@@ -213,7 +211,6 @@ export const firewallRouter = router({
           if (r.description) rule.description = r.description;
           return rule;
         });
-        console.log("[firewall.update] Sending rules to Hetzner:", JSON.stringify(rules, null, 2));
         const res = await fetch(`${API}/firewalls/${input.firewallId}/actions/set_rules`, {
           method: "POST",
           headers: headers(token),
@@ -221,7 +218,6 @@ export const firewallRouter = router({
         });
         if (!res.ok) {
           const err = await res.json();
-          console.error("[firewall.update] Hetzner error:", JSON.stringify(err, null, 2));
           throw new Error(err.error?.message || `Update rules failed: ${res.status}`);
         }
       }
