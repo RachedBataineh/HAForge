@@ -156,22 +156,25 @@ export default function FloatingIpsPage() {
             <Card key={ip.id} className="cursor-pointer hover:border-primary/50 transition-colors"
               onClick={() => router.push(`/dashboard/floating-ips/${ip.id}`)}
             >
-              <CardContent className="flex items-center justify-between py-3">
-                <div className="flex items-center gap-3">
-                  <ArrowUpDown className="size-4 text-muted-foreground" />
-                  <div>
-                    <p className="font-medium text-sm">{ip.name || ip.ip}</p>
+              <CardContent className="flex items-center py-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <ArrowUpDown className="size-4 text-muted-foreground shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm truncate">{ip.name || ip.ip}</p>
                     <p className="text-xs text-muted-foreground font-mono">{ip.ip}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <Badge variant={ip.type === "ipv4" ? "default" : "secondary"}>{ip.type.toUpperCase()}</Badge>
+                <div className="flex-1 flex flex-col items-center gap-0.5">
+                  <span className="text-xs text-muted-foreground">Assigned to</span>
                   {ip.serverName ? (
                     <Badge variant="outline">{ip.serverName}</Badge>
                   ) : (
                     <Badge variant="outline" className="text-muted-foreground">Unassigned</Badge>
                   )}
-                  <span className="text-xs text-muted-foreground">{ip.homeLocation}</span>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <Badge variant={ip.type === "ipv4" ? "default" : "secondary"}>{ip.type.toUpperCase()}</Badge>
+                  <span className="text-xs text-muted-foreground">{ip.homeLocationCity || ip.homeLocation}</span>
                   <Button
                     variant="ghost"
                     size="icon-sm"
@@ -246,14 +249,20 @@ function CreateFloatingIpForm({ onCreated }: { onCreated: () => void }) {
   const [type, setType] = useState("ipv4");
   const [location, setLocation] = useState("");
   const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
   const [creating, setCreating] = useState(false);
 
   const locations = useQuery(trpc.cluster.hetznerLocations.queryOptions());
   const servers = useQuery(trpc.cluster.hetznerServers.queryOptions());
+  const pricing = useQuery(trpc.floatingIp.pricing.queryOptions());
   const locationsData = (locations.data ?? []) as any[];
   const serversData = (servers.data ?? []) as any[];
   const [serverId, setServerId] = useState("");
+
+  const priceLabel = (t: string) => {
+    if (!pricing.data) return t === "ipv4" ? "IPv4" : "IPv6";
+    const price = t === "ipv4" ? pricing.data.ipv4 : pricing.data.ipv6;
+    return t === "ipv4" ? `IPv4 — €${price}/mo` : `IPv6 — Free`;
+  };
 
   const handleCreate = async () => {
     if (!location) { toast.error("Select a location"); return; }
@@ -263,7 +272,6 @@ function CreateFloatingIpForm({ onCreated }: { onCreated: () => void }) {
         type: type as "ipv4" | "ipv6",
         homeLocation: location,
         name: name || undefined,
-        description: description || undefined,
         serverId: serverId || undefined,
       });
       toast.success("Floating IP created");
@@ -286,16 +294,16 @@ function CreateFloatingIpForm({ onCreated }: { onCreated: () => void }) {
           <Label className="text-sm">Type</Label>
           <Select value={type} onValueChange={(v) => setType(v ?? "ipv4")}>
             <SelectTrigger className="w-full">
-              <span>{type === "ipv4" ? "IPv4" : "IPv6"}</span>
+              <span>{priceLabel(type)}</span>
             </SelectTrigger>
             <SelectContent side="bottom" align="start" alignItemWithTrigger={false}>
-              <SelectItem value="ipv4">IPv4</SelectItem>
-              <SelectItem value="ipv6">IPv6</SelectItem>
+              <SelectItem value="ipv4">{priceLabel("ipv4")}</SelectItem>
+              <SelectItem value="ipv6">{priceLabel("ipv6")}</SelectItem>
             </SelectContent>
           </Select>
         </div>
         <div className="grid gap-2">
-          <Label className="text-sm">Home Location</Label>
+          <Label className="text-sm">Location</Label>
           <Select value={location} onValueChange={(v) => setLocation(v ?? "")}>
             <SelectTrigger className="w-full">
               {location
@@ -328,10 +336,6 @@ function CreateFloatingIpForm({ onCreated }: { onCreated: () => void }) {
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div className="grid gap-2">
-          <Label className="text-sm">Description (optional)</Label>
-          <Input placeholder="Used for..." value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
       </div>
       <DialogFooter>

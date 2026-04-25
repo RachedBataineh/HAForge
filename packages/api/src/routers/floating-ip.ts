@@ -90,6 +90,20 @@ export const floatingIpRouter = router({
       };
     }),
 
+  pricing: protectedProcedure
+    .query(async ({ ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${API}/pricing`, { headers: headers(token) });
+      if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
+      const data = await res.json();
+      const fip = data?.pricing?.floating_ip;
+      return {
+        ipv4: parseFloat(fip?.price_monthly?.net || fip?.price_monthly?.gross || "0").toFixed(2),
+        ipv6: "0.00",
+      };
+    }),
+
   create: protectedProcedure
     .input(z.object({
       type: z.enum(["ipv4", "ipv6"]).default("ipv4"),
