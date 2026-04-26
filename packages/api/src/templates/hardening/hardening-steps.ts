@@ -118,7 +118,7 @@ export function getHardeningSteps(): StepDefinition[] {
       commands: [
         {
           commands: [
-            "apt install -y crowdsec-haproxy-bouncer",
+            "apt install -y crowdsec-haproxy-spoa-bouncer",
           ],
         },
       ],
