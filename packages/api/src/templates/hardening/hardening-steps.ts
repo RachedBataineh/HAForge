@@ -101,6 +101,7 @@ export function getHardeningSteps(): StepDefinition[] {
         {
           commands: [
             "curl -s https://install.crowdsec.net | sh",
+            "apt update && apt install -y crowdsec",
             "systemctl is-active crowdsec",
             "apt install -y crowdsec-firewall-bouncer",
             "systemctl is-active crowdsec-firewall-bouncer",
