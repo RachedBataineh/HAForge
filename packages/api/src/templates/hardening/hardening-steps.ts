@@ -3,6 +3,9 @@ import type { StepDefinition } from "../types";
 /**
  * Hardening pre-deploy steps — run as root on ALL servers before any PG/HA installation.
  * After these steps complete, the orchestrator disconnects and reconnects as the admin user.
+ *
+ * Step numbering starts at 1; cluster-steps.ts renumbers automatically based on array length.
+ * targetRole "all_ha" resolves to HAProxy servers in 6-server mode, no-op in LB mode.
  */
 export function getHardeningSteps(): StepDefinition[] {
   return [
@@ -46,17 +49,13 @@ export function getHardeningSteps(): StepDefinition[] {
     {
       phase: "hardening",
       stepNumber: 3,
-      name: "Harden SSH Configuration",
+      name: "Validate Admin User",
       targetRole: "all",
       commands: [
         {
           commands: [
-            "cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak",
-            "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config",
-            "grep -q '^PermitRootLogin' /etc/ssh/sshd_config || echo 'PermitRootLogin no' >> /etc/ssh/sshd_config",
-            "sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config",
-            "grep -q '^PasswordAuthentication' /etc/ssh/sshd_config || echo 'PasswordAuthentication no' >> /etc/ssh/sshd_config",
-            "sshd -t 2>/dev/null && systemctl restart ssh || systemctl restart sshd || true",
+            "test -f /home/${ADMIN_USERNAME}/.ssh/authorized_keys && test -s /home/${ADMIN_USERNAME}/.ssh/authorized_keys",
+            "su - ${ADMIN_USERNAME} -c 'sudo -n true'",
           ],
         },
       ],
@@ -65,14 +64,14 @@ export function getHardeningSteps(): StepDefinition[] {
     {
       phase: "hardening",
       stepNumber: 4,
-      name: "Install CrowdSec",
+      name: "Harden SSH Configuration",
       targetRole: "all",
       commands: [
         {
           commands: [
-            "curl -s https://install.crowdsec.net | sh",
-            "apt update && apt install -y crowdsec",
-            "systemctl is-active crowdsec",
+            "mkdir -p /etc/ssh/sshd_config.d",
+            "cat << 'SSHCONF' > /etc/ssh/sshd_config.d/99-hardening.conf\nPermitRootLogin no\nPasswordAuthentication no\nMaxAuthTries 3\nClientAliveInterval 300\nClientAliveCountMax 2\nSSHCONF",
+            "sshd -t 2>/dev/null && systemctl restart ssh || systemctl restart sshd || true",
           ],
         },
       ],
@@ -81,6 +80,52 @@ export function getHardeningSteps(): StepDefinition[] {
     {
       phase: "hardening",
       stepNumber: 5,
+      name: "Kernel & Network Hardening",
+      targetRole: "all",
+      commands: [
+        {
+          commands: [
+            "cat << 'SYSCTL' > /etc/sysctl.d/99-hardening.conf\nnet.ipv4.conf.all.rp_filter = 1\nnet.ipv4.icmp_echo_ignore_broadcasts = 1\nnet.ipv4.conf.default.accept_redirects = 0\nnet.ipv4.conf.default.send_redirects = 0\nnet.ipv4.conf.all.log_martians = 1\nkernel.randomize_va_space = 2\nSYSCTL",
+            "sysctl --system",
+          ],
+        },
+      ],
+      files: [],
+    },
+    {
+      phase: "hardening",
+      stepNumber: 6,
+      name: "Install CrowdSec + Firewall Bouncer",
+      targetRole: "all",
+      commands: [
+        {
+          commands: [
+            "curl -s https://install.crowdsec.net | sh",
+            "systemctl is-active crowdsec",
+            "apt install -y crowdsec-firewall-bouncer",
+            "systemctl is-active crowdsec-firewall-bouncer",
+          ],
+        },
+      ],
+      files: [],
+    },
+    {
+      phase: "hardening",
+      stepNumber: 7,
+      name: "Install CrowdSec HAProxy Bouncer",
+      targetRole: "all_ha",
+      commands: [
+        {
+          commands: [
+            "apt install -y crowdsec-haproxy-bouncer",
+          ],
+        },
+      ],
+      files: [],
+    },
+    {
+      phase: "hardening",
+      stepNumber: 8,
       name: "Enable Automatic Security Updates",
       targetRole: "all",
       commands: [
@@ -98,7 +143,7 @@ export function getHardeningSteps(): StepDefinition[] {
     },
     {
       phase: "hardening",
-      stepNumber: 6,
+      stepNumber: 9,
       name: "Lock Root Account",
       targetRole: "all",
       commands: [
