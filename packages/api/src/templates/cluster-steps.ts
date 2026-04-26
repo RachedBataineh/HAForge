@@ -10,7 +10,7 @@ export function getClusterSteps(): StepDefinition[] {
   const pgSteps = getPostgresSteps();
   const haSteps = getHaproxySteps();
 
-  // Renumber: hardening (1-6), PG (7-25), HA (26-34)
+  // Renumber: hardening, PG, HA -- offsets calculated dynamically
   const offset1 = hardeningSteps.length;
   const offset2 = offset1 + pgSteps.length;
 
@@ -30,7 +30,7 @@ export function getLbClusterSteps(): StepDefinition[] {
   const hardeningSteps = getHardeningSteps();
   const pgSteps = getPostgresSteps();
 
-  // Renumber: hardening (1-6), PG (7-25)
+  // Renumber: hardening, PG -- offsets calculated dynamically
   const offset = hardeningSteps.length;
   const renumberedPg = pgSteps.map((step) => ({
     ...step,

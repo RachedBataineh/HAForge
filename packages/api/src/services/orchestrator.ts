@@ -472,6 +472,20 @@ export class Orchestrator extends EventEmitter {
 
       await ssh.exec("sudo chown postgres:postgres /var/lib/postgresql/ssl/server.*");
     }
+
+    // Upload CA cert to HAProxy servers for backend SSL verification
+    const haServers = Array.from(serverMap.values()).filter((s: any) =>
+      s.role?.startsWith("haproxy"),
+    );
+    for (const server of haServers) {
+      const ssh = this.sshConnections.get(server.id);
+      if (!ssh) continue;
+
+      await ssh.exec("sudo mkdir -p /etc/haproxy");
+      await ssh.uploadFile(certs.ca.cert, "/tmp/ca.crt");
+      await ssh.exec("sudo mv /tmp/ca.crt /etc/haproxy/ca.crt");
+      await ssh.exec("sudo chmod 644 /etc/haproxy/ca.crt");
+    }
   }
 
   private async configureHetznerLoadBalancer(cluster: any, vars: VariableMap) {
@@ -632,6 +646,7 @@ export class Orchestrator extends EventEmitter {
       SUPERUSER_USERNAME: cluster.superuserUsername || "postgres",
       REPLICATION_PASSWORD: cluster.replicationPassword || "",
       ADMIN_USERNAME: cluster.adminUsername || "haforge",
+      VRRP_AUTH_PASS: (cluster.replicationPassword || "haforge").substring(0, 8),
     };
   }
 

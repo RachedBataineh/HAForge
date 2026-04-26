@@ -32,6 +32,7 @@ export interface VariableMap {
   SUPERUSER_USERNAME: string;
   REPLICATION_PASSWORD: string;
   ADMIN_USERNAME: string;
+  VRRP_AUTH_PASS: string;
 }
 
 export function resolveVariables(template: string, vars: Partial<VariableMap>): string {

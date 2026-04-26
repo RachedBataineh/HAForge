@@ -31,11 +31,11 @@ ${peers}
 
     authentication {
         auth_type PASS
-        auth_pass HAForgeCluster
+        auth_pass \${VRRP_AUTH_PASS}
     }
 
     virtual_ipaddress {
-        \${FLOATING_IP}/32 dev eth0
+        \${FLOATING_IP}/32 dev enp7s0
     }
 
     track_script {
@@ -45,17 +45,34 @@ ${peers}
     notify_master /etc/keepalived/failover.sh}`;
 }
 
-export function failoverScriptContent(myServerId: string) {
+export function failoverScriptContent() {
   return `#!/bin/bash
-HETZNER_TOKEN="\${HETZNER_API_TOKEN}"
-FLOATING_IP_ID="\${FLOATING_IP_ID}"
-MY_SERVER_ID="${myServerId}"
+source /etc/keepalived/.env
 
-echo "$(date): notify_master fired - assigning floating IP to ${myServerId}" >> /var/log/keepalived-failover.log
+echo "$(date): notify_master fired - assigning floating IP to server \${MY_SERVER_ID}" >> /var/log/keepalived-failover.log
 
-curl -s -X POST \\
+RESPONSE=$(curl -s -w "\\n%{http_code}" -X POST \\
   "https://api.hetzner.cloud/v1/floating_ips/\${FLOATING_IP_ID}/actions/assign" \\
   -H "Authorization: Bearer \${HETZNER_TOKEN}" \\
   -H "Content-Type: application/json" \\
-  -d "{\\"server\\": \${MY_SERVER_ID}}" >> /var/log/keepalived-failover.log 2>&1`;
+  -d "{\\"server\\": \${MY_SERVER_ID}}")
+
+HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+BODY=$(echo "$RESPONSE" | sed '\$d')
+
+echo "$(date): HTTP $HTTP_CODE - $BODY" >> /var/log/keepalived-failover.log
+
+if [ "$HTTP_CODE" -ne 200 ] && [ "$HTTP_CODE" -ne 201 ]; then
+    echo "$(date): ERROR: Failed to assign floating IP (HTTP $HTTP_CODE)" >> /var/log/keepalived-failover.log
+    exit 1
+fi`;
+}
+
+export function keepalivedEnvContent(
+  myServerId: string,
+) {
+  return `HETZNER_TOKEN="\${HETZNER_API_TOKEN}"
+FLOATING_IP_ID="\${FLOATING_IP_ID}"
+MY_SERVER_ID="${myServerId}"
+`;
 }
