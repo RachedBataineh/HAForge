@@ -185,7 +185,7 @@ export class Orchestrator extends EventEmitter {
           pgServers2.map(async (server: any) => {
             const ssh = this.sshConnections.get(server.id);
             if (ssh) {
-              await ssh.exec("sudo sed -i '/certfile:.*server.pem/d' /etc/patroni/config.yml && sudo systemctl restart patroni");
+              await ssh.exec("sudo sed -i '/certfile:.*server\\.crt/d;/keyfile:.*server\\.key/d' /etc/patroni/config.yml && sudo systemctl restart patroni");
             }
           }),
         );

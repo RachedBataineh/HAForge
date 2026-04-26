@@ -33,8 +33,6 @@ export function getPostgresSteps(): StepDefinition[] {
       commands: [
         {
           commands: [
-            "sudo apt update",
-            "sudo apt-get install -y wget curl",
             "rm -rf etcd etcd-v3.6.10-linux-amd64.tar.gz",
             "wget https://github.com/etcd-io/etcd/releases/download/v3.6.10/etcd-v3.6.10-linux-amd64.tar.gz",
             "tar xzf etcd-v3.6.10-linux-amd64.tar.gz",
@@ -227,7 +225,6 @@ export function getPostgresSteps(): StepDefinition[] {
           commands: [
             "sudo chmod 600 /var/lib/postgresql/ssl/server.key",
             "sudo chmod 644 /var/lib/postgresql/ssl/server.crt",
-            "sudo chmod 600 /var/lib/postgresql/ssl/server.req",
             "sudo chown postgres:postgres /var/lib/postgresql/data",
             "sudo chown postgres:postgres /var/lib/postgresql/ssl/server.*",
             "sudo apt update",
@@ -347,6 +344,10 @@ export function getPostgresSteps(): StepDefinition[] {
       commands: [
         {
           commands: [
+            "if [ ! -f /tmp/pg_shared_buffers ]; then",
+            "  echo 'ERROR: Tuning values not found (step 12 may have failed)'",
+            "  exit 1",
+            "fi",
             "SHARED_BUFFERS=$(cat /tmp/pg_shared_buffers)",
             "MAX_CONNECTIONS=$(cat /tmp/pg_max_connections)",
             "WORK_MEM=$(cat /tmp/pg_work_mem)",
@@ -368,23 +369,6 @@ export function getPostgresSteps(): StepDefinition[] {
     {
       phase: "postgres",
       stepNumber: 18,
-      name: "Create server.pem on all nodes",
-      targetRole: "all_pg",
-      commands: [
-        {
-          commands: [
-            "sudo sh -c 'cat /var/lib/postgresql/ssl/server.crt /var/lib/postgresql/ssl/server.key > /var/lib/postgresql/ssl/server.pem'",
-            "sudo chown postgres:postgres /var/lib/postgresql/ssl/server.pem",
-            "sudo chmod 600 /var/lib/postgresql/ssl/server.pem",
-            "sudo openssl x509 -in /var/lib/postgresql/ssl/server.pem -text -noout | head -10",
-          ],
-        },
-      ],
-      files: [],
-    },
-    {
-      phase: "postgres",
-      stepNumber: 19,
       name: "Start Patroni on all nodes (leader election via etcd)",
       targetRole: "all_pg",
       commands: [
@@ -406,7 +390,7 @@ export function getPostgresSteps(): StepDefinition[] {
     },
     {
       phase: "postgres",
-      stepNumber: 20,
+      stepNumber: 19,
       name: "Wait for cluster formation and verify",
       targetRole: "postgresql_1",
       commands: [
@@ -433,13 +417,17 @@ export function getPostgresSteps(): StepDefinition[] {
     },
     {
       phase: "postgres",
-      stepNumber: 21,
+      stepNumber: 20,
       name: "Enable pg_stat_statements extension",
       targetRole: "postgresql_1",
       commands: [
         {
           commands: [
-            "PGPASSWORD=${SUPERUSER_PASSWORD} psql -h ${PRIVATE_IP_NODE_1} -U ${SUPERUSER_USERNAME} -d postgres -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;' 2>/dev/null || PGPASSWORD=${SUPERUSER_PASSWORD} psql -h ${PRIVATE_IP_NODE_2} -U ${SUPERUSER_USERNAME} -d postgres -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;' 2>/dev/null || PGPASSWORD=${SUPERUSER_PASSWORD} psql -h ${PRIVATE_IP_NODE_3} -U ${SUPERUSER_USERNAME} -d postgres -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;'",
+            "echo \"${PRIVATE_IP_NODE_1}:5432:*:${SUPERUSER_USERNAME}:${SUPERUSER_PASSWORD}\" > /tmp/.pgpass && chmod 600 /tmp/.pgpass",
+            "echo \"${PRIVATE_IP_NODE_2}:5432:*:${SUPERUSER_USERNAME}:${SUPERUSER_PASSWORD}\" >> /tmp/.pgpass",
+            "echo \"${PRIVATE_IP_NODE_3}:5432:*:${SUPERUSER_USERNAME}:${SUPERUSER_PASSWORD}\" >> /tmp/.pgpass",
+            "PGPASSFILE=/tmp/.pgpass psql -h ${PRIVATE_IP_NODE_1} -U ${SUPERUSER_USERNAME} -d postgres -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;' 2>/dev/null || PGPASSFILE=/tmp/.pgpass psql -h ${PRIVATE_IP_NODE_2} -U ${SUPERUSER_USERNAME} -d postgres -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;' 2>/dev/null || PGPASSFILE=/tmp/.pgpass psql -h ${PRIVATE_IP_NODE_3} -U ${SUPERUSER_USERNAME} -d postgres -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;'",
+            "rm -f /tmp/.pgpass",
           ],
         },
       ],

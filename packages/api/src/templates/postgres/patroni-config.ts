@@ -20,7 +20,8 @@ etcd3:
 restapi:
   listen: 0.0.0.0:8008
   connect_address: ${selfPrivateIp}:8008
-  certfile: /var/lib/postgresql/ssl/server.pem
+  certfile: /var/lib/postgresql/ssl/server.crt
+  keyfile: /var/lib/postgresql/ssl/server.key
 
 bootstrap:
   dcs:
