@@ -119,6 +119,8 @@ export function getHardeningSteps(): StepDefinition[] {
         {
           commands: [
             "apt install -y crowdsec-haproxy-spoa-bouncer",
+            "systemctl enable --now crowdsec-spoa-bouncer",
+            "systemctl is-active crowdsec-spoa-bouncer",
           ],
         },
       ],
