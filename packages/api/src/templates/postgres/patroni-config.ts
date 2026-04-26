@@ -33,14 +33,15 @@ bootstrap:
         ssl: 'on'
         ssl_cert_file: /var/lib/postgresql/ssl/server.crt
         ssl_key_file: /var/lib/postgresql/ssl/server.key
+        password_encryption: scram-sha-256
       pg_hba:
-        - hostssl replication replicator 127.0.0.1/32 md5
-        - hostssl replication replicator ${privateIp1}/32 md5
-        - hostssl replication replicator ${privateIp2}/32 md5
-        - hostssl replication replicator ${privateIp3}/32 md5
-        - hostssl all all 127.0.0.1/32 md5
-        - hostssl all all 0.0.0.0/0 md5
-        - host all all 0.0.0.0/0 md5
+        - local all all peer
+        - hostssl replication replicator 127.0.0.1/32 scram-sha-256
+        - hostssl replication replicator ${privateIp1}/32 scram-sha-256
+        - hostssl replication replicator ${privateIp2}/32 scram-sha-256
+        - hostssl replication replicator ${privateIp3}/32 scram-sha-256
+        - hostssl all all 127.0.0.1/32 scram-sha-256
+        - hostssl all all 0.0.0.0/0 scram-sha-256
   initdb:
     - encoding: UTF8
     - data-checksums
@@ -58,8 +59,28 @@ postgresql:
       username: replicator
       password: \${REPLICATION_PASSWORD}
   parameters:
-    max_connections: 100
-    shared_buffers: 256MB
+    password_encryption: scram-sha-256
+    shared_buffers: __SHARED_BUFFERS__
+    max_connections: __MAX_CONNECTIONS__
+    work_mem: __WORK_MEM__
+    effective_cache_size: __EFFECTIVE_CACHE_SIZE__
+    maintenance_work_mem: __MAINTENANCE_WORK_MEM__
+    wal_buffers: 64MB
+    checkpoint_completion_target: 0.9
+    default_statistics_target: 100
+    shared_preload_libraries: pg_stat_statements
+    pg_stat_statements.track: all
+    pg_stat_statements.max: 10000
+    logging_collector: 'on'
+    log_directory: log
+    log_filename: 'postgresql-%Y-%m-%d.log'
+    log_rotation_age: '1d'
+    log_min_duration_statement: 1000
+    log_checkpoints: 'on'
+    log_connections: 'on'
+    log_disconnections: 'on'
+    log_lock_waits: 'on'
+    log_temp_files: 0
 
 tags:
   nofailover: false

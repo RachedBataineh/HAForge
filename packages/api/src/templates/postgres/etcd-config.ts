@@ -1,15 +1,16 @@
 export function etcdEnvContent(
   nodeName: string,
   selfPrivateIp: string,
-  _ip1: string,
-  _ip2: string,
-  _ip3: string,
+  ip1: string,
+  ip2: string,
+  ip3: string,
   nodeNum: number,
+  isExisting: boolean = false,
 ) {
   return `ETCD_NAME="${nodeName}"
 ETCD_DATA_DIR="/var/lib/etcd"
-ETCD_INITIAL_CLUSTER="postgresql-01=https://\${PRIVATE_IP_NODE_1}:2380,postgresql-02=https://\${PRIVATE_IP_NODE_2}:2380,postgresql-03=https://\${PRIVATE_IP_NODE_3}:2380"
-ETCD_INITIAL_CLUSTER_STATE="new"
+ETCD_INITIAL_CLUSTER="postgresql-01=https://${ip1}:2380,postgresql-02=https://${ip2}:2380,postgresql-03=https://${ip3}:2380"
+ETCD_INITIAL_CLUSTER_STATE="${isExisting ? "existing" : "new"}"
 ETCD_INITIAL_CLUSTER_TOKEN="etcd-cluster"
 ETCD_INITIAL_ADVERTISE_PEER_URLS="https://${selfPrivateIp}:2380"
 ETCD_LISTEN_PEER_URLS="https://0.0.0.0:2380"
