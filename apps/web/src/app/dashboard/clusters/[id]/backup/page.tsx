@@ -22,7 +22,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@HAForge/ui/components/dialog";
-import { HardDrive, Trash2, Play, RotateCcw, RefreshCw, Loader2, CheckCircle2, AlertTriangle, Settings, Download } from "lucide-react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@HAForge/ui/components/table";
+import { Badge } from "@HAForge/ui/components/badge";
+import { HardDrive, Trash2, Play, RotateCcw, RefreshCw, Loader2, CheckCircle2, AlertTriangle, Settings, Download, Database, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { Switch } from "@HAForge/ui/components/switch";
 import { trpc, trpcClient } from "@/utils/trpc";
@@ -46,6 +55,17 @@ function BackupLogViewer({ logData }: { logData: { isLoading: boolean; data: str
   );
 }
 
+function StatusBadge({ status }: { status: string }) {
+  const variants: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; label: string }> = {
+    completed: { variant: "default", label: "Completed" },
+    running: { variant: "secondary", label: "Running" },
+    failed: { variant: "destructive", label: "Failed" },
+    deleted: { variant: "outline", label: "Deleted" },
+  };
+  const config = variants[status] || { variant: "outline" as const, label: status };
+  return <Badge variant={config.variant}>{config.label}</Badge>;
+}
+
 export default function ClusterBackup({ params }: { params: Promise<{ id: string }> }) {
   const { id: clusterId } = React.use(params);
 
@@ -54,6 +74,7 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
 
   const config = useQuery(trpc.backup.getConfig.queryOptions({ clusterId }));
   const backups = useQuery(trpc.backup.listBackups.queryOptions({ clusterId }, { enabled: !!config.data && s3Configured }));
+  const history = useQuery(trpc.backup.getHistory.queryOptions({ clusterId }, { enabled: !!config.data }));
   const backupLog = useQuery(trpc.backup.getBackupLog.queryOptions({ clusterId }, { enabled: !!config.data }));
 
   const [bucket, setBucket] = useState("");
@@ -64,13 +85,13 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
   const [configured, setConfigured] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; output: string } | null>(null);
   const [downloadingFiles, setDownloadingFiles] = useState<Set<string>>(new Set());
+  const [activeHistoryTab, setActiveHistoryTab] = useState<"s3" | "history">("history");
 
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [restoreFile, setRestoreFile] = useState("");
   const [restoreDb, setRestoreDb] = useState("postgres");
   const [restoreConfirm, setRestoreConfirm] = useState("");
 
-  // Load existing config
   React.useEffect(() => {
     if (config.data) {
       setBucket(config.data.s3Bucket);
@@ -109,6 +130,7 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
       toast.success("Backup configuration saved");
       config.refetch();
       backups.refetch();
+      history.refetch();
       backupLog.refetch();
     },
     onError: (err) => toast.error(err.message),
@@ -125,6 +147,7 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
       setEnabled(false);
       config.refetch();
       backups.refetch();
+      history.refetch();
       backupLog.refetch();
     },
     onError: (err) => toast.error(err.message),
@@ -138,10 +161,12 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
       if (data.success) {
         toast.success("Backup completed successfully");
         backups.refetch();
+        history.refetch();
         backupLog.refetch();
       } else {
         toast.error("Backup failed: " + (data.output || "Unknown error"));
         backupLog.refetch();
+        history.refetch();
       }
     },
     onError: (err) => toast.error(err.message),
@@ -159,7 +184,6 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
       }
       setRestoreOpen(false);
       setRestoreConfirm("");
-      backups.refetch();
       backupLog.refetch();
     },
     onError: (err) => toast.error(err.message),
@@ -172,6 +196,7 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
     onSuccess: () => {
       toast.success("Backup deleted");
       backups.refetch();
+      history.refetch();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -205,7 +230,6 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
     }
   };
 
-  // S3 not configured in Settings — show banner
   if (!profile.isLoading && !s3Configured) {
     return (
       <div className="p-6">
@@ -316,7 +340,7 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
             <div>
               <Label className="text-xs">Retention Count</Label>
               <Input className="mt-1.5" type="number" min={1} max={100} value={retention} onChange={(e) => setRetention(parseInt(e.target.value) || 7)} />
-              <p className="text-xs text-muted-foreground mt-1">Keep last {retention} backups</p>
+              <p className="text-xs text-muted-foreground mt-1">Keep last {retention} backups per database</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -351,63 +375,187 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle>Backup History</CardTitle>
-            <CardDescription>Backups stored in your S3 bucket</CardDescription>
+            <CardDescription>Backups tracked in the database and stored in your S3 bucket</CardDescription>
           </div>
-          <Button variant="ghost" size="icon-sm" onClick={() => backups.refetch()}>
-            <RefreshCw className="size-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="flex border rounded-md overflow-hidden">
+              <button
+                onClick={() => setActiveHistoryTab("history")}
+                className={`px-3 py-1 text-xs font-medium transition-colors ${
+                  activeHistoryTab === "history"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Database className="size-3 inline mr-1" />
+                History
+              </button>
+              <button
+                onClick={() => setActiveHistoryTab("s3")}
+                className={`px-3 py-1 text-xs font-medium transition-colors ${
+                  activeHistoryTab === "s3"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <HardDrive className="size-3 inline mr-1" />
+                S3 Files
+              </button>
+            </div>
+            <Button variant="ghost" size="icon-sm" onClick={() => { backups.refetch(); history.refetch(); }}>
+              <RefreshCw className="size-4" />
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
-          {backups.isLoading && (
-            <div className="space-y-2">
-              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
-            </div>
-          )}
-          {!backups.isLoading && (!backups.data || backups.data.length === 0) && (
-            <p className="text-sm text-muted-foreground py-4 text-center">No backups yet. Configure and trigger a backup to get started.</p>
-          )}
-          {backups.data && backups.data.length > 0 && (
-            <div className="border rounded-lg divide-y">
-              <div className="grid grid-cols-[1fr_120px_80px_120px] gap-4 px-4 py-2 bg-muted/50 text-xs font-medium text-muted-foreground">
-                <span>Filename</span>
-                <span>Date</span>
-                <span>Size</span>
-                <span className="text-right">Actions</span>
-              </div>
-              {backups.data.map((backup: any) => (
-                <div key={backup.filename} className="grid grid-cols-[1fr_120px_80px_120px] gap-4 px-4 py-2.5 items-center text-sm">
-                  <span className="font-mono text-xs truncate">{backup.filename}</span>
-                  <span className="text-muted-foreground text-xs">{backup.date}</span>
-                  <span className="text-muted-foreground text-xs">{formatSize(backup.size)}</span>
-                  <div className="flex items-center justify-end gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => { setRestoreFile(backup.filename); setRestoreOpen(true); }}
-                      title="Restore this backup"
-                    >
-                      <RotateCcw className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => handleDownload(backup.filename)}
-                      title="Download"
-                    >
-                      {downloadingFiles.has(backup.filename) ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => deleteBackup.mutate(backup.filename)}
-                      title="Delete"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </div>
+          {activeHistoryTab === "history" && (
+            <>
+              {history.isLoading && (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
                 </div>
-              ))}
-            </div>
+              )}
+              {!history.isLoading && (!history.data || history.data.length === 0) && (
+                <p className="text-sm text-muted-foreground py-4 text-center">No backup history yet. Configure and trigger a backup to get started.</p>
+              )}
+              {history.data && history.data.length > 0 && (
+                <div className="border rounded-lg">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Database</TableHead>
+                        <TableHead>Filename</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Size</TableHead>
+                        <TableHead>Triggered By</TableHead>
+                        <TableHead>Started</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {history.data
+                        .filter((h: any) => h.status !== "deleted")
+                        .map((h: any) => (
+                        <TableRow key={h.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Database className="size-3.5 text-muted-foreground" />
+                              <span className="font-medium text-sm">{h.databaseName}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="font-mono text-xs max-w-[200px] truncate">{h.filename}</TableCell>
+                          <TableCell><StatusBadge status={h.status} /></TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{formatSize(h.fileSizeBytes)}</TableCell>
+                          <TableCell>
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Clock className="size-3" />
+                              {h.triggeredBy || "manual"}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{formatDate(h.startedAt)}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={() => { setRestoreFile(h.filename); setRestoreDb(h.databaseName === "globals" ? "postgres" : h.databaseName); setRestoreOpen(true); }}
+                                title="Restore this backup"
+                                disabled={h.status !== "completed"}
+                              >
+                                <RotateCcw className="size-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={() => handleDownload(h.filename)}
+                                title="Download"
+                                disabled={h.status !== "completed"}
+                              >
+                                {downloadingFiles.has(h.filename) ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={() => deleteBackup.mutate(h.filename)}
+                                title="Delete"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </>
+          )}
+
+          {activeHistoryTab === "s3" && (
+            <>
+              {backups.isLoading && (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
+                </div>
+              )}
+              {!backups.isLoading && (!backups.data || backups.data.length === 0) && (
+                <p className="text-sm text-muted-foreground py-4 text-center">No files found in S3 bucket.</p>
+              )}
+              {backups.data && backups.data.length > 0 && (
+                <div className="border rounded-lg">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Filename</TableHead>
+                        <TableHead>Database</TableHead>
+                        <TableHead>Size</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {backups.data.map((backup: any) => (
+                        <TableRow key={backup.filename}>
+                          <TableCell className="font-mono text-xs max-w-[250px] truncate">{backup.filename}</TableCell>
+                          <TableCell className="text-sm">{backup.databaseName}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{formatSize(backup.fileSizeBytes)}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{formatDate(backup.startedAt)}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={() => { setRestoreFile(backup.filename); setRestoreDb(backup.databaseName === "globals" ? "postgres" : backup.databaseName); setRestoreOpen(true); }}
+                                title="Restore"
+                              >
+                                <RotateCcw className="size-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={() => handleDownload(backup.filename)}
+                                title="Download"
+                              >
+                                {downloadingFiles.has(backup.filename) ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={() => deleteBackup.mutate(backup.filename)}
+                                title="Delete"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
@@ -479,11 +627,18 @@ export default function ClusterBackup({ params }: { params: Promise<{ id: string
   );
 }
 
-function formatSize(bytes: string): string {
-  const b = parseInt(bytes, 10);
-  if (isNaN(b)) return bytes;
+function formatSize(bytes: number | string): string {
+  const b = typeof bytes === "string" ? parseInt(bytes, 10) : bytes;
+  if (isNaN(b) || b === 0) return "—";
   if (b < 1024) return `${b} B`;
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
   if (b < 1024 * 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
   return `${(b / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function formatDate(date: string | Date | null): string {
+  if (!date) return "—";
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }

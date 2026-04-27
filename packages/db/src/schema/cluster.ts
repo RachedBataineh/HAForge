@@ -220,6 +220,8 @@ export const serverRelations = relations(servers, ({ one, many }) => ({
 export const clusterRelations = relations(clusters, ({ many }) => ({
   servers: many(servers),
   executions: many(executions),
+  backups: many(clusterBackups),
+  backupHistory: many(backupHistory),
 }));
 
 export const executionRelations = relations(executions, ({ one, many }) => ({
@@ -272,6 +274,13 @@ export const sshKeyRelations = relations(sshKeys, ({ one, many }) => ({
   servers: many(servers),
 }));
 
+export const backupStatusEnum = pgEnum("backup_status", [
+  "running",
+  "completed",
+  "failed",
+  "deleted",
+]);
+
 export const clusterBackups = pgTable("cluster_backups", {
   id: text("id")
     .primaryKey()
@@ -287,9 +296,45 @@ export const clusterBackups = pgTable("cluster_backups", {
   index("cluster_backups_cluster_id_idx").on(table.clusterId),
 ]);
 
-export const clusterBackupsRelations = relations(clusterBackups, ({ one }) => ({
+export const backupHistory = pgTable("backup_history", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  clusterId: text("cluster_id")
+    .notNull()
+    .references(() => clusters.id, { onDelete: "cascade" }),
+  configId: text("config_id")
+    .notNull()
+    .references(() => clusterBackups.id, { onDelete: "cascade" }),
+  filename: text("filename").notNull(),
+  databaseName: text("database_name").notNull(),
+  status: backupStatusEnum("status").default("running").notNull(),
+  fileSizeBytes: integer("file_size_bytes"),
+  s3Key: text("s3_key"),
+  errorMessage: text("error_message"),
+  triggeredBy: text("triggered_by").default("manual"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("backup_history_cluster_id_idx").on(table.clusterId),
+  index("backup_history_status_idx").on(table.status),
+]);
+
+export const clusterBackupsRelations = relations(clusterBackups, ({ one, many }) => ({
   cluster: one(clusters, {
     fields: [clusterBackups.clusterId],
     references: [clusters.id],
+  }),
+  history: many(backupHistory),
+}));
+
+export const backupHistoryRelations = relations(backupHistory, ({ one }) => ({
+  cluster: one(clusters, {
+    fields: [backupHistory.clusterId],
+    references: [clusters.id],
+  }),
+  config: one(clusterBackups, {
+    fields: [backupHistory.configId],
+    references: [clusterBackups.id],
   }),
 }));

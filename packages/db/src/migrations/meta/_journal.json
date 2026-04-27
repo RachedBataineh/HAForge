@@ -15,6 +15,13 @@
       "when": 1777000000000,
       "tag": "0001_add_s3_to_user_simplify_backups",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777100000000,
+      "tag": "0002_add_backup_history_table",
+      "breakpoints": true
     }
   ]
 }
