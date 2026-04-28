@@ -1523,12 +1523,7 @@ ${patroniTargets.join("\n")}
           const ssh = new SSHExecutor({ host: server.ipAddress, port: server.sshPort || 22, username: server.sshUser || "root", privateKey: key.privateKey });
           await ssh.connect();
           try {
-            // Check if already installed
-            const check = await ssh.exec("systemctl is-active node_exporter 2>/dev/null || echo 'inactive'");
-            if (check.stdout?.trim() === "active") {
-              results.push({ server: server.role, success: true });
-              continue;
-            }
+            await ssh.exec("sudo systemctl stop node_exporter 2>/dev/null || true");
 
             // Execute each monitoring step
             let stepError: string | null = null;
@@ -1606,11 +1601,7 @@ ${patroniTargets.join("\n")}
           const ssh = new SSHExecutor({ host: server.ipAddress, port: server.sshPort || 22, username: server.sshUser || "root", privateKey: key.privateKey });
           await ssh.connect();
           try {
-            const check = await ssh.exec("systemctl is-active postgres_exporter 2>/dev/null || echo 'inactive'");
-            if (check.stdout?.trim() === "active") {
-              results.push({ server: server.role, success: true });
-              continue;
-            }
+            await ssh.exec("sudo systemctl stop postgres_exporter 2>/dev/null || true");
 
             let stepError: string | null = null;
             for (const step of pgExporterSteps) {

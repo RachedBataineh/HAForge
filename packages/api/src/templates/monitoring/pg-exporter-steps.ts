@@ -49,7 +49,7 @@ After=network-online.target
 User=postgres_exporter
 Group=postgres_exporter
 Type=simple
-Environment=DATA_SOURCE_NAME=postgresql://${pgUsername}:${pgPassword}@localhost:5432/postgres?sslmode=disable
+Environment=DATA_SOURCE_NAME=postgresql://${pgUsername}:${pgPassword}@localhost:5432/postgres?sslmode=require
 ExecStart=/usr/local/bin/postgres_exporter --web.listen-address=0.0.0.0:9187
 
 [Install]
