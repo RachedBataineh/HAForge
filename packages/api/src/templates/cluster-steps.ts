@@ -7,12 +7,12 @@ import { getPgExporterSteps } from "./monitoring/pg-exporter-steps";
 
 export type { TargetRole, StepDefinition, CommandStep, FileStep } from "./types";
 
-export function getClusterSteps(enableMonitoring = true, pgUsername = "postgres", pgPassword = ""): StepDefinition[] {
+export function getClusterSteps(enableMonitoring = true): StepDefinition[] {
   const hardeningSteps = getHardeningSteps();
   const pgSteps = getPostgresSteps();
   const haSteps = getHaproxySteps();
   const nodeExporterSteps = enableMonitoring ? getMonitoringSteps() : [];
-  const pgExporterSteps = enableMonitoring ? getPgExporterSteps(pgUsername, pgPassword) : [];
+  const pgExporterSteps = enableMonitoring ? getPgExporterSteps() : [];
 
   const offset1 = hardeningSteps.length;
   const offset2 = offset1 + pgSteps.length;
@@ -39,11 +39,11 @@ export function getClusterSteps(enableMonitoring = true, pgUsername = "postgres"
   return [...hardeningSteps, ...renumberedPg, ...renumberedHa, ...renumberedNodeExporter, ...renumberedPgExporter];
 }
 
-export function getLbClusterSteps(enableMonitoring = true, pgUsername = "postgres", pgPassword = ""): StepDefinition[] {
+export function getLbClusterSteps(enableMonitoring = true): StepDefinition[] {
   const hardeningSteps = getHardeningSteps();
   const pgSteps = getPostgresSteps();
   const nodeExporterSteps = enableMonitoring ? getMonitoringSteps() : [];
-  const pgExporterSteps = enableMonitoring ? getPgExporterSteps(pgUsername, pgPassword) : [];
+  const pgExporterSteps = enableMonitoring ? getPgExporterSteps() : [];
 
   const offset1 = hardeningSteps.length;
   const offset2 = offset1 + pgSteps.length;

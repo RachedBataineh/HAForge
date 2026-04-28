@@ -1581,11 +1581,10 @@ ${patroniTargets.join("\n")}
         with: { servers: true },
       });
       if (!cluster) throw new Error("Cluster not found or access denied");
-      if (!cluster.superuserUsername || !cluster.superuserPassword) throw new Error("Cluster PG credentials not found");
 
       const pgServers = cluster.servers.filter((s) => s.role?.startsWith("postgresql"));
       const { getPgExporterSteps } = await import("../templates/monitoring/pg-exporter-steps");
-      const pgExporterSteps = getPgExporterSteps(cluster.superuserUsername, cluster.superuserPassword);
+      const pgExporterSteps = getPgExporterSteps();
 
       const results: { server: string; success: boolean; error?: string }[] = [];
 
