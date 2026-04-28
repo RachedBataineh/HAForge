@@ -1472,7 +1472,9 @@ export const clusterRouter = router({
       };
 
       const nodeTargets = allServers.map((s) => `            - '${s.privateIpAddress}:9100'  # ${roleInfo[s.role] || s.role}`);
-      const pgTargets = allServers.filter((s) => s.role?.startsWith("postgresql")).map((s) => `            - '${s.privateIpAddress}:9187'  # ${roleInfo[s.role] || s.role}`);
+      const pgServers = allServers.filter((s) => s.role?.startsWith("postgresql"));
+      const pgTargets = pgServers.map((s) => `            - '${s.privateIpAddress}:9187'  # ${roleInfo[s.role] || s.role}`);
+      const patroniTargets = pgServers.map((s) => `            - '${s.privateIpAddress}:8008'  # ${roleInfo[s.role] || s.role}`);
 
       const jobName = `haforge-${cluster.name.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase()}`;
 
@@ -1487,6 +1489,11 @@ ${nodeTargets.join("\n")}
     static_configs:
       - targets:
 ${pgTargets.join("\n")}
+  - job_name: '${jobName}-patroni'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+${patroniTargets.join("\n")}
 `;
       return { config };
     }),
