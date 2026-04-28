@@ -137,6 +137,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const [createLbName, setCreateLbName] = useState("");
   const [superuserUsername, setSuperuserUsername] = useState("postgres");
   const [adminUsername, setAdminUsername] = useState("haforge");
+  const [enableMonitoring, setEnableMonitoring] = useState(true);
 
   const [pgServers, setPgServers] = useState<Record<string, ServerForm>>({
     postgresql_1: { ipAddress: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
@@ -306,9 +307,10 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
           id: clusterId,
           loadBalancerId: selectedLbId,
           loadBalancerIp: lb?.publicIp || "",
+          enableMonitoring: enableMonitoring ? 1 : 0,
         });
       } else {
-        await updateCluster.mutateAsync({ id: clusterId, floatingIp, floatingIpId });
+        await updateCluster.mutateAsync({ id: clusterId, floatingIp, floatingIpId, enableMonitoring: enableMonitoring ? 1 : 0 });
       }
 
       // Refetch to get the latest servers list (draft may have added some)
@@ -981,6 +983,24 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                   </div>
                 ))}
               </div>
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-medium">Monitoring (Node Exporter)</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Install Node Exporter on all servers for Prometheus/Grafana monitoring
+                </p>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <span className="text-sm text-muted-foreground">{enableMonitoring ? "Enabled" : "Disabled"}</span>
+                <div
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${enableMonitoring ? "bg-primary" : "bg-muted"}`}
+                  onClick={() => setEnableMonitoring(!enableMonitoring)}
+                >
+                  <span className={`inline-block size-4 transform rounded-full bg-white transition-transform ${enableMonitoring ? "translate-x-6" : "translate-x-1"}`} />
+                </div>
+              </label>
             </div>
           </CardContent>
         </Card>

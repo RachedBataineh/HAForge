@@ -429,6 +429,7 @@ export const clusterRouter = router({
         wizardStep: z.number().optional(),
         superuserUsername: z.string().optional(),
         adminUsername: z.string().optional(),
+        enableMonitoring: z.number().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
@@ -1450,6 +1451,157 @@ export const clusterRouter = router({
 
       return { roles, serverNames, serverStatus, lbName, haProxyActive };
     }),
+
+  getPrometheusConfig: protectedProcedure
+    .input(z.object({ clusterId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const cluster = await db.query.clusters.findFirst({
+        where: and(eq(clusters.id, input.clusterId), eq(clusters.userId, ctx.session.user.id)),
+        with: { servers: true },
+      });
+      if (!cluster) throw new Error("Cluster not found or access denied");
+
+      const allServers = cluster.servers.filter((s) => s.privateIpAddress);
+      const targets = allServers.map((s) => {
+        const roleInfo: Record<string, string> = {
+          postgresql_1: "PG Node 1",
+          postgresql_2: "PG Node 2",
+          postgresql_3: "PG Node 3",
+          haproxy_1: "HAProxy Node 1",
+          haproxy_2: "HAProxy Node 2",
+          haproxy_3: "HAProxy Node 3",
+        };
+        return `            - '${s.privateIpAddress}:9100'  # ${roleInfo[s.role] || s.role}`;
+      });
+
+      const jobName = `haforge-${cluster.name.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase()}`;
+
+      const config = `scrape_configs:
+  - job_name: '${jobName}'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+${targets.join("\n")}
+`;
+      return { config };
+    }),
+
+  installNodeExporter: protectedProcedure
+    .input(z.object({ clusterId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const cluster = await db.query.clusters.findFirst({
+        where: and(eq(clusters.id, input.clusterId), eq(clusters.userId, ctx.session.user.id)),
+        with: { servers: true },
+      });
+      if (!cluster) throw new Error("Cluster not found or access denied");
+
+      const results: { server: string; success: boolean; error?: string }[] = [];
+      const { getMonitoringSteps } = await import("../templates/monitoring/node-exporter-steps");
+      const monitoringSteps = getMonitoringSteps();
+
+      for (const server of cluster.servers) {
+        if (!server.ipAddress || !server.sshKeyId) {
+          results.push({ server: server.role, success: false, error: "No IP or SSH key" });
+          continue;
+        }
+        try {
+          const { SSHExecutor } = await import("../services/ssh-executor");
+          const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, server.sshKeyId) });
+          if (!key?.privateKey) { results.push({ server: server.role, success: false, error: "No private key" }); continue; }
+          const ssh = new SSHExecutor({ host: server.ipAddress, port: server.sshPort || 22, username: server.sshUser || "root", privateKey: key.privateKey });
+          await ssh.connect();
+          try {
+            // Check if already installed
+            const check = await ssh.exec("systemctl is-active node_exporter 2>/dev/null || echo 'inactive'");
+            if (check.stdout?.trim() === "active") {
+              results.push({ server: server.role, success: true });
+              continue;
+            }
+
+            // Execute each monitoring step
+            let stepError: string | null = null;
+            for (const step of monitoringSteps) {
+              if (stepError) break;
+              // Run commands
+              for (const cmdGroup of step.commands) {
+                for (const cmd of cmdGroup.commands) {
+                  const resolved = cmd.replace(/\$\{(\w+)\}/g, (_m, key: string) => {
+                    const vars: Record<string, string> = {};
+                    return vars[key] || "";
+                  });
+                  const result = await ssh.exec(`sudo bash -c '${resolved.replace(/'/g, "'\\''")}'`);
+                  if (result.exitCode !== 0 && result.exitCode !== null) {
+                    stepError = `Step "${step.name}" failed: ${result.stderr || result.stdout || "Unknown error"}`;
+                    break;
+                  }
+                }
+              }
+              // Upload files
+              for (const file of step.files) {
+                await ssh.exec(`sudo tee ${file.path} > /dev/null << 'NODEEXPORTER_EOF'\n${file.content}NODEEXPORTER_EOF`);
+                if (file.permissions) await ssh.exec(`sudo chmod ${file.permissions} ${file.path}`);
+                if (file.owner) await ssh.exec(`sudo chown ${file.owner} ${file.path}`);
+              }
+              // Run validation
+              if (step.validation && !stepError) {
+                const vResult = await ssh.exec(`sudo bash -c '${step.validation}'`);
+                if (vResult.stdout?.trim() === "FAILED") {
+                  stepError = `Step "${step.name}" validation failed`;
+                }
+              }
+            }
+            if (stepError) {
+              results.push({ server: server.role, success: false, error: stepError });
+            } else {
+              results.push({ server: server.role, success: true });
+            }
+          } finally {
+            await ssh.disconnect();
+          }
+        } catch (err: any) {
+          results.push({ server: server.role, success: false, error: err.message });
+        }
+      }
+
+      return { results };
+    }),
+
+  getMonitoringStatus: protectedProcedure
+    .input(z.object({ clusterId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const cluster = await db.query.clusters.findFirst({
+        where: and(eq(clusters.id, input.clusterId), eq(clusters.userId, ctx.session.user.id)),
+        with: { servers: true },
+      });
+      if (!cluster) throw new Error("Cluster not found or access denied");
+
+      const status: Record<string, "active" | "inactive" | "unreachable"> = {};
+
+      for (const server of cluster.servers) {
+        if (!server.ipAddress || !server.sshKeyId) {
+          status[server.role] = "unreachable";
+          continue;
+        }
+        try {
+          const { SSHExecutor } = await import("../services/ssh-executor");
+          const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, server.sshKeyId) });
+          if (!key?.privateKey) { status[server.role] = "unreachable"; continue; }
+          const ssh = new SSHExecutor({ host: server.ipAddress, port: server.sshPort || 22, username: server.sshUser || "root", privateKey: key.privateKey });
+          await ssh.connect();
+          try {
+            const result = await ssh.exec("systemctl is-active node_exporter 2>/dev/null || echo 'inactive'");
+            status[server.role] = result.stdout?.trim() === "active" ? "active" : "inactive";
+          } finally {
+            await ssh.disconnect();
+          }
+        } catch {
+          status[server.role] = "unreachable";
+        }
+      }
+
+      return { status, enabled: !!cluster.enableMonitoring };
+    }),
+
   toggleHaProxy: protectedProcedure
     .input(z.object({ clusterId: z.string(), action: z.enum(["start", "stop"]) }))
     .mutation(async ({ input, ctx }) => {

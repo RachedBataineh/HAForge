@@ -73,6 +73,8 @@ export const clusters = pgTable("cluster", {
   superuserUsername: text("superuser_username").default("postgres"),
   adminUsername: text("admin_username").default("haforge"),
 
+  enableMonitoring: integer("enable_monitoring").default(1),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()

@@ -25,8 +25,10 @@ const STATUS_COLORS: Record<string, "default" | "secondary" | "destructive" | "o
 };
 
 const PHASE_LABELS: Record<string, string> = {
+  hardening: "Phase 0: System Hardening",
   postgres: "Phase 1: PostgreSQL Cluster",
   haproxy: "Phase 2: HAProxy Load Balancer",
+  monitoring: "Phase 3: Monitoring (Node Exporter)",
 };
 
 const ROLE_LABELS: Record<string, string> = {

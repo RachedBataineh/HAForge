@@ -30,6 +30,8 @@ import {
   Crown,
   Pause,
   Play,
+  Activity,
+  FileText,
 } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -526,6 +528,9 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
         </div>
       </div>
 
+      {/* Monitoring */}
+      {cluster.data.status === "running" && <MonitoringSection clusterId={clusterId} pgServers={pgServers} haServers={haServers} />}
+
       {/* Redeploy Confirmation Dialog */}
       <Dialog open={redeployOpen} onOpenChange={setRedeployOpen}>
         <DialogContent className="sm:max-w-md">
@@ -673,6 +678,109 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function MonitoringSection({ clusterId, pgServers, haServers }: { clusterId: string; pgServers: any[]; haServers: any[] }) {
+  const router = useRouter();
+  const monitoringStatus = useQuery(
+    trpc.cluster.getMonitoringStatus.queryOptions({ clusterId }),
+  );
+  const prometheusConfig = useQuery(
+    trpc.cluster.getPrometheusConfig.queryOptions({ clusterId }),
+  );
+  const installNodeExporter = useMutation({
+    mutationFn: async () => trpcClient.cluster.installNodeExporter.mutate({ clusterId }),
+    onSuccess: (data) => {
+      const failed = (data.results || []).filter((r: any) => !r.success);
+      if (failed.length > 0) {
+        toast.warning(`Node Exporter installed with ${failed.length} warnings`);
+      } else {
+        toast.success("Node Exporter installed on all servers");
+      }
+      monitoringStatus.refetch();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const [showPrometheus, setShowPrometheus] = useState(false);
+  const allServers = [...pgServers, ...haServers];
+  const status = monitoringStatus.data?.status || {};
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+        <Activity className="size-5" />
+        Monitoring
+      </h2>
+      <div className="grid grid-cols-3 gap-3">
+        {allServers.map((server: any) => {
+          const roleInfo = ROLE_LABELS[server.role] || { label: server.role, defaultType: "Node" };
+          const srvStatus = status[server.role];
+          const dotColor = srvStatus === "active" ? "bg-green-500" : srvStatus === "inactive" ? "bg-red-500" : "bg-muted-foreground/30";
+          const statusLabel = srvStatus === "active" ? "Active" : srvStatus === "inactive" ? "Not Installed" : "Unknown";
+          return (
+            <Card key={server.id} className="cursor-pointer hover:border-primary/50 transition-colors"
+              onClick={() => router.push(`/dashboard/servers/${server.id}`)}
+            >
+              <CardContent className="flex items-center justify-between py-3">
+                <div className="flex items-center gap-3">
+                  <div className={`size-2.5 rounded-full ${dotColor}`} />
+                  <div>
+                    <p className="font-medium text-sm">{server.cachedHostname || roleInfo.label}</p>
+                    <p className="text-xs text-muted-foreground">{roleInfo.label}</p>
+                  </div>
+                </div>
+                <Badge variant={srvStatus === "active" ? "default" : "outline"} className="text-xs">{statusLabel}</Badge>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-2 mt-4">
+        <Button
+          variant="outline"
+          onClick={() => installNodeExporter.mutate()}
+          disabled={installNodeExporter.isPending}
+        >
+          {installNodeExporter.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <Activity className="size-4 mr-2" />}
+          Install Node Exporter
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => setShowPrometheus(!showPrometheus)}
+        >
+          <FileText className="size-4 mr-2" />
+          Prometheus Config
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => monitoringStatus.refetch()}
+        >
+          Refresh
+        </Button>
+      </div>
+      {showPrometheus && prometheusConfig.data && (
+        <Card className="mt-4">
+          <CardContent className="py-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-medium">Prometheus Scrape Config</p>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { navigator.clipboard.writeText(prometheusConfig.data!.config); toast.success("Copied to clipboard"); }}
+              >
+                <Copy className="size-3.5 mr-1" /> Copy
+              </Button>
+            </div>
+            <pre className="bg-muted rounded-lg p-3 text-xs font-mono overflow-auto max-h-48 whitespace-pre-wrap">
+              {prometheusConfig.data.config}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

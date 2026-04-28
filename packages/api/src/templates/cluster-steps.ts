@@ -2,17 +2,19 @@ import type { StepDefinition } from "./types";
 import { getPostgresSteps } from "./postgres/postgres-steps";
 import { getHaproxySteps } from "./haproxy/haproxy-steps";
 import { getHardeningSteps } from "./hardening/hardening-steps";
+import { getMonitoringSteps } from "./monitoring/node-exporter-steps";
 
 export type { TargetRole, StepDefinition, CommandStep, FileStep } from "./types";
 
-export function getClusterSteps(): StepDefinition[] {
+export function getClusterSteps(enableMonitoring = true): StepDefinition[] {
   const hardeningSteps = getHardeningSteps();
   const pgSteps = getPostgresSteps();
   const haSteps = getHaproxySteps();
+  const monitoringSteps = enableMonitoring ? getMonitoringSteps() : [];
 
-  // Renumber: hardening, PG, HA -- offsets calculated dynamically
   const offset1 = hardeningSteps.length;
   const offset2 = offset1 + pgSteps.length;
+  const offset3 = offset2 + haSteps.length;
 
   const renumberedPg = pgSteps.map((step) => ({
     ...step,
@@ -22,20 +24,30 @@ export function getClusterSteps(): StepDefinition[] {
     ...step,
     stepNumber: step.stepNumber + offset2,
   }));
-
-  return [...hardeningSteps, ...renumberedPg, ...renumberedHa];
-}
-
-export function getLbClusterSteps(): StepDefinition[] {
-  const hardeningSteps = getHardeningSteps();
-  const pgSteps = getPostgresSteps();
-
-  // Renumber: hardening, PG -- offsets calculated dynamically
-  const offset = hardeningSteps.length;
-  const renumberedPg = pgSteps.map((step) => ({
+  const renumberedMonitoring = monitoringSteps.map((step) => ({
     ...step,
-    stepNumber: step.stepNumber + offset,
+    stepNumber: step.stepNumber + offset3,
   }));
 
-  return [...hardeningSteps, ...renumberedPg];
+  return [...hardeningSteps, ...renumberedPg, ...renumberedHa, ...renumberedMonitoring];
+}
+
+export function getLbClusterSteps(enableMonitoring = true): StepDefinition[] {
+  const hardeningSteps = getHardeningSteps();
+  const pgSteps = getPostgresSteps();
+  const monitoringSteps = enableMonitoring ? getMonitoringSteps() : [];
+
+  const offset1 = hardeningSteps.length;
+  const offset2 = offset1 + pgSteps.length;
+
+  const renumberedPg = pgSteps.map((step) => ({
+    ...step,
+    stepNumber: step.stepNumber + offset1,
+  }));
+  const renumberedMonitoring = monitoringSteps.map((step) => ({
+    ...step,
+    stepNumber: step.stepNumber + offset2,
+  }));
+
+  return [...hardeningSteps, ...renumberedPg, ...renumberedMonitoring];
 }

@@ -21,7 +21,7 @@ export interface FileStep {
 }
 
 export interface StepDefinition {
-  phase: "postgres" | "haproxy" | "hardening";
+  phase: "postgres" | "haproxy" | "hardening" | "monitoring";
   stepNumber: number;
   name: string;
   targetRole: TargetRole;
