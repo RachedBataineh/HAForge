@@ -1382,7 +1382,7 @@ export const clusterRouter = router({
       const serverNames: Record<string, string> = {};
       const serverStatus: Record<string, string> = {};
 
-      // Fetch server names and status from Hetzner API
+      // Fetch server names and power status from Hetzner API
       if (apiToken) {
         const srvRes = await fetch(`${HETZNER_API}/servers`, {
           headers: hetznerHeaders(apiToken),
@@ -1396,107 +1396,63 @@ export const clusterRouter = router({
         }
       }
 
-      if (cluster.clusterType === "hetzner_lb" && cluster.loadBalancerId && apiToken) {
-        // LB mode: use health checks to determine leader
-        const lbRes = await fetch(`${HETZNER_API}/load_balancers/${cluster.loadBalancerId}`, {
-          headers: hetznerHeaders(apiToken),
-        });
-        if (lbRes.ok) {
-          const lbData = await lbRes.json();
-          const lb = lbData.load_balancer;
-          const targets: any[] = lb.targets || [];
-          const healthyIds = new Set<string>();
+      // Determine PG roles using Patroni REST API /leader endpoint on each node.
+      // SSH into one online PG node, then curl each PG node's Patroni REST API.
+      // 200 = leader, anything else = replica. Simple and reliable.
+      const onlineServers = pgServers.filter((s) => {
+        if (!s.ipAddress || !s.sshKeyId) return false;
+        if (s.hetznerServerId) return serverStatus[s.hetznerServerId] === "running";
+        return true;
+      });
 
-          for (const t of targets) {
-            if (t.type === "server" && t.server?.id) {
-              const healthStatuses: any[] = t.health_status || [];
-              const isHealthy = healthStatuses.some((h: any) => h.status === "healthy" && h.listen_port === 5432);
-              if (isHealthy) healthyIds.add(String(t.server.id));
-            }
-          }
-
-          // Get server power status
-          const srvRes = await fetch(`${HETZNER_API}/servers`, {
-            headers: hetznerHeaders(apiToken),
-          });
-          const serverStatusMap = new Map<string, string>();
-          if (srvRes.ok) {
-            const srvData = await srvRes.json();
-            for (const srv of srvData.servers || []) {
-              serverStatusMap.set(String(srv.id), srv.status);
-            }
-          }
-
-          for (const s of pgServers) {
-            if (!s.hetznerServerId) { roles[s.role] = "unknown"; continue; }
-            if (healthyIds.has(s.hetznerServerId)) {
-              roles[s.role] = "leader";
-            } else {
-              const srvStatus = serverStatusMap.get(s.hetznerServerId);
-              roles[s.role] = srvStatus === "running" ? "replica" : "offline";
-            }
-          }
+      // Mark offline servers
+      for (const s of pgServers) {
+        if (!s.ipAddress || !s.sshKeyId) { roles[s.role] = "unknown"; continue; }
+        if (s.hetznerServerId && serverStatus[s.hetznerServerId] !== "running") {
+          roles[s.role] = "offline";
         }
-      } else if (apiToken) {
-        // HAProxy mode: SSH into an online node, run patronictl list, match by private IP
-        // First check power status via Hetzner API to skip offline servers
-        const srvRes = await fetch(`${HETZNER_API}/servers`, { headers: hetznerHeaders(apiToken) });
-        const serverStatusMap = new Map<string, string>();
-        if (srvRes.ok) {
-          const srvData = await srvRes.json();
-          for (const srv of srvData.servers || []) {
-            serverStatusMap.set(String(srv.id), srv.status);
-          }
-        }
-        // Mark offline servers
-        for (const s of pgServers) {
-          if (!s.hetznerServerId) { roles[s.role] = "unknown"; continue; }
-          const status = serverStatusMap.get(s.hetznerServerId);
-          if (status !== "running") roles[s.role] = "offline";
-        }
+      }
 
-        // Find an online server to query patronictl from
-        let success = false;
-        for (const candidate of pgServers) {
+      let ssh: any = null;
+      const connectedTo: string | null = null;
+      try {
+        // Find an online server to SSH into
+        for (const candidate of onlineServers) {
           if (roles[candidate.role] === "offline") continue;
-          if (!candidate.ipAddress || !candidate.sshKeyId) continue;
           try {
             const { SSHExecutor } = await import("../services/ssh-executor");
-            const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, candidate.sshKeyId) });
+            const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, candidate.sshKeyId!) });
             if (!key?.privateKey) continue;
-            const ssh = new SSHExecutor({ host: candidate.ipAddress, port: candidate.sshPort || 22, username: candidate.sshUser || "root", privateKey: key.privateKey });
+            ssh = new SSHExecutor({ host: candidate.ipAddress!, port: candidate.sshPort || 22, username: candidate.sshUser || "root", privateKey: key.privateKey });
             await ssh.connect();
-            try {
-              const result = await ssh.exec("patronictl -c /etc/patroni/config.yml list --format json 2>/dev/null || echo '[]'");
-              const parsed: any[] = JSON.parse(result.stdout || "[]");
-              for (const s of pgServers) {
-                if (roles[s.role] === "offline") continue;
-                if (!s.privateIpAddress) { roles[s.role] = "unknown"; continue; }
-                const matched = parsed.find((p: any) => {
-                  const host = (p.Host || "").split(":")[0];
-                  return host === s.privateIpAddress;
-                });
-                if (matched) {
-                  roles[s.role] = matched.Role?.includes("Leader") ? "leader" : "replica";
-                } else {
-                  roles[s.role] = "unknown";
-                }
-              }
-              success = true;
-            } finally {
-              await ssh.disconnect();
-            }
-            if (success) break;
-          } catch (err) {
-            console.error(`[pgNodeRoles] Failed to query ${candidate.role}:`, err);
-            continue;
-          }
+            break;
+          } catch { continue; }
         }
-        if (!success) {
+
+        if (ssh) {
+          // Query each PG node's Patroni REST API /leader endpoint
+          for (const s of pgServers) {
+            if (roles[s.role]) continue; // already marked offline
+            if (!s.privateIpAddress) { roles[s.role] = "unknown"; continue; }
+
+            try {
+              const result = await ssh.exec(
+                `curl -sk https://${s.privateIpAddress}:8008/leader -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 2>/dev/null || echo '000'`,
+              );
+              const code = (result.stdout || "").trim();
+              roles[s.role] = code === "200" ? "leader" : "replica";
+            } catch {
+              roles[s.role] = "unknown";
+            }
+          }
+        } else {
+          // Could not SSH into any server
           for (const s of pgServers) {
             if (!roles[s.role]) roles[s.role] = "unknown";
           }
         }
+      } finally {
+        if (ssh) await ssh.disconnect().catch(() => {});
       }
 
       // Fetch LB name if applicable
@@ -1519,20 +1475,18 @@ export const clusterRouter = router({
         const haServers = cluster.servers.filter((s) => s.role?.startsWith("haproxy"));
         const checkServer = haServers.find((s) => s.ipAddress && s.sshKeyId);
         if (checkServer) {
+          let haSsh: any = null;
           try {
             const { SSHExecutor } = await import("../services/ssh-executor");
             const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, checkServer.sshKeyId!) });
             if (key?.privateKey) {
-              const ssh = new SSHExecutor({ host: checkServer.ipAddress!, port: checkServer.sshPort || 22, username: checkServer.sshUser || "root", privateKey: key.privateKey });
-              await ssh.connect();
-              try {
-                const result = await ssh.exec("systemctl is-active haproxy");
-                haProxyActive = result.stdout?.trim() === "active";
-              } finally {
-                await ssh.disconnect();
-              }
+              haSsh = new SSHExecutor({ host: checkServer.ipAddress!, port: checkServer.sshPort || 22, username: checkServer.sshUser || "root", privateKey: key.privateKey });
+              await haSsh.connect();
+              const result = await haSsh.exec("systemctl is-active haproxy");
+              haProxyActive = result.stdout?.trim() === "active";
             }
           } catch { haProxyActive = null; }
+          finally { if (haSsh) await haSsh.disconnect().catch(() => {}); }
         }
       }
 
