@@ -703,6 +703,19 @@ function MonitoringSection({ clusterId, pgServers, haServers }: { clusterId: str
     },
     onError: (err) => toast.error(err.message),
   });
+  const installPgExporter = useMutation({
+    mutationFn: async () => trpcClient.cluster.installPgExporter.mutate({ clusterId }),
+    onSuccess: (data) => {
+      const failed = (data.results || []).filter((r: any) => !r.success);
+      if (failed.length > 0) {
+        toast.warning(`PG Exporter installed with ${failed.length} warnings`);
+      } else {
+        toast.success("PostgreSQL Exporter installed on all PG nodes");
+      }
+      monitoringStatus.refetch();
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
   const [showPrometheus, setShowPrometheus] = useState(false);
   const allServers = [...pgServers, ...haServers];
@@ -718,21 +731,32 @@ function MonitoringSection({ clusterId, pgServers, haServers }: { clusterId: str
         {allServers.map((server: any) => {
           const roleInfo = ROLE_LABELS[server.role] || { label: server.role, defaultType: "Node" };
           const srvStatus = status[server.role];
-          const dotColor = srvStatus === "active" ? "bg-green-500" : srvStatus === "inactive" ? "bg-red-500" : "bg-muted-foreground/30";
-          const statusLabel = srvStatus === "active" ? "Active" : srvStatus === "inactive" ? "Not Installed" : "Unknown";
+          const nodeStatus = srvStatus?.nodeExporter;
+          const pgStatus = srvStatus?.pgExporter;
+          const isPg = server.role?.startsWith("postgresql");
+          const dotColor = (s: string | undefined) => s === "active" ? "bg-green-500" : s === "inactive" ? "bg-red-500" : "bg-muted-foreground/30";
+          const statusBadge = (s: string | undefined) => s === "active" ? "Active" : s === "inactive" ? "Not Installed" : "Unknown";
           return (
             <Card key={server.id} className="cursor-pointer hover:border-primary/50 transition-colors"
               onClick={() => router.push(`/dashboard/servers/${server.id}`)}
             >
-              <CardContent className="flex items-center justify-between py-3">
-                <div className="flex items-center gap-3">
-                  <div className={`size-2.5 rounded-full ${dotColor}`} />
-                  <div>
-                    <p className="font-medium text-sm">{server.cachedHostname || roleInfo.label}</p>
-                    <p className="text-xs text-muted-foreground">{roleInfo.label}</p>
-                  </div>
+              <CardContent className="py-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="font-medium text-sm">{server.cachedHostname || roleInfo.label}</p>
+                  <p className="text-xs text-muted-foreground">{roleInfo.label}</p>
                 </div>
-                <Badge variant={srvStatus === "active" ? "default" : "outline"} className="text-xs">{statusLabel}</Badge>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <div className={`size-2 rounded-full ${dotColor(nodeStatus)}`} />
+                    <span className="text-xs text-muted-foreground">Node</span>
+                  </div>
+                  {isPg && (
+                    <div className="flex items-center gap-1.5">
+                      <div className={`size-2 rounded-full ${dotColor(pgStatus)}`} />
+                      <span className="text-xs text-muted-foreground">PG</span>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           );
@@ -746,6 +770,14 @@ function MonitoringSection({ clusterId, pgServers, haServers }: { clusterId: str
         >
           {installNodeExporter.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <Activity className="size-4 mr-2" />}
           Install Node Exporter
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => installPgExporter.mutate()}
+          disabled={installPgExporter.isPending}
+        >
+          {installPgExporter.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <Activity className="size-4 mr-2" />}
+          Install PG Exporter
         </Button>
         <Button
           variant="outline"

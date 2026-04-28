@@ -1462,26 +1462,31 @@ export const clusterRouter = router({
       if (!cluster) throw new Error("Cluster not found or access denied");
 
       const allServers = cluster.servers.filter((s) => s.privateIpAddress);
-      const targets = allServers.map((s) => {
-        const roleInfo: Record<string, string> = {
-          postgresql_1: "PG Node 1",
-          postgresql_2: "PG Node 2",
-          postgresql_3: "PG Node 3",
-          haproxy_1: "HAProxy Node 1",
-          haproxy_2: "HAProxy Node 2",
-          haproxy_3: "HAProxy Node 3",
-        };
-        return `            - '${s.privateIpAddress}:9100'  # ${roleInfo[s.role] || s.role}`;
-      });
+      const roleInfo: Record<string, string> = {
+        postgresql_1: "PG Node 1",
+        postgresql_2: "PG Node 2",
+        postgresql_3: "PG Node 3",
+        haproxy_1: "HAProxy Node 1",
+        haproxy_2: "HAProxy Node 2",
+        haproxy_3: "HAProxy Node 3",
+      };
+
+      const nodeTargets = allServers.map((s) => `            - '${s.privateIpAddress}:9100'  # ${roleInfo[s.role] || s.role}`);
+      const pgTargets = allServers.filter((s) => s.role?.startsWith("postgresql")).map((s) => `            - '${s.privateIpAddress}:9187'  # ${roleInfo[s.role] || s.role}`);
 
       const jobName = `haforge-${cluster.name.replace(/[^a-zA-Z0-9-]/g, "-").toLowerCase()}`;
 
       const config = `scrape_configs:
-  - job_name: '${jobName}'
+  - job_name: '${jobName}-node'
     scrape_interval: 15s
     static_configs:
       - targets:
-${targets.join("\n")}
+${nodeTargets.join("\n")}
+  - job_name: '${jobName}-postgres'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+${pgTargets.join("\n")}
 `;
       return { config };
     }),
@@ -1566,6 +1571,84 @@ ${targets.join("\n")}
       return { results };
     }),
 
+  installPgExporter: protectedProcedure
+    .input(z.object({ clusterId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const cluster = await db.query.clusters.findFirst({
+        where: and(eq(clusters.id, input.clusterId), eq(clusters.userId, ctx.session.user.id)),
+        with: { servers: true },
+      });
+      if (!cluster) throw new Error("Cluster not found or access denied");
+      if (!cluster.superuserUsername || !cluster.superuserPassword) throw new Error("Cluster PG credentials not found");
+
+      const pgServers = cluster.servers.filter((s) => s.role?.startsWith("postgresql"));
+      const { getPgExporterSteps } = await import("../templates/monitoring/pg-exporter-steps");
+      const pgExporterSteps = getPgExporterSteps(cluster.superuserUsername, cluster.superuserPassword);
+
+      const results: { server: string; success: boolean; error?: string }[] = [];
+
+      for (const server of pgServers) {
+        if (!server.ipAddress || !server.sshKeyId) {
+          results.push({ server: server.role, success: false, error: "No IP or SSH key" });
+          continue;
+        }
+        try {
+          const { SSHExecutor } = await import("../services/ssh-executor");
+          const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, server.sshKeyId) });
+          if (!key?.privateKey) { results.push({ server: server.role, success: false, error: "No private key" }); continue; }
+          const ssh = new SSHExecutor({ host: server.ipAddress, port: server.sshPort || 22, username: server.sshUser || "root", privateKey: key.privateKey });
+          await ssh.connect();
+          try {
+            const check = await ssh.exec("systemctl is-active postgres_exporter 2>/dev/null || echo 'inactive'");
+            if (check.stdout?.trim() === "active") {
+              results.push({ server: server.role, success: true });
+              continue;
+            }
+
+            let stepError: string | null = null;
+            for (const step of pgExporterSteps) {
+              if (stepError) break;
+              for (const cmdGroup of step.commands) {
+                for (const cmd of cmdGroup.commands) {
+                  const resolved = cmd.replace(/\$\{(\w+)\}/g, (_m, key: string) => {
+                    const vars: Record<string, string> = {};
+                    return vars[key] || "";
+                  });
+                  const result = await ssh.exec(`sudo bash -c '${resolved.replace(/'/g, "'\\''")}'`);
+                  if (result.exitCode !== 0 && result.exitCode !== null) {
+                    stepError = `Step "${step.name}" failed: ${result.stderr || result.stdout || "Unknown error"}`;
+                    break;
+                  }
+                }
+              }
+              for (const file of step.files) {
+                await ssh.exec(`sudo tee ${file.path} > /dev/null << 'PGEXPORTER_EOF'\n${file.content}PGEXPORTER_EOF`);
+                if (file.permissions) await ssh.exec(`sudo chmod ${file.permissions} ${file.path}`);
+                if (file.owner) await ssh.exec(`sudo chown ${file.owner} ${file.path}`);
+              }
+              if (step.validation && !stepError) {
+                const vResult = await ssh.exec(`sudo bash -c '${step.validation}'`);
+                if (vResult.stdout?.trim() === "FAILED") {
+                  stepError = `Step "${step.name}" validation failed`;
+                }
+              }
+            }
+            if (stepError) {
+              results.push({ server: server.role, success: false, error: stepError });
+            } else {
+              results.push({ server: server.role, success: true });
+            }
+          } finally {
+            await ssh.disconnect();
+          }
+        } catch (err: any) {
+          results.push({ server: server.role, success: false, error: err.message });
+        }
+      }
+
+      return { results };
+    }),
+
   getMonitoringStatus: protectedProcedure
     .input(z.object({ clusterId: z.string() }))
     .query(async ({ input, ctx }) => {
@@ -1575,27 +1658,34 @@ ${targets.join("\n")}
       });
       if (!cluster) throw new Error("Cluster not found or access denied");
 
-      const status: Record<string, "active" | "inactive" | "unreachable"> = {};
+      const status: Record<string, { nodeExporter: "active" | "inactive" | "unreachable"; pgExporter: "active" | "inactive" | "unreachable" }> = {};
 
       for (const server of cluster.servers) {
         if (!server.ipAddress || !server.sshKeyId) {
-          status[server.role] = "unreachable";
+          status[server.role] = { nodeExporter: "unreachable", pgExporter: "unreachable" };
           continue;
         }
         try {
           const { SSHExecutor } = await import("../services/ssh-executor");
           const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, server.sshKeyId) });
-          if (!key?.privateKey) { status[server.role] = "unreachable"; continue; }
+          if (!key?.privateKey) { status[server.role] = { nodeExporter: "unreachable", pgExporter: "unreachable" }; continue; }
           const ssh = new SSHExecutor({ host: server.ipAddress, port: server.sshPort || 22, username: server.sshUser || "root", privateKey: key.privateKey });
           await ssh.connect();
           try {
-            const result = await ssh.exec("systemctl is-active node_exporter 2>/dev/null || echo 'inactive'");
-            status[server.role] = result.stdout?.trim() === "active" ? "active" : "inactive";
+            const nodeResult = await ssh.exec("systemctl is-active node_exporter 2>/dev/null || echo 'inactive'");
+            const nodeExporter: "active" | "inactive" = nodeResult.stdout?.trim() === "active" ? "active" : "inactive";
+            const isPg = server.role?.startsWith("postgresql");
+            let pgExporter: "active" | "inactive" = "inactive";
+            if (isPg) {
+              const pgResult = await ssh.exec("systemctl is-active postgres_exporter 2>/dev/null || echo 'inactive'");
+              pgExporter = pgResult.stdout?.trim() === "active" ? "active" : "inactive";
+            }
+            status[server.role] = { nodeExporter, pgExporter };
           } finally {
             await ssh.disconnect();
           }
         } catch {
-          status[server.role] = "unreachable";
+          status[server.role] = { nodeExporter: "unreachable", pgExporter: "unreachable" };
         }
       }
 

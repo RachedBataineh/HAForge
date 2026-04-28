@@ -74,6 +74,7 @@ WantedBy=multi-user.target
         },
       ],
       validation: "curl -sf http://localhost:9100/metrics -o /dev/null && echo 'OK' || echo 'FAILED'",
+      files: [],
     },
   ];
 }

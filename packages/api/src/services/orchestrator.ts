@@ -106,7 +106,7 @@ export class Orchestrator extends EventEmitter {
     const vars = await this.buildVariableMap(cluster, serverMap);
 
     // Create step records
-    const steps = isLb ? getLbClusterSteps(!!cluster.enableMonitoring) : getClusterSteps(!!cluster.enableMonitoring);
+    const steps = isLb ? getLbClusterSteps(!!cluster.enableMonitoring, cluster.superuserUsername || "postgres", cluster.superuserPassword || "") : getClusterSteps(!!cluster.enableMonitoring, cluster.superuserUsername || "postgres", cluster.superuserPassword || "");
     const stepRecords: (typeof executionSteps.$inferSelect)[] = [];
 
     for (const step of steps) {
@@ -159,7 +159,7 @@ export class Orchestrator extends EventEmitter {
       for (const stepRecord of stepRecords) {
         if (this.cancelled) { await this.markExecutionFailed("Cancelled by user"); return; }
 
-        const steps = isLb ? getLbClusterSteps(!!cluster.enableMonitoring) : getClusterSteps(!!cluster.enableMonitoring);
+        const steps = isLb ? getLbClusterSteps(!!cluster.enableMonitoring, cluster.superuserUsername || "postgres", cluster.superuserPassword || "") : getClusterSteps(!!cluster.enableMonitoring, cluster.superuserUsername || "postgres", cluster.superuserPassword || "");
         const stepDef = steps.find((s) => s.stepNumber === stepRecord.stepNumber);
         if (!stepDef) continue;
 
