@@ -12,8 +12,8 @@ export const floatingIpRouter = router({
         fetch(`${API}/servers`, { headers: headers(token) }),
       ]);
       if (!ipRes.ok) throw new Error(`Hetzner API error: ${ipRes.status}`);
-      const ipData = await ipRes.json();
-      const srvData = srvRes.ok ? await srvRes.json() : { servers: [] };
+      const ipData = await ipRes.json() as any;
+      const srvData = (srvRes.ok ? await srvRes.json() : { servers: [] }) as any;
       const srvMap = new Map<string, string>();
       for (const s of srvData.servers || []) srvMap.set(String(s.id), s.name);
 
@@ -46,8 +46,8 @@ export const floatingIpRouter = router({
         fetch(`${API}/servers`, { headers: headers(token) }),
       ]);
       if (!ipRes.ok) throw new Error(`Hetzner API error: ${ipRes.status}`);
-      const ip = (await ipRes.json()).floating_ip;
-      const srvData = srvRes.ok ? await srvRes.json() : { servers: [] };
+      const ip = ((await ipRes.json()) as any).floating_ip;
+      const srvData = (srvRes.ok ? await srvRes.json() : { servers: [] }) as any;
 
       const allServers = srvData.servers.map((s: any) => ({
         id: String(s.id),
@@ -82,7 +82,7 @@ export const floatingIpRouter = router({
       if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${API}/pricing`, { headers: headers(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
-      const data = await res.json();
+      const data = await res.json() as any;
       const fip = data?.pricing?.floating_ip;
       return {
         ipv4: parseFloat(fip?.price_monthly?.net || fip?.price_monthly?.gross || "0").toFixed(2),
@@ -114,10 +114,10 @@ export const floatingIpRouter = router({
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Create failed: ${res.status}`);
       }
-      const data = await res.json();
+      const data = await res.json() as any;
       return { id: String(data.floating_ip.id), ip: data.floating_ip.ip };
     }),
 
@@ -131,7 +131,7 @@ export const floatingIpRouter = router({
         headers: headers(token),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Delete failed: ${res.status}`);
       }
       return { success: true };
@@ -148,7 +148,7 @@ export const floatingIpRouter = router({
         body: JSON.stringify({ server: Number(input.serverId) }),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Assign failed: ${res.status}`);
       }
       return { success: true };
@@ -165,7 +165,7 @@ export const floatingIpRouter = router({
         body: JSON.stringify({}),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Unassign failed: ${res.status}`);
       }
       return { success: true };
@@ -182,7 +182,7 @@ export const floatingIpRouter = router({
         body: JSON.stringify({ ip: input.ip, dns_ptr: input.dnsPtr }),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Change DNS failed: ${res.status}`);
       }
       return { success: true };

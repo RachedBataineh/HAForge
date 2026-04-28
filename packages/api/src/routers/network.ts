@@ -12,8 +12,8 @@ export const networkRouter = router({
         fetch(`${API}/servers`, { headers: headers(token) }),
       ]);
       if (!netRes.ok) throw new Error(`Hetzner API error: ${netRes.status}`);
-      const netData = await netRes.json();
-      const srvData = srvRes.ok ? await srvRes.json() : { servers: [] };
+      const netData = await netRes.json() as any;
+      const srvData = (srvRes.ok ? await srvRes.json() : { servers: [] }) as any;
       const srvMap = new Map<string, string>();
       for (const s of srvData.servers || []) srvMap.set(String(s.id), s.name);
 
@@ -50,9 +50,9 @@ export const networkRouter = router({
         fetch(`${API}/load_balancers`, { headers: headers(token) }),
       ]);
       if (!netRes.ok) throw new Error(`Hetzner API error: ${netRes.status}`);
-      const n = (await netRes.json()).network;
-      const srvData = srvRes.ok ? await srvRes.json() : { servers: [] };
-      const lbData = lbRes.ok ? await lbRes.json() : { load_balancers: [] };
+      const n = ((await netRes.json()) as any).network;
+      const srvData = (srvRes.ok ? await srvRes.json() : { servers: [] }) as any;
+      const lbData = (lbRes.ok ? await lbRes.json() : { load_balancers: [] }) as any;
 
       const srvMap = new Map<string, any>();
       for (const s of srvData.servers || []) {
@@ -127,10 +127,10 @@ export const networkRouter = router({
         }),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Create failed: ${res.status}`);
       }
-      const data = await res.json();
+      const data = await res.json() as any;
       return { id: String(data.network.id), name: data.network.name };
     }),
 
@@ -144,7 +144,7 @@ export const networkRouter = router({
         headers: headers(token),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Delete failed: ${res.status}`);
       }
       return { success: true };
@@ -170,7 +170,7 @@ export const networkRouter = router({
         }),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Add subnet failed: ${res.status}`);
       }
       return { success: true };
@@ -187,7 +187,7 @@ export const networkRouter = router({
         body: JSON.stringify({ ip_range: input.ipRange }),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Delete subnet failed: ${res.status}`);
       }
       return { success: true };
@@ -210,7 +210,7 @@ export const networkRouter = router({
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Attach server failed: ${res.status}`);
       }
       return { success: true };
@@ -227,7 +227,7 @@ export const networkRouter = router({
         body: JSON.stringify({ network: Number(input.networkId) }),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Detach server failed: ${res.status}`);
       }
       return { success: true };
@@ -246,7 +246,7 @@ export const networkRouter = router({
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Attach LB failed: ${res.status}`);
       }
       return { success: true };
@@ -263,7 +263,7 @@ export const networkRouter = router({
         body: JSON.stringify({ network: Number(input.networkId) }),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Detach LB failed: ${res.status}`);
       }
       return { success: true };

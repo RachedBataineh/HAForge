@@ -71,14 +71,14 @@ app.get(
     }
 
     return {
-      onOpen(event: any, ws: any) {
+      onOpen(_event: any, ws: any) {
 
         const ssh = new Client();
         (ws as any).__ssh = ssh;
 
         ssh
           .on("ready", () => {
-            ssh.windowChanged = (rows: number, cols: number) => {
+            (ssh as any).windowChanged = (_rows: number, _cols: number) => {
               // Will be set up below
             };
             ssh.shell(
@@ -195,7 +195,7 @@ app.get(
         })();
       },
       onMessage(event: any, ws: any) {
-        const stream = ws.__stream;
+        const stream = (ws as any).__stream;
         if (!stream) return;
 
         const msg = event.data;
@@ -212,7 +212,7 @@ app.get(
           stream.write(msg);
         }
       },
-      onClose() {
+      onClose(_event: any, ws: any) {
         const ssh = (ws as any).__ssh;
         const stream = (ws as any).__stream;
         if (stream) stream.close();

@@ -5,7 +5,7 @@ export function generatePassword(length = 32): string {
   const bytes = crypto.getRandomValues(new Uint8Array(length));
   let result = "";
   for (let i = 0; i < length; i++) {
-    result += chars[bytes[i] % chars.length];
+    result += chars[bytes[i]! % chars.length];
   }
   return result;
 }
@@ -41,7 +41,7 @@ export function parseServerInfo(stdout: string): ServerInfo {
   const extract = (tag: string) => {
     const regex = new RegExp(`---${tag}---\\s*\\n([\\s\\S]*?)---END---`);
     const match = stdout.match(regex);
-    return match ? match[1].trim() : "";
+    return match ? match[1]!.trim() : "";
   };
   const diskParts = extract("DISK").split("|");
   return {
@@ -53,9 +53,9 @@ export function parseServerInfo(stdout: string): ServerInfo {
     kernel: extract("KERNEL"),
     uptime: extract("UPTIME"),
     timezone: extract("TIMEZONE"),
-    diskTotal: diskParts[0] || "",
-    diskUsed: diskParts[1] || "",
-    diskFree: diskParts[2] || "",
-    diskPercent: diskParts[3] || "",
+    diskTotal: diskParts[0] ?? "",
+    diskUsed: diskParts[1] ?? "",
+    diskFree: diskParts[2] ?? "",
+    diskPercent: diskParts[3] ?? "",
   };
 }

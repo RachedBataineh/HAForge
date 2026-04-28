@@ -9,7 +9,7 @@ export const firewallRouter = router({
       if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${API}/firewalls`, { headers: headers(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
-      const data = await res.json();
+      const data = await res.json() as any;
       return (data.firewalls || []).map((fw: any) => ({
         id: String(fw.id),
         name: fw.name || "",
@@ -30,8 +30,8 @@ export const firewallRouter = router({
         fetch(`${API}/servers`, { headers: headers(token) }),
       ]);
       if (!fwRes.ok) throw new Error(`Hetzner API error: ${fwRes.status}`);
-      const fw = (await fwRes.json()).firewall;
-      const srvData = srvRes.ok ? await srvRes.json() : { servers: [] };
+      const fw = ((await fwRes.json()) as any).firewall;
+      const srvData = (srvRes.ok ? await srvRes.json() : { servers: [] }) as any;
 
       const srvMap = new Map<string, any>();
       for (const s of srvData.servers || []) srvMap.set(String(s.id), s);
@@ -137,10 +137,10 @@ export const firewallRouter = router({
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Create failed: ${res.status}`);
       }
-      const data = await res.json();
+      const data = await res.json() as any;
       return { id: String(data.firewall.id) };
     }),
 
@@ -169,14 +169,14 @@ export const firewallRouter = router({
           body: JSON.stringify({ name: input.name }),
         });
         if (!res.ok) {
-          const err = await res.json();
+          const err = await res.json() as any;
           throw new Error(err.error?.message || `Update name failed: ${res.status}`);
         }
       }
 
       // Update rules via set_rules action (required for applied firewalls)
       if (input.rules) {
-        const rules = input.rules.map((r, idx) => {
+        const rules = input.rules.map((r) => {
           const rule: any = {
             direction: r.direction,
             protocol: r.protocol,
@@ -203,7 +203,7 @@ export const firewallRouter = router({
           body: JSON.stringify({ rules }),
         });
         if (!res.ok) {
-          const err = await res.json();
+          const err = await res.json() as any;
           throw new Error(err.error?.message || `Update rules failed: ${res.status}`);
         }
       }
@@ -221,7 +221,7 @@ export const firewallRouter = router({
         headers: headers(token),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Delete failed: ${res.status}`);
       }
       return { success: true };
@@ -246,7 +246,7 @@ export const firewallRouter = router({
         }),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Apply failed: ${res.status}`);
       }
       return { success: true };
@@ -271,7 +271,7 @@ export const firewallRouter = router({
         }),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Remove failed: ${res.status}`);
       }
       return { success: true };

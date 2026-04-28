@@ -1,4 +1,4 @@
-import type { StepDefinition, TargetRole } from "./types";
+import type { StepDefinition } from "./types";
 import { getPostgresSteps } from "./postgres/postgres-steps";
 import { getHaproxySteps } from "./haproxy/haproxy-steps";
 import { getHardeningSteps } from "./hardening/hardening-steps";

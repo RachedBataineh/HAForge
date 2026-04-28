@@ -110,7 +110,7 @@ function generateNodeCert(
   cert.publicKey = keys.publicKey;
   // Generate a positive serial number: ensure first hex digit is 0-7 so Go's x509 parser sees it as positive
   const serialHex = forge.util.bytesToHex(forge.random.getBytesSync(4));
-  const firstDigit = parseInt(serialHex[0], 16);
+  const firstDigit = parseInt(serialHex[0]!, 16);
   cert.serialNumber = (firstDigit >= 8 ? "0" : "") + serialHex;
   cert.validity.notBefore = new Date();
   cert.validity.notAfter = new Date();

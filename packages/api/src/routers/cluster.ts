@@ -13,7 +13,7 @@ export const clusterRouter = router({
       if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${HETZNER_API}/floating_ips`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
-      const data = await res.json();
+      const data = await res.json() as any;
       return data.floating_ips.map((ip: any) => ({
         id: String(ip.id),
         ip: ip.ip,
@@ -78,7 +78,7 @@ export const clusterRouter = router({
       if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${HETZNER_API}/servers`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
-      const data = await res.json();
+      const data = await res.json() as any;
 
       const { sshKeyMap, sshKeyNameMap } = await getServerSshKeyMaps(ctx.session.user.id);
 
@@ -107,7 +107,7 @@ export const clusterRouter = router({
       if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${HETZNER_API}/load_balancers`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
-      const data = await res.json();
+      const data = await res.json() as any;
       return data.load_balancers.map((lb: any) => ({
         id: String(lb.id),
         name: lb.name,
@@ -213,10 +213,10 @@ export const clusterRouter = router({
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(`Hetzner API error: ${res.status} - ${err.error?.message || "Unknown error"}`);
       }
-      const data = await res.json();
+      const data = await res.json() as any;
       return {
         id: String(data.load_balancer.id),
         name: data.load_balancer.name,
@@ -230,7 +230,7 @@ export const clusterRouter = router({
       if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${HETZNER_API}/load_balancer_types`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
-      const data = await res.json();
+      const data = await res.json() as any;
       return (data.load_balancer_types || []).map((t: any) => ({
         id: String(t.id),
         name: t.name,
@@ -252,7 +252,7 @@ export const clusterRouter = router({
         headers: hetznerHeaders(token),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Delete failed: ${res.status}`);
       }
       return { success: true };
@@ -286,7 +286,7 @@ export const clusterRouter = router({
           headers: hetznerHeaders(token),
           body: JSON.stringify({ type: input.algorithm }),
         });
-        if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || `Update algorithm failed: ${res.status}`); }
+        if (!res.ok) { const err = await res.json() as any; throw new Error(err.error?.message || `Update algorithm failed: ${res.status}`); }
       }
 
       // Update service using the update_service action
@@ -318,7 +318,7 @@ export const clusterRouter = router({
             health_check: hc,
           }),
         });
-        if (!updateRes.ok) { const err = await updateRes.json(); throw new Error(err.error?.message || `Update service failed: ${updateRes.status}`); }
+        if (!updateRes.ok) { const err = await updateRes.json() as any; throw new Error(err.error?.message || `Update service failed: ${updateRes.status}`); }
       }
       return { success: true };
     }),
@@ -329,7 +329,7 @@ export const clusterRouter = router({
       if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${HETZNER_API}/networks`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
-      const data = await res.json();
+      const data = await res.json() as any;
       return (data.networks || []).map((n: any) => ({
         id: String(n.id),
         name: n.name,
@@ -348,7 +348,7 @@ export const clusterRouter = router({
         fetch(`${HETZNER_API}/servers`, { headers: hetznerHeaders(token) }),
       ]);
       if (!lbRes.ok) throw new Error(`Hetzner API error: ${lbRes.status}`);
-      const data = await lbRes.json();
+      const data = await lbRes.json() as any;
       const lb = data.load_balancer;
 
       // Build server name + status map
@@ -356,7 +356,7 @@ export const clusterRouter = router({
       const serverStatusMap = new Map<string, string>();
       const serverIpMap = new Map<string, string>();
       if (serversRes.ok) {
-        const serversData = await serversRes.json();
+        const serversData = await serversRes.json() as any;
         for (const srv of serversData.servers || []) {
           serverNameMap.set(String(srv.id), srv.name);
           serverStatusMap.set(String(srv.id), srv.status);
@@ -473,7 +473,7 @@ export const clusterRouter = router({
             if (res.ok) {
               results.push({ resource: `Server ${server.hetznerServerId}`, action: "deleted", status: "ok" });
             } else {
-              const err = await res.json().catch(() => ({}));
+              const err = (await res.json().catch(() => ({}))) as any;
               results.push({ resource: `Server ${server.hetznerServerId}`, action: "delete", status: "failed", error: err.error?.message || `HTTP ${res.status}` });
             }
           } catch (err: any) {
@@ -492,7 +492,7 @@ export const clusterRouter = router({
           if (res.ok) {
             results.push({ resource: `Load Balancer ${cluster.loadBalancerId}`, action: "deleted", status: "ok" });
           } else {
-            const err = await res.json().catch(() => ({}));
+            const err = (await res.json().catch(() => ({}))) as any;
             results.push({ resource: `Load Balancer ${cluster.loadBalancerId}`, action: "delete", status: "failed", error: err.error?.message || `HTTP ${res.status}` });
           }
         } catch (err: any) {
@@ -510,7 +510,7 @@ export const clusterRouter = router({
           if (res.ok) {
             results.push({ resource: `Floating IP ${cluster.floatingIp}`, action: "released", status: "ok" });
           } else {
-            const err = await res.json().catch(() => ({}));
+            const err = (await res.json().catch(() => ({}))) as any;
             results.push({ resource: `Floating IP ${cluster.floatingIp}`, action: "release", status: "failed", error: err.error?.message || `HTTP ${res.status}` });
           }
         } catch (err: any) {
@@ -572,7 +572,7 @@ export const clusterRouter = router({
             if (res.ok) {
               results.push({ resource: `Server ${server.hetznerServerId}`, action: "rebuilt with fresh OS", status: "ok" });
             } else {
-              const err = await res.json().catch(() => ({}));
+              const err = (await res.json().catch(() => ({}))) as any;
               results.push({ resource: `Server ${server.hetznerServerId}`, action: "rebuild", status: "failed", error: err.error?.message || `HTTP ${res.status}` });
             }
           } catch (err: any) {
@@ -591,7 +591,7 @@ export const clusterRouter = router({
           if (res.ok) {
             results.push({ resource: `Load Balancer ${cluster.loadBalancerId}`, action: "deleted", status: "ok" });
           } else {
-            const err = await res.json().catch(() => ({}));
+            const err = (await res.json().catch(() => ({}))) as any;
             results.push({ resource: `Load Balancer ${cluster.loadBalancerId}`, action: "delete", status: "failed", error: err.error?.message || `HTTP ${res.status}` });
           }
         } catch (err: any) {
@@ -609,7 +609,7 @@ export const clusterRouter = router({
           if (res.ok) {
             results.push({ resource: `Floating IP ${cluster.floatingIp}`, action: "unassigned (kept in account)", status: "ok" });
           } else {
-            const err = await res.json().catch(() => ({}));
+            const err = (await res.json().catch(() => ({}))) as any;
             results.push({ resource: `Floating IP ${cluster.floatingIp}`, action: "unassign", status: "failed", error: err.error?.message || `HTTP ${res.status}` });
           }
         } catch (err: any) {
@@ -696,7 +696,7 @@ export const clusterRouter = router({
           if (token) {
             const res = await fetch(`${HETZNER_API}/servers/${server.hetznerServerId}`, { headers: hetznerHeaders(token) });
             if (res.ok) {
-              const data = await res.json();
+              const data = await res.json() as any;
               serverName = data.server?.name || null;
               serverStatus = data.server?.status || null;
             }
@@ -734,7 +734,7 @@ export const clusterRouter = router({
         if (hzIds.length > 0) {
           const res = await fetch("https://api.hetzner.cloud/v1/servers", { headers: { Authorization: `Bearer ${token}` } });
           if (res.ok) {
-            const data = await res.json();
+            const data = await res.json() as any;
             const nameMap: Record<string, string> = {};
             const statusMap: Record<string, string> = {};
             for (const s of data.servers || []) {
@@ -783,7 +783,7 @@ export const clusterRouter = router({
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         });
         if (res.ok) {
-          const data = await res.json();
+          const data = await res.json() as any;
           for (const srv of data.servers || []) {
             const hetznerId = String(srv.id);
             const keyId = sshKeyMap.get(hetznerId) || null;
@@ -802,7 +802,7 @@ export const clusterRouter = router({
             });
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Failed to fetch Hetzner servers:", err);
       }
     }
@@ -816,7 +816,7 @@ export const clusterRouter = router({
       if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${HETZNER_API}/server_types`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
-      const data = await res.json();
+      const data = await res.json() as any;
       return data.server_types.map((t: any) => ({
         id: t.id,
         name: t.name,
@@ -835,7 +835,7 @@ export const clusterRouter = router({
       if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${HETZNER_API}/locations`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
-      const data = await res.json();
+      const data = await res.json() as any;
       return data.locations.map((l: any) => ({
         id: String(l.id),
         name: l.name,
@@ -853,7 +853,7 @@ export const clusterRouter = router({
       const arch = input.architecture || "x86";
       const res = await fetch(`${HETZNER_API}/images?type=system&per_page=50`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
-      const data = await res.json();
+      const data = await res.json() as any;
       const seen = new Set<string>();
       return data.images
         .filter((i: any) => i.architecture === arch)
@@ -902,10 +902,10 @@ export const clusterRouter = router({
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
+        const err = (await res.json().catch(() => ({}))) as any;
         throw new Error(err.error?.message || `Hetzner API error: ${res.status}`);
       }
-      const data = await res.json();
+      const data = await res.json() as any;
       const srv = data.server;
       return {
         id: String(srv.id),
@@ -921,7 +921,7 @@ export const clusterRouter = router({
       if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${HETZNER_API}/ssh_keys`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
-      const data = await res.json();
+      const data = await res.json() as any;
       return data.ssh_keys.map((k: any) => ({
         id: String(k.id),
         name: k.name,
@@ -949,7 +949,7 @@ export const clusterRouter = router({
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json() as any;
         for (const k of data.ssh_keys || []) {
           const hetznerId = String(k.id);
 
@@ -974,7 +974,7 @@ export const clusterRouter = router({
           }
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to sync Hetzner SSH keys:", err);
     }
 
@@ -1016,10 +1016,10 @@ export const clusterRouter = router({
         body: JSON.stringify({ name: input.name, public_key: input.publicKey }),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
+        const err = (await res.json().catch(() => ({}))) as any;
         throw new Error(err.error?.message || `Hetzner API error: ${res.status}`);
       }
-      const data = await res.json();
+      const data = await res.json() as any;
 
       // Save to DB with private key
       await db.insert(sshKeys).values({
@@ -1051,7 +1051,7 @@ export const clusterRouter = router({
         headers: hetznerHeaders(token),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
+        const err = (await res.json().catch(() => ({}))) as any;
         throw new Error(err.error?.message || `Hetzner API error: ${res.status}`);
       }
       // Delete from DB too
@@ -1131,7 +1131,7 @@ export const clusterRouter = router({
       if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
       const res = await fetch(`${HETZNER_API}/servers/${input.serverId}`, { headers: hetznerHeaders(token) });
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
-      const data = await res.json();
+      const data = await res.json() as any;
       const s = data.server;
       return {
         id: String(s.id),
@@ -1166,7 +1166,7 @@ export const clusterRouter = router({
         headers: hetznerHeaders(token),
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json() as any;
         throw new Error(err.error?.message || `Action failed: ${res.status}`);
       }
       return { success: true };
@@ -1283,7 +1283,7 @@ export const clusterRouter = router({
         body: JSON.stringify({ image: input.image }),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
+        const err = (await res.json().catch(() => ({}))) as any;
         throw new Error(err.error?.message || `Rebuild failed: ${res.status}`);
       }
       // Clear cached info since it's now a fresh OS
@@ -1311,7 +1311,7 @@ export const clusterRouter = router({
         headers: hetznerHeaders(token),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
+        const err = (await res.json().catch(() => ({}))) as any;
         throw new Error(err.error?.message || `Delete failed: ${res.status}`);
       }
       // Also remove from DB if linked
@@ -1347,7 +1347,7 @@ export const clusterRouter = router({
           headers: hetznerHeaders(apiToken),
         });
         if (srvRes.ok) {
-          const srvData = await srvRes.json();
+          const srvData = await srvRes.json() as any;
           for (const srv of srvData.servers || []) {
             serverNames[String(srv.id)] = srv.name;
             serverStatus[String(srv.id)] = srv.status;
@@ -1421,10 +1421,10 @@ export const clusterRouter = router({
             headers: hetznerHeaders(apiToken),
           });
           if (lbRes.ok) {
-            const lbData = await lbRes.json();
+            const lbData = await lbRes.json() as any;
             lbName = lbData.load_balancer?.name || null;
           }
-        } catch (err) { console.error("Failed to fetch LB name:", err); }
+        } catch (err: any) { console.error("Failed to fetch LB name:", err); }
       }
 
       // Check HAProxy service status on HA nodes

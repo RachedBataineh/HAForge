@@ -166,7 +166,7 @@ export class Orchestrator extends EventEmitter {
         // After hardening steps: disconnect root, reconnect as admin user
         if (stepRecord.stepNumber === hardeningStepCount + 1) {
           await this.disconnectAll();
-          for (const [id, server] of serverMap) {
+          for (const [, server] of serverMap) {
             server.sshUser = adminUsername;
           }
           await this.connectAllServers(serverMap);
@@ -391,7 +391,7 @@ export class Orchestrator extends EventEmitter {
 
   private async connectAllServers(serverMap: Map<string, any>) {
     // Resolve SSH private keys from ssh_keys table via sshKeyId
-    for (const [id, server] of serverMap) {
+    for (const [, server] of serverMap) {
       if (server.sshKeyId) {
         const key = await db.query.sshKeys.findFirst({
           where: eq(sshKeys.id, server.sshKeyId),
