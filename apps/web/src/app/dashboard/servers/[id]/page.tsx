@@ -35,9 +35,13 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
   const isHetznerOnly = serverId.startsWith("hetzner-");
   const hetznerId = isHetznerOnly ? serverId.replace("hetzner-", "") : null;
 
-  // DB server data
-  const servers = useQuery(trpc.cluster.allServers.queryOptions());
-  const dbServer = ((servers.data ?? []) as any[]).find((s: any) => s.id === serverId);
+  // DB server data - use dedicated query instead of loading all servers
+  const serverQuery = useQuery(
+    trpc.cluster.getServerById.queryOptions(
+      { serverId },
+      { enabled: !isHetznerOnly },
+    ),
+  );
 
   // Hetzner-only: look up by hetzner server ID in DB
   const dbServerByHetzner = useQuery(
@@ -48,13 +52,10 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
   );
 
   // Hetzner API info
-  const profile = useQuery(trpc.settings.getProfile.queryOptions());
-  const hasToken = !!profile.data?.hetznerApiToken;
-
   const hetznerInfo = useQuery(
     trpc.cluster.hetznerServerInfo.queryOptions(
-      { serverId: dbServer?.hetznerServerId || hetznerId || "" },
-      { enabled: !!(dbServer?.hetznerServerId || hetznerId) },
+      { serverId: serverQuery.data?.hetznerServerId || hetznerId || "" },
+      { enabled: !!(serverQuery.data?.hetznerServerId || hetznerId) },
     ),
   );
 
@@ -62,6 +63,7 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
 
   // Determine effective server record
   const hetznerPrivateIp = hetznerInfo.data?.privateIps?.[0] || "";
+  const dbServer = serverQuery.data;
   const server = isHetznerOnly
     ? (dbServerByHetzner.data
         ? { ...dbServerByHetzner.data, ipAddress: hetznerInfo.data?.publicIp || dbServerByHetzner.data.ipAddress, privateIpAddress: hetznerPrivateIp || dbServerByHetzner.data.privateIpAddress, hetznerServerId: hetznerId }
@@ -88,7 +90,7 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
     onError: (err) => toast.error(`Failed: ${err.message}`),
   });
 
-  const isLoading = servers.isLoading || (isHetznerOnly && dbServerByHetzner.isLoading);
+  const isLoading = serverQuery.isLoading || (isHetznerOnly && dbServerByHetzner.isLoading);
 
   const displayName = hetznerInfo.data?.name
     || dbServer?.serverName
@@ -207,7 +209,7 @@ export default function ServerDetailPage({ params }: { params: Promise<{ id: str
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-6">
-        {activeTab === "overview" && server && <OverviewTab server={server} serverIsOn={serverIsOn} hetznerInfo={hetznerInfo.data} onServerDataChange={() => { servers.refetch(); hetznerInfo.refetch(); }} />}
+        {activeTab === "overview" && server && <OverviewTab server={server} serverIsOn={serverIsOn} hetznerInfo={hetznerInfo.data} onServerDataChange={() => { serverQuery.refetch(); hetznerInfo.refetch(); }} />}
         {activeTab === "terminal" && server && <Terminal serverId={server.id} serverIsOn={serverIsOn} />}
         {activeTab === "sshkey" && (
           <SshKeyTab

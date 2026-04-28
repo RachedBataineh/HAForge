@@ -4,17 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
 import { SSHExecutor } from "../services/ssh-executor";
-
-async function verifyServerOwnership(serverId: string, userId: string) {
-  const server = await db.query.servers.findFirst({ where: eq(servers.id, serverId) });
-  if (!server) throw new Error("Server not found");
-  if (server.userId && server.userId !== userId) throw new Error("Access denied");
-  if (!server.userId && server.clusterId) {
-    const cluster = await db.query.clusters.findFirst({ where: eq(clusters.id, server.clusterId) });
-    if (cluster && cluster.userId !== userId) throw new Error("Access denied");
-  }
-  return server;
-}
+import { verifyServerOwnership } from "./shared";
 
 export const serverRouter = router({
   add: protectedProcedure

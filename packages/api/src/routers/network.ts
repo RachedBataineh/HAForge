@@ -1,20 +1,6 @@
-import { protectedProcedure } from "../index";
+import { protectedProcedure, router } from "../index";
 import { z } from "zod";
-import { router } from "../index";
-import { db } from "@HAForge/db";
-import { user } from "@HAForge/db";
-import { eq } from "drizzle-orm";
-
-const API = "https://api.hetzner.cloud/v1";
-const headers = (token: string) => ({
-  Authorization: `Bearer ${token}`,
-  "Content-Type": "application/json",
-});
-
-async function getUserApiToken(userId: string): Promise<string> {
-  const u = await db.query.user.findFirst({ where: eq(user.id, userId) });
-  return u?.hetznerApiToken || "";
-}
+import { HETZNER_API as API, hetznerHeaders as headers, getUserApiToken } from "./shared";
 
 export const networkRouter = router({
   list: protectedProcedure

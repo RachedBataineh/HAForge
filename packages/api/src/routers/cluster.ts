@@ -3,60 +3,8 @@ import { clusters, executions, servers, sshKeys, user } from "@HAForge/db";
 import { eq, ne, and } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
-import { SSHExecutor } from "../services/ssh-executor";
 import { SERVER_INFO_SCRIPT, parseServerInfo } from "../services/server-info";
-
-const HETZNER_API = "https://api.hetzner.cloud/v1";
-
-async function getUserApiToken(userId: string): Promise<string> {
-  const u = await db.query.user.findFirst({ where: eq(user.id, userId) });
-  return u?.hetznerApiToken || "";
-}
-
-const hetznerHeaders = (token: string) => ({
-  Authorization: `Bearer ${token}`,
-  "Content-Type": "application/json",
-});
-
-async function verifyServerOwnership(serverId: string, userId: string) {
-  const server = await db.query.servers.findFirst({ where: eq(servers.id, serverId) });
-  if (!server) throw new Error("Server not found");
-  if (server.userId && server.userId !== userId) throw new Error("Access denied");
-  if (!server.userId && server.clusterId) {
-    const cluster = await db.query.clusters.findFirst({ where: eq(clusters.id, server.clusterId) });
-    if (cluster && cluster.userId !== userId) throw new Error("Access denied");
-  }
-  return server;
-}
-
-async function getServerSshKeyMaps(userId?: string) {
-  const dbServerRecords = userId
-    ? await db.query.servers.findMany({ where: eq(servers.userId, userId) })
-    : await db.query.servers.findMany();
-  const sshKeyMap = new Map<string, string | null>();
-  const sshPrivateKeyMap = new Map<string, string | null>();
-  for (const s of dbServerRecords) {
-    if (s.hetznerServerId) {
-      sshKeyMap.set(s.hetznerServerId, s.sshKeyId);
-    }
-  }
-  const allSshKeys = userId
-    ? await db.query.sshKeys.findMany({ where: eq(sshKeys.userId, userId) })
-    : await db.query.sshKeys.findMany();
-  const sshKeyNameMap = new Map<string, string>();
-  const sshPrivateKeyByName = new Map<string, string | null>();
-  for (const k of allSshKeys) {
-    sshKeyNameMap.set(k.id, k.name);
-  }
-  // Resolve private keys
-  for (const s of dbServerRecords) {
-    if (s.hetznerServerId && s.sshKeyId) {
-      const key = allSshKeys.find((k) => k.id === s.sshKeyId);
-      if (key?.privateKey) sshPrivateKeyMap.set(s.hetznerServerId, key.privateKey);
-    }
-  }
-  return { sshKeyMap, sshKeyNameMap, sshPrivateKeyMap };
-}
+import { HETZNER_API, hetznerHeaders, getUserApiToken, verifyServerOwnership, getServerSshKeyMaps } from "./shared";
 
 export const clusterRouter = router({
   hetznerFloatingIps: protectedProcedure
@@ -77,9 +25,9 @@ export const clusterRouter = router({
 
   usedServerIds: protectedProcedure
     .input(z.object({ excludeClusterId: z.string().optional() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const allClusters = await db.query.clusters.findMany({
-        where: ne(clusters.status, "draft"),
+        where: and(ne(clusters.status, "draft"), eq(clusters.userId, ctx.session.user.id)),
         with: { servers: true },
       });
       const ids = new Set<string>();
@@ -132,7 +80,7 @@ export const clusterRouter = router({
       if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
       const data = await res.json();
 
-      const { sshKeyMap, sshKeyNameMap, sshPrivateKeyMap } = await getServerSshKeyMaps(ctx.session.user.id);
+      const { sshKeyMap, sshKeyNameMap } = await getServerSshKeyMaps(ctx.session.user.id);
 
       return data.servers.map((srv: any) => {
         const hetznerId = String(srv.id);
@@ -149,7 +97,6 @@ export const clusterRouter = router({
           location: srv.datacenter?.location?.name || "",
           sshKeyId: keyId,
           sshKeyName: keyId ? sshKeyNameMap.get(keyId) || null : null,
-          sshPrivateKey: sshPrivateKeyMap.get(hetznerId) || null,
         };
       });
     }),
@@ -729,6 +676,44 @@ export const clusterRouter = router({
     return result;
   }),
 
+  getServerById: protectedProcedure
+    .input(z.object({ serverId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const server = await db.query.servers.findFirst({
+        where: eq(servers.id, input.serverId),
+        with: { cluster: true, sshKey: true },
+      });
+      if (!server) return null;
+      const ownerId = server.userId || server.cluster?.userId;
+      if (ownerId && ownerId !== ctx.session.user.id) return null;
+
+      // Enrich with Hetzner server name/status
+      let serverName: string | null = null;
+      let serverStatus: string | null = null;
+      if (server.hetznerServerId) {
+        try {
+          const token = await getUserApiToken(ctx.session.user.id);
+          if (token) {
+            const res = await fetch(`${HETZNER_API}/servers/${server.hetznerServerId}`, { headers: hetznerHeaders(token) });
+            if (res.ok) {
+              const data = await res.json();
+              serverName = data.server?.name || null;
+              serverStatus = data.server?.status || null;
+            }
+          }
+        } catch {}
+      }
+
+      return {
+        ...server,
+        clusterName: server.cluster?.name || null,
+        clusterStatus: server.cluster?.status || null,
+        clusterType: server.cluster?.clusterType || null,
+        serverName,
+        serverStatus,
+      };
+    }),
+
   allServers: protectedProcedure.query(async ({ ctx }) => {
     const result = await db.query.clusters.findMany({
       where: eq(clusters.userId, ctx.session.user.id),
@@ -741,7 +726,6 @@ export const clusterRouter = router({
       }
     }
     // Enrich with Hetzner server names and power status
-    const haProxyPausedClusters = new Set<string>();
     try {
       const u = await db.query.user.findFirst({ where: eq(user.id, ctx.session.user.id) });
       const token = u?.hetznerApiToken || "";
@@ -766,31 +750,7 @@ export const clusterRouter = router({
           }
         }
       }
-      // Check HAProxy active status per cluster
-      const clusterIds = [...new Set(allServersList.map((s: any) => s.clusterId).filter(Boolean))];
-      for (const cid of clusterIds) {
-        const haServers = allServersList.filter((s: any) => s.clusterId === cid && s.role?.startsWith("haproxy") && s.ipAddress && s.sshKeyId && s.serverStatus === "running");
-        const checkServer = haServers[0];
-        if (checkServer) {
-          try {
-            const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, checkServer.sshKeyId!) });
-            if (key?.privateKey) {
-              const ssh = new SSHExecutor({ host: checkServer.ipAddress!, port: checkServer.sshPort || 22, username: checkServer.sshUser || "root", privateKey: key.privateKey });
-              await ssh.connect();
-              try {
-                const result = await ssh.exec("systemctl is-active haproxy");
-                if (result.stdout?.trim() !== "active") haProxyPausedClusters.add(cid);
-              } finally {
-                await ssh.disconnect();
-              }
-            }
-          } catch { /* ignore SSH failures */ }
-        }
-      }
     } catch {}
-    for (const s of allServersList) {
-      if (haProxyPausedClusters.has(s.clusterId) && s.role?.startsWith("haproxy")) s.haProxyPaused = true;
-    }
     return allServersList;
   }),
 
@@ -813,7 +773,7 @@ export const clusterRouter = router({
       }
     }
 
-    const { sshKeyMap, sshKeyNameMap, sshPrivateKeyMap } = await getServerSshKeyMaps();
+    const { sshKeyMap, sshKeyNameMap } = await getServerSshKeyMaps(ctx.session.user.id);
 
     const allServers: any[] = [];
 
@@ -839,7 +799,6 @@ export const clusterRouter = router({
               used: usedServerIds.has(hetznerId),
               sshKeyId: keyId,
               sshKeyName: keyId ? sshKeyNameMap.get(keyId) || null : null,
-              sshPrivateKey: sshPrivateKeyMap.get(hetznerId) || null,
             });
           }
         }
@@ -1414,7 +1373,6 @@ export const clusterRouter = router({
       }
 
       let ssh: any = null;
-      const connectedTo: string | null = null;
       try {
         // Find an online server to SSH into
         for (const candidate of onlineServers) {

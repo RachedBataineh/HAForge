@@ -175,18 +175,12 @@ export default function ServersPage() {
                         {server.clusterName}
                       </button>
                       <Badge variant={
-                          server.haProxyPaused ? "outline"
-                          : server.serverStatus === "running" ? "default"
+                          server.serverStatus === "running" ? "default"
                           : server.serverStatus === "off" ? "destructive"
                           : "outline"
                         }
-                        className={
-                          server.haProxyPaused ? "border-orange-500/50 text-orange-600"
-                          : ""
-                        }
                       >
-                        {server.haProxyPaused ? "Paused"
-                          : server.serverStatus === "running" ? "Running"
+                        {server.serverStatus === "running" ? "Running"
                           : server.serverStatus === "off" ? "Off"
                           : server.serverStatus || "Unknown"
                         }
