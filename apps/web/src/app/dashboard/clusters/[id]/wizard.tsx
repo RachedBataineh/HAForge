@@ -987,9 +987,9 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
             <Separator />
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-medium">Monitoring (Node Exporter)</h3>
+                <h3 className="text-sm font-medium">Monitoring</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Install Node Exporter on all servers for Prometheus/Grafana monitoring
+                  Install Node Exporter on all servers and PostgreSQL Exporter on PG nodes for Prometheus/Grafana monitoring
                 </p>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
