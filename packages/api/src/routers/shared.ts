@@ -1,6 +1,7 @@
 import { db } from "@HAForge/db";
 import { user, clusters, sshKeys, servers } from "@HAForge/db";
 import { eq } from "drizzle-orm";
+import { decrypt } from "../services/crypto";
 
 export const HETZNER_API = "https://api.hetzner.cloud/v1";
 
@@ -11,7 +12,21 @@ export const hetznerHeaders = (token: string) => ({
 
 export async function getUserApiToken(userId: string): Promise<string> {
   const u = await db.query.user.findFirst({ where: eq(user.id, userId) });
-  return u?.hetznerApiToken || "";
+  if (!u?.hetznerApiToken) return "";
+  try {
+    return decrypt(u.hetznerApiToken);
+  } catch {
+    return u.hetznerApiToken; // Lazy migration fallback
+  }
+}
+
+export function decryptPrivateKey(privateKey: string | null | undefined): string | null {
+  if (!privateKey) return null;
+  try {
+    return decrypt(privateKey);
+  } catch {
+    return privateKey; // Lazy migration fallback
+  }
 }
 
 export async function verifyServerOwnership(serverId: string, userId: string) {
@@ -46,7 +61,13 @@ export async function getServerSshKeyMaps(userId?: string) {
   for (const s of dbServerRecords) {
     if (s.hetznerServerId && s.sshKeyId) {
       const key = allSshKeys.find((k) => k.id === s.sshKeyId);
-      if (key?.privateKey) sshPrivateKeyMap.set(s.hetznerServerId, key.privateKey);
+      if (key?.privateKey) {
+        try {
+          sshPrivateKeyMap.set(s.hetznerServerId, decrypt(key.privateKey));
+        } catch {
+          sshPrivateKeyMap.set(s.hetznerServerId, key.privateKey); // Lazy migration fallback
+        }
+      }
     }
   }
   return { sshKeyMap, sshKeyNameMap, sshPrivateKeyMap };

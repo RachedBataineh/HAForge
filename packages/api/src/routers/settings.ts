@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
 import bcrypt from "bcryptjs";
+import { encrypt, decrypt } from "../services/crypto";
 
 export const settingsRouter = router({
   getProfile: protectedProcedure.query(async ({ ctx }) => {
@@ -16,7 +17,7 @@ export const settingsRouter = router({
       name: u.name,
       email: u.email,
       image: u.image,
-      hetznerApiToken: u.hetznerApiToken || "",
+      hetznerApiToken: u.hetznerApiToken ? decrypt(u.hetznerApiToken) : "",
     };
   }),
 
@@ -36,16 +37,21 @@ export const settingsRouter = router({
       hetznerApiToken: z.string(),
     }))
     .mutation(async ({ input, ctx }) => {
-      if (input.hetznerApiToken) {
-        const existing = await db.query.user.findFirst({
-          where: eq(user.hetznerApiToken, input.hetznerApiToken),
+      const encryptedToken = input.hetznerApiToken ? encrypt(input.hetznerApiToken) : null;
+      if (encryptedToken) {
+        const allUsers = await db.query.user.findMany();
+        const duplicate = allUsers.find((u) => {
+          if (u.id === ctx.session.user.id || !u.hetznerApiToken) return false;
+          try {
+            return decrypt(u.hetznerApiToken) === input.hetznerApiToken;
+          } catch { return false; }
         });
-        if (existing && existing.id !== ctx.session.user.id) {
+        if (duplicate) {
           throw new Error("This Hetzner API token is already registered to another account.");
         }
       }
       await db.update(user)
-        .set({ hetznerApiToken: input.hetznerApiToken || null })
+        .set({ hetznerApiToken: encryptedToken })
         .where(eq(user.id, ctx.session.user.id));
       return { success: true };
     }),

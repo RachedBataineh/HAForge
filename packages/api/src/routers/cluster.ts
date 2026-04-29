@@ -4,7 +4,8 @@ import { eq, ne, and } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
 import { SERVER_INFO_SCRIPT, parseServerInfo } from "../services/server-info";
-import { HETZNER_API, hetznerHeaders, getUserApiToken, verifyServerOwnership, getServerSshKeyMaps } from "./shared";
+import { encrypt, decrypt } from "../services/crypto";
+import { HETZNER_API, hetznerHeaders, getUserApiToken, verifyServerOwnership, getServerSshKeyMaps, decryptPrivateKey } from "./shared";
 
 export const clusterRouter = router({
   hetznerFloatingIps: protectedProcedure
@@ -729,7 +730,8 @@ export const clusterRouter = router({
     // Enrich with Hetzner server names and power status
     try {
       const u = await db.query.user.findFirst({ where: eq(user.id, ctx.session.user.id) });
-      const token = u?.hetznerApiToken || "";
+      const rawToken = u?.hetznerApiToken || "";
+      const token = rawToken ? decrypt(rawToken) : "";
       if (token) {
         const hzIds = [...new Set(allServersList.map((s) => s.hetznerServerId).filter(Boolean))];
         if (hzIds.length > 0) {
@@ -759,9 +761,7 @@ export const clusterRouter = router({
     const u = await db.query.user.findFirst({
       where: eq(user.id, ctx.session.user.id),
     });
-    const token = u?.hetznerApiToken || "";
-
-    // Collect used Hetzner server IDs from clusters
+    const token = u?.hetznerApiToken ? decrypt(u.hetznerApiToken) : "";
     const userClusters = await db.query.clusters.findMany({
       where: eq(clusters.userId, ctx.session.user.id),
       with: { servers: true },
@@ -935,7 +935,8 @@ export const clusterRouter = router({
     const u = await db.query.user.findFirst({
       where: eq(user.id, ctx.session.user.id),
     });
-    const token = u?.hetznerApiToken;
+    const rawToken = u?.hetznerApiToken;
+    const token = rawToken ? decrypt(rawToken) : "";
     if (!token) {
       // No token saved — just return DB keys
       return await db.query.sshKeys.findMany({
@@ -998,7 +999,7 @@ export const clusterRouter = router({
       if (!key || key.userId !== ctx.session.user.id) {
         throw new Error("SSH key not found");
       }
-      await db.update(sshKeys).set({ privateKey: input.privateKey }).where(eq(sshKeys.id, input.keyId));
+      await db.update(sshKeys).set({ privateKey: encrypt(input.privateKey) }).where(eq(sshKeys.id, input.keyId));
       return { success: true };
     }),
 
@@ -1028,11 +1029,11 @@ export const clusterRouter = router({
         name: input.name,
         hetznerKeyId: String(data.ssh_key.id),
         publicKey: input.publicKey,
-        privateKey: input.privateKey,
+        privateKey: input.privateKey ? encrypt(input.privateKey) : null,
         fingerprint: data.ssh_key.fingerprint,
       }).onConflictDoUpdate({
         target: sshKeys.hetznerKeyId,
-        set: { name: input.name, publicKey: input.publicKey, privateKey: input.privateKey, fingerprint: data.ssh_key.fingerprint },
+        set: { name: input.name, publicKey: input.publicKey, privateKey: input.privateKey ? encrypt(input.privateKey) : null, fingerprint: data.ssh_key.fingerprint },
       });
 
       return {
@@ -1072,7 +1073,7 @@ export const clusterRouter = router({
         with: { sshKey: true },
       });
       if (!serverWithKey) throw new Error("Server not found");
-      const privateKey = serverWithKey.sshKey?.privateKey;
+      const privateKey = decryptPrivateKey(serverWithKey.sshKey?.privateKey);
       if (!privateKey) throw new Error("No SSH key configured");
 
       const { SSHExecutor } = await import("../services/ssh-executor");
@@ -1105,7 +1106,7 @@ export const clusterRouter = router({
         with: { sshKey: true },
       });
       if (!server) throw new Error("Server not found");
-      const privateKey = server.sshKey?.privateKey;
+      const privateKey = decryptPrivateKey(server.sshKey?.privateKey);
       if (!privateKey) throw new Error("No SSH key configured");
 
       const { SSHExecutor } = await import("../services/ssh-executor");
@@ -1185,7 +1186,7 @@ export const clusterRouter = router({
         with: { sshKey: true },
       });
       if (!server) throw new Error("Server not found");
-      const privateKey = server.sshKey?.privateKey;
+      const privateKey = decryptPrivateKey(server.sshKey?.privateKey);
       if (!privateKey) throw new Error("No SSH key configured");
 
       const { SSHExecutor } = await import("../services/ssh-executor");
@@ -1214,7 +1215,7 @@ export const clusterRouter = router({
         with: { sshKey: true },
       });
       if (!server) throw new Error("Server not found");
-      const privateKey = server.sshKey?.privateKey;
+      const privateKey = decryptPrivateKey(server.sshKey?.privateKey);
       if (!privateKey) throw new Error("No SSH key configured");
 
       const { SSHExecutor } = await import("../services/ssh-executor");
@@ -1335,7 +1336,7 @@ export const clusterRouter = router({
       if (!cluster) throw new Error("Cluster not found or access denied");
 
       const u = await db.query.user.findFirst({ where: eq(user.id, ctx.session.user.id) });
-      const apiToken = u?.hetznerApiToken || "";
+      const apiToken = u?.hetznerApiToken ? decrypt(u.hetznerApiToken) : "";
 
       const pgServers = cluster.servers.filter((s) => s.role?.startsWith("postgresql"));
       const roles: Record<string, "leader" | "replica" | "offline" | "unknown"> = {};
@@ -1382,7 +1383,7 @@ export const clusterRouter = router({
             const { SSHExecutor } = await import("../services/ssh-executor");
             const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, candidate.sshKeyId!) });
             if (!key?.privateKey) continue;
-            ssh = new SSHExecutor({ host: candidate.ipAddress!, port: candidate.sshPort || 22, username: candidate.sshUser || "root", privateKey: key.privateKey });
+            ssh = new SSHExecutor({ host: candidate.ipAddress!, port: candidate.sshPort || 22, username: candidate.sshUser || "root", privateKey: decryptPrivateKey(key.privateKey)! });
             await ssh.connect();
             break;
           } catch { continue; }
@@ -1439,7 +1440,7 @@ export const clusterRouter = router({
             const { SSHExecutor } = await import("../services/ssh-executor");
             const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, checkServer.sshKeyId!) });
             if (key?.privateKey) {
-              haSsh = new SSHExecutor({ host: checkServer.ipAddress!, port: checkServer.sshPort || 22, username: checkServer.sshUser || "root", privateKey: key.privateKey });
+              haSsh = new SSHExecutor({ host: checkServer.ipAddress!, port: checkServer.sshPort || 22, username: checkServer.sshUser || "root", privateKey: decryptPrivateKey(key.privateKey)! });
               await haSsh.connect();
               const result = await haSsh.exec("systemctl is-active haproxy");
               haProxyActive = result.stdout?.trim() === "active";
@@ -1520,7 +1521,7 @@ ${patroniTargets.join("\n")}
           const { SSHExecutor } = await import("../services/ssh-executor");
           const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, server.sshKeyId) });
           if (!key?.privateKey) { results.push({ server: server.role, success: false, error: "No private key" }); continue; }
-          const ssh = new SSHExecutor({ host: server.ipAddress, port: server.sshPort || 22, username: server.sshUser || "root", privateKey: key.privateKey });
+          const ssh = new SSHExecutor({ host: server.ipAddress, port: server.sshPort || 22, username: server.sshUser || "root", privateKey: decryptPrivateKey(key.privateKey)! });
           await ssh.connect();
           try {
             await ssh.exec("sudo systemctl stop node_exporter 2>/dev/null || true");
@@ -1597,7 +1598,7 @@ ${patroniTargets.join("\n")}
           const { SSHExecutor } = await import("../services/ssh-executor");
           const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, server.sshKeyId) });
           if (!key?.privateKey) { results.push({ server: server.role, success: false, error: "No private key" }); continue; }
-          const ssh = new SSHExecutor({ host: server.ipAddress, port: server.sshPort || 22, username: server.sshUser || "root", privateKey: key.privateKey });
+          const ssh = new SSHExecutor({ host: server.ipAddress, port: server.sshPort || 22, username: server.sshUser || "root", privateKey: decryptPrivateKey(key.privateKey)! });
           await ssh.connect();
           try {
             await ssh.exec("sudo systemctl stop postgres_exporter 2>/dev/null || true");
@@ -1666,7 +1667,7 @@ ${patroniTargets.join("\n")}
           const { SSHExecutor } = await import("../services/ssh-executor");
           const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, server.sshKeyId) });
           if (!key?.privateKey) { status[server.role] = { nodeExporter: "unreachable", pgExporter: "unreachable" }; continue; }
-          const ssh = new SSHExecutor({ host: server.ipAddress, port: server.sshPort || 22, username: server.sshUser || "root", privateKey: key.privateKey });
+          const ssh = new SSHExecutor({ host: server.ipAddress, port: server.sshPort || 22, username: server.sshUser || "root", privateKey: decryptPrivateKey(key.privateKey)! });
           await ssh.connect();
           try {
             const nodeResult = await ssh.exec("systemctl is-active node_exporter 2>/dev/null || echo 'inactive'");
@@ -1711,7 +1712,7 @@ ${patroniTargets.join("\n")}
           const { SSHExecutor } = await import("../services/ssh-executor");
           const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, s.sshKeyId) });
           if (!key?.privateKey) { results.push({ server: s.role, success: false, error: "No private key" }); continue; }
-          const ssh = new SSHExecutor({ host: s.ipAddress, port: s.sshPort || 22, username: s.sshUser || "root", privateKey: key.privateKey });
+          const ssh = new SSHExecutor({ host: s.ipAddress, port: s.sshPort || 22, username: s.sshUser || "root", privateKey: decryptPrivateKey(key.privateKey)! });
           await ssh.connect();
           try {
             await ssh.exec(`sudo systemctl ${input.action} haproxy`);
