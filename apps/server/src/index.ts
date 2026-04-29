@@ -12,6 +12,45 @@ import { db, sshKeys, clusters } from "@HAForge/db";
 import { servers } from "@HAForge/db";
 import { eq } from "drizzle-orm";
 
+// --- In-memory rate limiter ---
+const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+
+function getClientIp(c: any): string {
+  const forwarded = c.req.header("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0].trim();
+  const realIp = c.req.header("x-real-ip");
+  if (realIp) return realIp.trim();
+  return "unknown";
+}
+
+function rateLimiter(options: { windowMs: number; max: number }) {
+  return async (c: any, next: any) => {
+    if (env.NODE_ENV !== "production") {
+      return next();
+    }
+    const ip = getClientIp(c);
+    const now = Date.now();
+    const entry = rateLimitStore.get(ip);
+
+    if (!entry || now > entry.resetAt) {
+      rateLimitStore.set(ip, { count: 1, resetAt: now + options.windowMs });
+      return next();
+    }
+
+    entry.count++;
+    if (entry.count > options.max) {
+      return c.json(
+        { error: { message: "Too many requests. Please try again later." } },
+        429,
+        { "Retry-After": String(Math.ceil((entry.resetAt - now) / 1000)) },
+      );
+    }
+
+    return next();
+  };
+}
+// --- End rate limiter ---
+
 const app = new Hono();
 
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
@@ -26,6 +65,10 @@ app.use(
     credentials: true,
   }),
 );
+
+// Rate limit auth and API routes (Better Auth has its own internal rate limiting too)
+app.use("/api/auth/*", rateLimiter({ windowMs: 60_000, max: 120 }));
+app.use("/trpc/*", rateLimiter({ windowMs: 60_000, max: 120 }));
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
