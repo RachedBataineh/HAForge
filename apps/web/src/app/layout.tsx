@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 
 import "../index.css";
 import { AppSidebar } from "@/components/app-sidebar";
+import { ErrorBoundary } from "@/components/error-boundary";
 import Providers from "@/components/providers";
 import TopHeader from "@/components/top-header";
 import { SidebarInset, SidebarProvider } from "@HAForge/ui/components/sidebar";
@@ -36,7 +37,9 @@ export default function RootLayout({
             <SidebarInset>
               <TopHeader />
               <div className="flex-1 overflow-auto">
-                {children}
+                <ErrorBoundary>
+                  {children}
+                </ErrorBoundary>
               </div>
             </SidebarInset>
           </SidebarProvider>

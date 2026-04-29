@@ -8,7 +8,20 @@ import { toast } from "sonner";
 export const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error, query) => {
-      toast.error(error.message, {
+      const message = error.message;
+
+      if (message.includes("Authentication required") || message.includes("UNAUTHORIZED")) {
+        toast.error("Session expired. Please log in again.");
+        window.location.href = "/login";
+        return;
+      }
+
+      if (message.includes("rate limit") || message.includes("429") || message.includes("Too many requests")) {
+        toast.error("Too many requests. Please wait a moment and try again.");
+        return;
+      }
+
+      toast.error(message, {
         action: {
           label: "retry",
           onClick: query.invalidate,
@@ -16,6 +29,26 @@ export const queryClient = new QueryClient({
       });
     },
   }),
+  defaultOptions: {
+    mutations: {
+      onError: (error) => {
+        const message = error.message;
+
+        if (message.includes("Authentication required") || message.includes("UNAUTHORIZED")) {
+          toast.error("Session expired. Please log in again.");
+          window.location.href = "/login";
+          return;
+        }
+
+        if (message.includes("rate limit") || message.includes("429") || message.includes("Too many requests")) {
+          toast.error("Too many requests. Please wait a moment and try again.");
+          return;
+        }
+
+        toast.error(message);
+      },
+    },
+  },
 });
 
 export const trpcClient = createTRPCClient<AppRouter>({
