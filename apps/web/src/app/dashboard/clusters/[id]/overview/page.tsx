@@ -32,6 +32,8 @@ import {
   Play,
   Activity,
   FileText,
+  RefreshCw,
+  CheckCircle2,
 } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -531,6 +533,9 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
       {/* Monitoring */}
       {cluster.data.status === "running" && <MonitoringSection clusterId={clusterId} pgServers={pgServers} haServers={haServers} />}
 
+      {/* Patches / Updates */}
+      {cluster.data.status === "running" && <PatchUpdatesSection clusterId={clusterId} />}
+
       {/* Redeploy Confirmation Dialog */}
       <Dialog open={redeployOpen} onOpenChange={setRedeployOpen}>
         <DialogContent className="sm:max-w-md">
@@ -812,6 +817,133 @@ function MonitoringSection({ clusterId, pgServers, haServers }: { clusterId: str
             </pre>
           </CardContent>
         </Card>
+      )}
+    </div>
+  );
+}
+
+const PHASE_LABELS: Record<string, string> = {
+  hardening: "Hardening",
+  postgres: "PostgreSQL",
+  haproxy: "HAProxy",
+  monitoring: "Monitoring",
+};
+
+function PatchUpdatesSection({ clusterId }: { clusterId: string }) {
+  const [applyingPatch, setApplyingPatch] = useState<string | null>(null);
+
+  const availablePatches = useQuery(
+    trpc.cluster.getAvailablePatches.queryOptions({ clusterId }),
+  );
+
+  const applyPatch = useMutation({
+    mutationFn: async (patchId: string) => {
+      return trpcClient.cluster.applyPatch.mutate({ clusterId, patchId });
+    },
+    onSuccess: (data) => {
+      const failed = (data?.results || []).filter((r: any) => !r.success);
+      if (failed.length > 0) {
+        toast.warning(`Patch applied with ${failed.length} warnings`);
+      } else {
+        toast.success("Patch applied successfully");
+      }
+      availablePatches.refetch();
+    },
+    onError: (err) => toast.error(err.message),
+    onSettled: () => setApplyingPatch(null),
+  });
+
+  const applyAll = useMutation({
+    mutationFn: async () => {
+      return trpcClient.cluster.applyAllPatches.mutate({ clusterId });
+    },
+    onSuccess: (data) => {
+      if (data.appliedCount === 0) {
+        toast.info("All patches already applied");
+      } else {
+        const failedPatches = (data.results || []).filter((r: any) =>
+          r.results?.some((s: any) => !s.success),
+        );
+        if (failedPatches.length > 0) {
+          toast.warning(`${data.appliedCount - failedPatches.length} of ${data.appliedCount} patches applied successfully`);
+        } else {
+          toast.success(`${data.appliedCount} patches applied successfully`);
+        }
+      }
+      availablePatches.refetch();
+    },
+    onError: (err) => toast.error(err.message),
+    onSettled: () => setApplyingPatch(null),
+  });
+
+  const patches = availablePatches.data || [];
+  const isApplying = applyPatch.isPending || applyAll.isPending;
+
+  if (availablePatches.isLoading) return null;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <RefreshCw className="size-5" />
+          Updates
+        </h2>
+        {patches.length > 0 && (
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary">{patches.length} available</Badge>
+            <Button
+              size="sm"
+              onClick={() => { setApplyingPatch("__all__"); applyAll.mutate(); }}
+              disabled={isApplying}
+            >
+              {applyAll.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <RefreshCw className="size-4 mr-2" />}
+              Apply All
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {patches.length === 0 ? (
+        <Card>
+          <CardContent className="py-4 flex items-center gap-2 text-sm text-muted-foreground">
+            <CheckCircle2 className="size-4 text-green-500" />
+            All patches are up to date
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {patches.map((patch) => (
+            <Card key={patch.id}>
+              <CardContent className="flex items-center justify-between py-3">
+                <div>
+                  <p className="text-sm font-medium">{patch.name}</p>
+                  <p className="text-xs text-muted-foreground">{patch.description}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs">
+                    {PHASE_LABELS[patch.phase] || patch.phase}
+                  </Badge>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isApplying}
+                    onClick={() => {
+                      setApplyingPatch(patch.id);
+                      applyPatch.mutate(patch.id);
+                    }}
+                  >
+                    {(applyingPatch === patch.id && applyPatch.isPending) ? (
+                      <Loader2 className="size-4 mr-1 animate-spin" />
+                    ) : (
+                      <RefreshCw className="size-4 mr-1" />
+                    )}
+                    Apply
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       )}
     </div>
   );

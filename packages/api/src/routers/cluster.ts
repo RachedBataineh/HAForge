@@ -1,11 +1,28 @@
 import { db } from "@HAForge/db";
-import { clusters, executions, servers, sshKeys, user } from "@HAForge/db";
+import { clusters, executions, servers, sshKeys, user, clusterPatches } from "@HAForge/db";
 import { eq, ne, and } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
 import { SERVER_INFO_SCRIPT, parseServerInfo } from "../services/server-info";
 import { encrypt, decrypt } from "../services/crypto";
 import { HETZNER_API, hetznerHeaders, getUserApiToken, verifyServerOwnership, getServerSshKeyMaps, decryptPrivateKey } from "./shared";
+import { ALL_PATCHES } from "../patches";
+import type { TargetRole } from "../templates/cluster-steps";
+
+function getTargetRoles(targetRole: TargetRole, clusterServers: any[]): string[] {
+  switch (targetRole) {
+    case "all": {
+      const roles = clusterServers.map((s: any) => s.role).filter(Boolean);
+      return [...new Set(roles)];
+    }
+    case "all_pg":
+      return ["postgresql_1", "postgresql_2", "postgresql_3"];
+    case "all_ha":
+      return ["haproxy_1", "haproxy_2", "haproxy_3"];
+    default:
+      return [targetRole];
+  }
+}
 
 export const clusterRouter = router({
   hetznerFloatingIps: protectedProcedure
@@ -1725,5 +1742,250 @@ ${patroniTargets.join("\n")}
         }
       }
       return { results };
+    }),
+
+  getAvailablePatches: protectedProcedure
+    .input(z.object({ clusterId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const cluster = await db.query.clusters.findFirst({
+        where: and(eq(clusters.id, input.clusterId), eq(clusters.userId, ctx.session.user.id)),
+      });
+      if (!cluster) throw new Error("Cluster not found or access denied");
+
+      const applied = await db.query.clusterPatches.findMany({
+        where: and(
+          eq(clusterPatches.clusterId, input.clusterId),
+          eq(clusterPatches.status, "applied"),
+        ),
+        columns: { patchId: true },
+      });
+      const appliedIds = new Set(applied.map((p) => p.patchId));
+
+      return ALL_PATCHES
+        .filter((p) => !appliedIds.has(p.id))
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          phase: p.phase,
+          targetRole: p.targetRole,
+        }));
+    }),
+
+  getAppliedPatches: protectedProcedure
+    .input(z.object({ clusterId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const cluster = await db.query.clusters.findFirst({
+        where: and(eq(clusters.id, input.clusterId), eq(clusters.userId, ctx.session.user.id)),
+      });
+      if (!cluster) throw new Error("Cluster not found or access denied");
+
+      return db.query.clusterPatches.findMany({
+        where: eq(clusterPatches.clusterId, input.clusterId),
+        orderBy: (p, { desc }) => [desc(p.createdAt)],
+      });
+    }),
+
+  applyPatch: protectedProcedure
+    .input(z.object({ clusterId: z.string(), patchId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const cluster = await db.query.clusters.findFirst({
+        where: and(eq(clusters.id, input.clusterId), eq(clusters.userId, ctx.session.user.id)),
+        with: { servers: true },
+      });
+      if (!cluster) throw new Error("Cluster not found or access denied");
+
+      const patch = ALL_PATCHES.find((p) => p.id === input.patchId);
+      if (!patch) throw new Error("Patch not found");
+
+      // Check not already applied
+      const existing = await db.query.clusterPatches.findFirst({
+        where: and(
+          eq(clusterPatches.clusterId, input.clusterId),
+          eq(clusterPatches.patchId, input.patchId),
+          eq(clusterPatches.status, "applied"),
+        ),
+      });
+      if (existing) throw new Error("Patch already applied");
+
+      // Create patch record
+      const [patchRecord] = await db.insert(clusterPatches).values({
+        clusterId: input.clusterId,
+        patchId: input.patchId,
+        status: "applying",
+      }).returning();
+      if (!patchRecord) throw new Error("Failed to create patch record");
+
+      // Resolve target servers
+      const targetRoles = getTargetRoles(patch.targetRole, cluster.servers);
+      const targetServers = cluster.servers.filter((s) => targetRoles.includes(s.role));
+
+      const results: { server: string; success: boolean; error?: string }[] = [];
+
+      for (const server of targetServers) {
+        if (!server.ipAddress || !server.sshKeyId) {
+          results.push({ server: server.role, success: false, error: "No IP or SSH key" });
+          continue;
+        }
+        try {
+          const { SSHExecutor } = await import("../services/ssh-executor");
+          const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, server.sshKeyId) });
+          if (!key?.privateKey) {
+            results.push({ server: server.role, success: false, error: "No private key" });
+            continue;
+          }
+          const ssh = new SSHExecutor({
+            host: server.ipAddress,
+            port: server.sshPort || 22,
+            username: server.sshUser || "root",
+            privateKey: decryptPrivateKey(key.privateKey)!,
+          });
+          await ssh.connect();
+          try {
+            // Upload files first
+            if (patch.files) {
+              for (const file of patch.files) {
+                await ssh.exec(`sudo tee ${file.path} > /dev/null << 'HAFORGE_PATCH_EOF'\n${file.content}HAFORGE_PATCH_EOF`);
+                if (file.permissions) await ssh.exec(`sudo chmod ${file.permissions} ${file.path}`);
+                if (file.owner) await ssh.exec(`sudo chown ${file.owner} ${file.path}`);
+              }
+            }
+            // Run commands
+            const fullScript = [
+              "set -e",
+              "export DEBIAN_FRONTEND=noninteractive",
+              ...patch.commands,
+            ].join("\n");
+            const result = await ssh.exec(fullScript);
+            if (result.exitCode !== 0 && result.exitCode !== null) {
+              throw new Error(`Failed on ${server.role}: ${result.stderr || result.stdout || "Unknown error"}`);
+            }
+            // Run validation if present
+            if (patch.validation) {
+              const vResult = await ssh.exec(patch.validation);
+              if (vResult.exitCode !== 0 && vResult.exitCode !== null) {
+                throw new Error(`Validation failed on ${server.role}: ${vResult.stderr || vResult.stdout}`);
+              }
+            }
+            results.push({ server: server.role, success: true });
+          } finally {
+            await ssh.disconnect();
+          }
+        } catch (err: any) {
+          results.push({ server: server.role, success: false, error: err.message });
+        }
+      }
+
+      const failed = results.filter((r) => !r.success);
+      await db.update(clusterPatches)
+        .set({
+          status: failed.length === 0 ? "applied" : "failed",
+          appliedAt: failed.length === 0 ? new Date() : null,
+        })
+        .where(eq(clusterPatches.id, patchRecord.id));
+
+      return { results, patchId: input.patchId };
+    }),
+
+  applyAllPatches: protectedProcedure
+    .input(z.object({ clusterId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const cluster = await db.query.clusters.findFirst({
+        where: and(eq(clusters.id, input.clusterId), eq(clusters.userId, ctx.session.user.id)),
+        with: { servers: true },
+      });
+      if (!cluster) throw new Error("Cluster not found or access denied");
+
+      // Get available patches
+      const applied = await db.query.clusterPatches.findMany({
+        where: and(
+          eq(clusterPatches.clusterId, input.clusterId),
+          eq(clusterPatches.status, "applied"),
+        ),
+        columns: { patchId: true },
+      });
+      const appliedIds = new Set(applied.map((p) => p.patchId));
+      const toApply = ALL_PATCHES.filter((p) => !appliedIds.has(p.id));
+
+      if (toApply.length === 0) return { results: [], appliedCount: 0 };
+
+      const allResults: { patchId: string; patchName: string; results: { server: string; success: boolean; error?: string }[] }[] = [];
+
+      for (const patch of toApply) {
+        const [patchRecord] = await db.insert(clusterPatches).values({
+          clusterId: input.clusterId,
+          patchId: patch.id,
+          status: "applying",
+        }).returning();
+        if (!patchRecord) continue;
+
+        const targetRoles = getTargetRoles(patch.targetRole, cluster.servers);
+        const targetServers = cluster.servers.filter((s) => targetRoles.includes(s.role));
+
+        const results: { server: string; success: boolean; error?: string }[] = [];
+
+        for (const server of targetServers) {
+          if (!server.ipAddress || !server.sshKeyId) {
+            results.push({ server: server.role, success: false, error: "No IP or SSH key" });
+            continue;
+          }
+          try {
+            const { SSHExecutor } = await import("../services/ssh-executor");
+            const key = await db.query.sshKeys.findFirst({ where: eq(sshKeys.id, server.sshKeyId) });
+            if (!key?.privateKey) {
+              results.push({ server: server.role, success: false, error: "No private key" });
+              continue;
+            }
+            const ssh = new SSHExecutor({
+              host: server.ipAddress,
+              port: server.sshPort || 22,
+              username: server.sshUser || "root",
+              privateKey: decryptPrivateKey(key.privateKey)!,
+            });
+            await ssh.connect();
+            try {
+              if (patch.files) {
+                for (const file of patch.files) {
+                  await ssh.exec(`sudo tee ${file.path} > /dev/null << 'HAFORGE_PATCH_EOF'\n${file.content}HAFORGE_PATCH_EOF`);
+                  if (file.permissions) await ssh.exec(`sudo chmod ${file.permissions} ${file.path}`);
+                  if (file.owner) await ssh.exec(`sudo chown ${file.owner} ${file.path}`);
+                }
+              }
+              const fullScript = [
+                "set -e",
+                "export DEBIAN_FRONTEND=noninteractive",
+                ...patch.commands,
+              ].join("\n");
+              const result = await ssh.exec(fullScript);
+              if (result.exitCode !== 0 && result.exitCode !== null) {
+                throw new Error(`Failed on ${server.role}: ${result.stderr || result.stdout || "Unknown error"}`);
+              }
+              if (patch.validation) {
+                const vResult = await ssh.exec(patch.validation);
+                if (vResult.exitCode !== 0 && vResult.exitCode !== null) {
+                  throw new Error(`Validation failed on ${server.role}: ${vResult.stderr || vResult.stdout}`);
+                }
+              }
+              results.push({ server: server.role, success: true });
+            } finally {
+              await ssh.disconnect();
+            }
+          } catch (err: any) {
+            results.push({ server: server.role, success: false, error: err.message });
+          }
+        }
+
+        const failed = results.filter((r) => !r.success);
+        await db.update(clusterPatches)
+          .set({
+            status: failed.length === 0 ? "applied" : "failed",
+            appliedAt: failed.length === 0 ? new Date() : null,
+          })
+          .where(eq(clusterPatches.id, patchRecord.id));
+
+        allResults.push({ patchId: patch.id, patchName: patch.name, results });
+      }
+
+      return { results: allResults, appliedCount: toApply.length };
     }),
 });

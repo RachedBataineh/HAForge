@@ -51,6 +51,13 @@ export const stepStatusEnum = pgEnum("step_status", [
   "skipped",
 ]);
 
+export const patchStatusEnum = pgEnum("patch_status", [
+  "pending",
+  "applying",
+  "applied",
+  "failed",
+]);
+
 export const clusters = pgTable("cluster", {
   id: text("id")
     .primaryKey()
@@ -219,9 +226,37 @@ export const serverRelations = relations(servers, ({ one, many }) => ({
   executionLogs: many(executionLogs),
 }));
 
+export const clusterPatches = pgTable(
+  "cluster_patch",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    clusterId: text("cluster_id")
+      .notNull()
+      .references(() => clusters.id, { onDelete: "cascade" }),
+    patchId: text("patch_id").notNull(),
+    status: patchStatusEnum("status").default("pending").notNull(),
+    appliedAt: timestamp("applied_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("cluster_patch_cluster_id_idx").on(table.clusterId),
+    index("cluster_patch_patch_id_idx").on(table.patchId),
+  ],
+);
+
 export const clusterRelations = relations(clusters, ({ many }) => ({
   servers: many(servers),
   executions: many(executions),
+  patches: many(clusterPatches),
+}));
+
+export const clusterPatchRelations = relations(clusterPatches, ({ one }) => ({
+  cluster: one(clusters, {
+    fields: [clusterPatches.clusterId],
+    references: [clusters.id],
+  }),
 }));
 
 export const executionRelations = relations(executions, ({ one, many }) => ({
