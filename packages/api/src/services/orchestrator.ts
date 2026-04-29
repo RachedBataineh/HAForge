@@ -4,6 +4,7 @@ import { SSHExecutor } from "./ssh-executor";
 import { generateClusterCertificates, type GeneratedCerts } from "./cert-generator";
 import { resolveVariables, type VariableMap } from "./variable-resolver";
 import { getClusterSteps, getLbClusterSteps, type StepDefinition, type TargetRole } from "../templates/cluster-steps";
+import { decrypt } from "../services/crypto";
 import { getHardeningSteps } from "../templates/hardening/hardening-steps";
 import { generatePassword, SERVER_INFO_SCRIPT, parseServerInfo } from "./server-info";
 import { EventEmitter } from "events";
@@ -614,10 +615,13 @@ export class Orchestrator extends EventEmitter {
     const ha2 = getServerByRole("haproxy_2");
     const ha3 = getServerByRole("haproxy_3");
 
-    // Resolve Hetzner API token from user profile
+    // Resolve Hetzner API token from user profile (decrypt from DB)
     const clusterOwner = await db.query.user.findFirst({
       where: eq(user.id, cluster.userId),
     });
+    const hetznerToken = clusterOwner?.hetznerApiToken
+      ? (() => { try { return decrypt(clusterOwner.hetznerApiToken); } catch { return clusterOwner.hetznerApiToken; } })()
+      : "";
 
     return {
       IP_ADDRESS_NODE_1: pg1?.ipAddress || "",
@@ -636,7 +640,7 @@ export class Orchestrator extends EventEmitter {
       PRIVATE_IP_HAPROXY_2: ha2?.privateIpAddress || "",
       PRIVATE_IP_HAPROXY_3: ha3?.privateIpAddress || "",
       FLOATING_IP: cluster.floatingIp || "",
-      HETZNER_API_TOKEN: clusterOwner?.hetznerApiToken || "",
+      HETZNER_API_TOKEN: hetznerToken,
       FLOATING_IP_ID: cluster.floatingIpId || "",
       LOAD_BALANCER_ID: cluster.loadBalancerId || "",
       SERVER_ID_1: ha1?.hetznerServerId || pg1?.hetznerServerId || "",
