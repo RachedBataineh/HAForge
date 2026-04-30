@@ -1,6 +1,7 @@
 import type { StepDefinition } from "../types";
 import { etcdEnvContent, ETCD_SERVICE } from "./etcd-config";
 import { patroniConfigContent } from "./patroni-config";
+import { PG_VERSION, ETCD_VERSION } from "./pg-version";
 
 export function getPostgresSteps(): StepDefinition[] {
   return [
@@ -16,10 +17,10 @@ export function getPostgresSteps(): StepDefinition[] {
             "sudo apt install -y postgresql-common",
             "echo '' | sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh",
             "sudo apt update",
-            "sudo apt install -y postgresql-17 postgresql-contrib-17",
+            `sudo apt install -y postgresql-${PG_VERSION} postgresql-contrib-${PG_VERSION}`,
             "sudo systemctl stop postgresql || true",
             "sudo systemctl disable postgresql || true",
-            "sudo rm -rf /var/lib/postgresql/17/main || true",
+            `sudo rm -rf /var/lib/postgresql/${PG_VERSION}/main || true`,
           ],
         },
       ],
@@ -33,12 +34,12 @@ export function getPostgresSteps(): StepDefinition[] {
       commands: [
         {
           commands: [
-            "rm -rf etcd etcd-v3.6.10-linux-amd64.tar.gz",
-            "wget https://github.com/etcd-io/etcd/releases/download/v3.6.10/etcd-v3.6.10-linux-amd64.tar.gz",
-            "tar xzf etcd-v3.6.10-linux-amd64.tar.gz",
-            "mv etcd-v3.6.10-linux-amd64 etcd",
+            `rm -rf etcd etcd-v${ETCD_VERSION}-linux-amd64.tar.gz`,
+            `wget https://github.com/etcd-io/etcd/releases/download/v${ETCD_VERSION}/etcd-v${ETCD_VERSION}-linux-amd64.tar.gz`,
+            `tar xzf etcd-v${ETCD_VERSION}-linux-amd64.tar.gz`,
+            `mv etcd-v${ETCD_VERSION}-linux-amd64 etcd`,
             "sudo mv etcd/etcd* /usr/local/bin/",
-            "rm -rf etcd etcd-v3.6.10-linux-amd64.tar.gz",
+            `rm -rf etcd etcd-v${ETCD_VERSION}-linux-amd64.tar.gz`,
             `sudo useradd --system --home /var/lib/etcd --shell /bin/false etcd || true`,
           ],
         },

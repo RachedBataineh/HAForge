@@ -29,9 +29,9 @@ export function decrypt(ciphertext: string): string {
     throw new Error("Invalid encrypted value format");
   }
 
-  const iv = Buffer.from(parts[0], "hex");
-  const encrypted = Buffer.from(parts[1], "hex");
-  const authTag = Buffer.from(parts[2], "hex");
+  const iv = Buffer.from(parts[0]!, "hex");
+  const encrypted = Buffer.from(parts[1]!, "hex");
+  const authTag = Buffer.from(parts[2]!, "hex");
 
   const decipher = createDecipheriv(ALGORITHM, getKey(), iv, { authTagLength: AUTH_TAG_LENGTH });
   decipher.setAuthTag(authTag);

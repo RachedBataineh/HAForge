@@ -1,3 +1,5 @@
+import { PG_VERSION } from "./pg-version";
+
 export function patroniConfigContent(
   nodeName: string,
   selfPrivateIp: string,
@@ -51,7 +53,7 @@ postgresql:
   listen: 0.0.0.0:5432
   connect_address: ${selfPrivateIp}:5432
   data_dir: /var/lib/postgresql/data
-  bin_dir: /usr/lib/postgresql/17/bin
+  bin_dir: /usr/lib/postgresql/${PG_VERSION}/bin
   authentication:
     superuser:
       username: \${SUPERUSER_USERNAME}
