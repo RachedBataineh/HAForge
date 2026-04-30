@@ -325,44 +325,47 @@ export default function ClusterListPage() {
         </div>
       </div>
 
-      <div className="grid gap-2">
-        <Label>Location</Label>
-        <Select value={autoLocation} onValueChange={(v) => setAutoLocation(v ?? "")}>
-          <SelectTrigger>
-            {autoLocation
-              ? (() => { const l = locationsData.find((l: any) => l.name === autoLocation); return l ? `${l.city}, ${l.country} (${l.name})` : autoLocation; })()
-              : "Select location"}
-          </SelectTrigger>
-          <SelectContent className="max-h-64" side="bottom">
-            {locationsData.map((l: any) => (
-              <SelectItem key={l.name} value={l.name}>
-                {l.city}, {l.country} ({l.name})
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-2">
+          <Label>Location</Label>
+          <Select value={autoLocation} onValueChange={(v) => setAutoLocation(v ?? "")}>
+            <SelectTrigger>
+              {autoLocation
+                ? (() => { const l = locationsData.find((l: any) => l.name === autoLocation); return l ? `${l.city}, ${l.country} (${l.name})` : autoLocation; })()
+                : "Select location"}
+            </SelectTrigger>
+            <SelectContent className="max-h-64" side="bottom">
+              {locationsData.map((l: any) => (
+                <SelectItem key={l.name} value={l.name}>
+                  {l.city}, {l.country} ({l.name})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">Data center region where all servers will be created.</p>
+        </div>
 
-      <div className="grid gap-2">
-        <Label>Network Zone</Label>
-        <Select value={autoNetworkZone} onValueChange={(v) => setAutoNetworkZone(v ?? "")}>
-          <SelectTrigger>
-            {autoNetworkZone
-              ? (() => { const z = networkZonesData.find((z: any) => z.name === autoNetworkZone); return z ? `${z.name} (${z.locations.join(", ")})` : autoNetworkZone; })()
-              : "Select network zone"}
-          </SelectTrigger>
-          <SelectContent className="!w-auto min-w-[400px]" side="bottom">
-            {networkZonesData.map((z: any) => (
-              <SelectItem key={z.name} value={z.name}>
-                <span className="grid grid-cols-[auto_1fr] gap-x-4 w-full">
-                  <span className="font-medium">{z.name}</span>
-                  <span className="text-muted-foreground text-xs">{z.locations.join(", ")}</span>
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="text-xs text-muted-foreground">All servers must be in the same network zone as the selected location.</p>
+        <div className="grid gap-2">
+          <Label>Network Zone</Label>
+          <Select value={autoNetworkZone} onValueChange={(v) => setAutoNetworkZone(v ?? "")}>
+            <SelectTrigger>
+              {autoNetworkZone
+                ? (() => { const z = networkZonesData.find((z: any) => z.name === autoNetworkZone); return z ? `${z.name} (${z.locations.join(", ")})` : autoNetworkZone; })()
+                : "Select network zone"}
+            </SelectTrigger>
+            <SelectContent className="!w-auto min-w-[400px]" side="bottom">
+              {networkZonesData.map((z: any) => (
+                <SelectItem key={z.name} value={z.name}>
+                  <span className="grid grid-cols-[auto_1fr] gap-x-4 w-full">
+                    <span className="font-medium">{z.name}</span>
+                    <span className="text-muted-foreground text-xs">{z.locations.join(", ")}</span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">All servers must be in the same network zone as the selected location.</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -395,7 +398,7 @@ export default function ClusterListPage() {
               : "Select SSH key"}
           </SelectTrigger>
           <SelectContent side="bottom">
-            {sshKeysData.map((k: any) => (
+            {sshKeysData.filter((k: any) => k.privateKey).map((k: any) => (
               <SelectItem key={k.id} value={k.id}>
                 {k.name}
               </SelectItem>
