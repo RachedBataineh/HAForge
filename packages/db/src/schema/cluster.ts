@@ -21,6 +21,11 @@ export const clusterTypeEnum = pgEnum("cluster_type", [
   "hetzner_lb",
 ]);
 
+export const provisioningModeEnum = pgEnum("provisioning_mode", [
+  "manual",
+  "automatic",
+]);
+
 export const serverRoleEnum = pgEnum("server_role", [
   "postgresql_1",
   "postgresql_2",
@@ -77,7 +82,11 @@ export const clusters = pgTable("cluster", {
   floatingIpId: text("floating_ip_id"),
   loadBalancerId: text("load_balancer_id"),
   loadBalancerIp: text("load_balancer_ip"),
+  networkId: text("network_id"),
   wizardStep: integer("wizard_step"),
+
+  // Provisioning
+  provisioningMode: provisioningModeEnum("provisioning_mode").default("manual"),
 
   // Auto-generated credentials
   superuserPassword: text("superuser_password"),

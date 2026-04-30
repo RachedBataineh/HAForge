@@ -404,6 +404,290 @@ export const clusterRouter = router({
       };
     }),
 
+  hetznerPricing: protectedProcedure
+    .query(async ({ ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${HETZNER_API}/pricing`, { headers: hetznerHeaders(token) });
+      if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
+      const data = await res.json() as any;
+      const fip = data?.pricing?.floating_ip;
+      return {
+        floatingIpMonthly: parseFloat(fip?.price_monthly?.net || fip?.price_monthly?.gross || "0").toFixed(2),
+      };
+    }),
+
+  provisionAutomatic: protectedProcedure
+    .input(z.object({
+      name: z.string().min(1).max(100),
+      clusterType: z.enum(["haproxy", "hetzner_lb"]),
+      location: z.string().min(1),
+      image: z.string().min(1),
+      sshKeyId: z.string().min(1),
+      haproxyServerType: z.string().min(1),
+      postgresqlServerType: z.string().min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const headers = hetznerHeaders(token);
+
+      // Verify SSH key belongs to user and has a private key
+      const key = await db.query.sshKeys.findFirst({
+        where: eq(sshKeys.id, input.sshKeyId),
+      });
+      if (!key || key.userId !== ctx.session.user.id) throw new Error("SSH key not found or access denied");
+      if (!key.privateKey) throw new Error("SSH key must have a private key uploaded for automatic provisioning");
+      const hetznerKeyId = key.hetznerKeyId;
+      if (!hetznerKeyId) throw new Error("SSH key must be a Hetzner key for automatic provisioning");
+
+      // 1. Create cluster record
+      const [cluster] = await db
+        .insert(clusters)
+        .values({
+          name: input.name,
+          userId: ctx.session.user.id,
+          clusterType: input.clusterType,
+          provisioningMode: "automatic",
+          status: "draft",
+        })
+        .returning();
+
+      if (!cluster) throw new Error("Failed to create cluster record");
+
+      try {
+        // 2. Create network
+        const netRes = await fetch(`${HETZNER_API}/networks`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            name: `${input.name}-net`,
+            ip_range: "10.0.0.0/16",
+            network_zone: "eu-central",
+          }),
+        });
+        if (!netRes.ok) {
+          const err = await netRes.json() as any;
+          throw new Error(`Failed to create network: ${err.error?.message || netRes.status}`);
+        }
+        const netData = await netRes.json() as any;
+        const networkId = String(netData.network.id);
+        const networkNumId = Number(netData.network.id);
+
+        // Add a subnet to the network (required before attaching servers)
+        const subnetRes = await fetch(`${HETZNER_API}/networks/${networkNumId}/actions/add_subnet`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            type: "cloud",
+            network_zone: "eu-central",
+            ip_range: "10.0.0.0/24",
+          }),
+        });
+        if (!subnetRes.ok) {
+          const err = await subnetRes.json() as any;
+          throw new Error(`Failed to create subnet: ${err.error?.message || subnetRes.status}`);
+        }
+
+        // 3. Create servers
+        const haproxyNames = [
+          `${input.name}-haproxy-1`,
+          `${input.name}-haproxy-2`,
+          `${input.name}-haproxy-3`,
+        ];
+        const pgNames = [
+          `${input.name}-pg-1`,
+          `${input.name}-pg-2`,
+          `${input.name}-pg-3`,
+        ];
+
+        const allServerConfigs = [
+          ...haproxyNames.map((name, i) => ({ name, type: input.haproxyServerType, role: `haproxy_${i + 1}` as const })),
+          ...pgNames.map((name, i) => ({ name, type: input.postgresqlServerType, role: `postgresql_${i + 1}` as const })),
+        ];
+
+        const createdServers: { hetznerId: string; publicIp: string; privateIp: string; role: string; name: string }[] = [];
+
+        for (const cfg of allServerConfigs) {
+          const srvRes = await fetch(`${HETZNER_API}/servers`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              name: cfg.name,
+              server_type: cfg.type,
+              location: input.location,
+              image: input.image,
+              networks: [Number(networkNumId)],
+              ssh_keys: [Number(hetznerKeyId)],
+              start_after_create: true,
+            }),
+          });
+          if (!srvRes.ok) {
+            const err = await srvRes.json() as any;
+            throw new Error(`Failed to create server ${cfg.name}: ${err.error?.message || srvRes.status}`);
+          }
+          const srvData = await srvRes.json() as any;
+          const srv = srvData.server;
+          createdServers.push({
+            hetznerId: String(srv.id),
+            publicIp: srv.public_net?.ipv4?.ip || "",
+            privateIp: srv.private_net?.[0]?.ip || "",
+            role: cfg.role,
+            name: cfg.name,
+          });
+        }
+
+        // 4. Wait for all servers to be running (poll, max 120 seconds)
+        const maxWait = 120_000;
+        const pollInterval = 5_000;
+        const start = Date.now();
+        let allRunning = false;
+
+        while (Date.now() - start < maxWait) {
+          const checkRes = await fetch(`${HETZNER_API}/servers`, { headers });
+          if (checkRes.ok) {
+            const checkData = await checkRes.json() as any;
+            const serverStatuses = new Map<string, string>();
+            for (const s of checkData.servers || []) {
+              serverStatuses.set(String(s.id), s.status);
+            }
+            const statuses = createdServers.map((s) => serverStatuses.get(s.hetznerId) || "unknown");
+            if (statuses.every((s) => s === "running")) {
+              allRunning = true;
+              break;
+            }
+          }
+          await new Promise((r) => setTimeout(r, pollInterval));
+        }
+
+        if (!allRunning) {
+          throw new Error("Timed out waiting for servers to start. The servers are being created but took too long to become ready.");
+        }
+
+        // Refresh private IPs after servers are running (they may have been assigned after boot)
+        {
+          const refreshRes = await fetch(`${HETZNER_API}/servers`, { headers });
+          if (refreshRes.ok) {
+            const refreshData = await refreshRes.json() as any;
+            for (const s of refreshData.servers || []) {
+              const match = createdServers.find((cs) => cs.hetznerId === String(s.id));
+              if (match) {
+                match.publicIp = s.public_net?.ipv4?.ip || match.publicIp;
+                match.privateIp = s.private_net?.[0]?.ip || match.privateIp;
+              }
+            }
+          }
+        }
+
+        // 5. Create floating IP (HAProxy mode only)
+        let floatingIp = "";
+        let floatingIpId = "";
+
+        if (input.clusterType === "haproxy") {
+          const fipRes = await fetch(`${HETZNER_API}/floating_ips`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              type: "ipv4",
+              home_location: input.location,
+              description: `${input.name}-floating-ip`,
+            }),
+          });
+          if (!fipRes.ok) {
+            const err = await fipRes.json() as any;
+            throw new Error(`Failed to create floating IP: ${err.error?.message || fipRes.status}`);
+          }
+          const fipData = await fipRes.json() as any;
+          floatingIpId = String(fipData.floating_ip.id);
+          floatingIp = fipData.floating_ip.ip;
+
+          // Assign floating IP to haproxy_1
+          const ha1 = createdServers.find((s) => s.role === "haproxy_1");
+          if (ha1) {
+            const assignRes = await fetch(`${HETZNER_API}/floating_ips/${floatingIpId}/actions/assign`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ server: Number(ha1.hetznerId) }),
+            });
+            if (!assignRes.ok) {
+              const err = await assignRes.json() as any;
+              throw new Error(`Failed to assign floating IP: ${err.error?.message || assignRes.status}`);
+            }
+          }
+        }
+
+        // 6. Create server records in DB
+        for (const srv of createdServers) {
+          await db.insert(servers).values({
+            clusterId: cluster.id,
+            userId: ctx.session.user.id,
+            role: srv.role as any,
+            hetznerServerId: srv.hetznerId,
+            ipAddress: srv.publicIp,
+            privateIpAddress: srv.privateIp,
+            sshKeyId: input.sshKeyId,
+            sshUser: "root",
+            sshPort: 22,
+            status: "pending",
+          });
+        }
+
+        // 7. Update cluster with network, floating IP info
+        await db.update(clusters).set({
+          networkId,
+          floatingIp,
+          floatingIpId,
+          wizardStep: 3,
+        }).where(eq(clusters.id, cluster.id));
+
+        // 8. Calculate monthly cost
+        const [stRes, pricingRes] = await Promise.all([
+          fetch(`${HETZNER_API}/server_types`, { headers }),
+          fetch(`${HETZNER_API}/pricing`, { headers }),
+        ]);
+        let monthlyCost = "0.00";
+        let fipCost = "0.00";
+        let haPrice = "0.00";
+        let pgPrice = "0.00";
+
+        if (stRes.ok) {
+          const stData = await stRes.json() as any;
+          const haType = stData.server_types?.find((t: any) => t.name === input.haproxyServerType);
+          const pgType = stData.server_types?.find((t: any) => t.name === input.postgresqlServerType);
+          haPrice = parseFloat(haType?.prices?.[0]?.price_monthly?.gross || "0").toFixed(2);
+          pgPrice = parseFloat(pgType?.prices?.[0]?.price_monthly?.gross || "0").toFixed(2);
+        }
+        if (pricingRes.ok) {
+          const pData = await pricingRes.json() as any;
+          fipCost = parseFloat(pData?.pricing?.floating_ip?.price_monthly?.gross || "0").toFixed(2);
+        }
+
+        const haTotal = (parseFloat(haPrice) * 3).toFixed(2);
+        const pgTotal = (parseFloat(pgPrice) * 3).toFixed(2);
+        const total = (parseFloat(haTotal) + parseFloat(pgTotal) + parseFloat(fipCost)).toFixed(2);
+        monthlyCost = total;
+
+        return {
+          clusterId: cluster.id,
+          servers: createdServers,
+          floatingIp,
+          floatingIpId,
+          networkId,
+          monthlyCost,
+          costBreakdown: {
+            haproxy: { perUnit: haPrice, count: 3, total: haTotal },
+            postgresql: { perUnit: pgPrice, count: 3, total: pgTotal },
+            floatingIp: fipCost,
+            total: monthlyCost,
+          },
+        };
+      } catch (err: any) {
+        // On failure, delete the draft cluster (orphaned)
+        await db.delete(clusters).where(eq(clusters.id, cluster.id));
+        throw err;
+      }
+    }),
+
   create: protectedProcedure
     .input(z.object({ name: z.string().min(1).max(100), clusterType: z.enum(["haproxy", "hetzner_lb"]).optional() }))
     .mutation(async ({ ctx, input }) => {

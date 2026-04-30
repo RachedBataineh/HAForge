@@ -28,6 +28,7 @@ import {
   ArrowRight,
   ArrowLeft,
   KeyRound,
+  Zap,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -66,6 +67,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
 
   const clusterType = (cluster.data?.clusterType || "haproxy") as "haproxy" | "hetzner_lb";
   const isLb = clusterType === "hetzner_lb";
+  const isAutoProvisioned = (cluster.data as any)?.provisioningMode === "automatic";
 
   // Steps: HAProxy mode = [HAProxy Nodes, PG Nodes, Review], LB mode = [Load Balancer, PG Nodes, Review]
   const totalSteps = 3;
@@ -208,6 +210,10 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
     if (c.wizardStep != null && c.wizardStep > 0) {
       setStep(Math.min(c.wizardStep - 1, totalSteps - 1));
     }
+    // For auto-provisioned clusters, skip to Review & Deploy (step 2)
+    if ((c as any).provisioningMode === "automatic" && servers.length >= 3) {
+      setStep(totalSteps - 1);
+    }
     setDraftLoaded(true);
   }, [cluster.data, draftLoaded]);
 
@@ -312,31 +318,33 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
         await updateCluster.mutateAsync({ id: clusterId, floatingIp, floatingIpId, enableMonitoring: enableMonitoring ? 1 : 0 });
       }
 
-      // Refetch to get the latest servers list (draft may have added some)
-      const fresh = await queryClient.fetchQuery(trpc.cluster.getById.queryOptions({ id: clusterId }));
-      const existingServers = fresh?.servers || [];
-      for (const s of existingServers) {
-        await trpcClient.server.remove.mutate({ id: s.id });
-      }
+      // For auto-provisioned clusters, servers are already in the DB — just deploy
+      if (!isAutoProvisioned) {
+        const fresh = await queryClient.fetchQuery(trpc.cluster.getById.queryOptions({ id: clusterId }));
+        const existingServers = fresh?.servers || [];
+        for (const s of existingServers) {
+          await trpcClient.server.remove.mutate({ id: s.id });
+        }
 
-      const allServers = isLb
-        ? PG_ROLES.map((r) => ({ ...pgServers[r.role], role: r.role }))
-        : [
-            ...PG_ROLES.map((r) => ({ ...pgServers[r.role], role: r.role })),
-            ...HA_ROLES.map((r) => ({ ...haServers[r.role], role: r.role })),
-          ];
+        const allServers = isLb
+          ? PG_ROLES.map((r) => ({ ...pgServers[r.role], role: r.role }))
+          : [
+              ...PG_ROLES.map((r) => ({ ...pgServers[r.role], role: r.role })),
+              ...HA_ROLES.map((r) => ({ ...haServers[r.role], role: r.role })),
+            ];
 
-      for (const server of allServers) {
-        await addServer.mutateAsync({
-          clusterId,
-          ipAddress: server.ipAddress,
-          sshKeyId: server.sshKeyId || undefined,
-          sshUser: server.sshUser,
-          sshPort: server.sshPort,
-          role: server.role,
-          hetznerServerId: server.hetznerServerId || undefined,
-          privateIpAddress: server.privateIpAddress || undefined,
-        });
+        for (const server of allServers) {
+          await addServer.mutateAsync({
+            clusterId,
+            ipAddress: server.ipAddress,
+            sshKeyId: server.sshKeyId || undefined,
+            sshUser: server.sshUser,
+            sshPort: server.sshPort,
+            role: server.role,
+            hetznerServerId: server.hetznerServerId || undefined,
+            privateIpAddress: server.privateIpAddress || undefined,
+          });
+        }
       }
 
       startDeployment.mutate();
@@ -368,7 +376,11 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
             {cluster.data?.name || "Cluster Setup"}
           </h1>
         <p className="text-muted-foreground">
-          {isLb ? "Configure your 3-server PostgreSQL cluster with Hetzner Load Balancer" : "Configure your 6-server HA cluster with HAProxy"}
+          {isAutoProvisioned
+            ? "Review your auto-provisioned cluster and deploy when ready."
+            : isLb
+              ? "Configure your 3-server PostgreSQL cluster with Hetzner Load Balancer"
+              : "Configure your 6-server HA cluster with HAProxy"}
         </p>
         </div>
       </div>
@@ -906,12 +918,22 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
               Review Configuration
             </CardTitle>
             <CardDescription>
-              {isLb
-                ? "Verify your cluster setup before deploying. This will execute commands on 3 PostgreSQL servers and configure the Hetzner Load Balancer."
-                : "Verify your cluster setup before deploying. This will execute commands on all 6 servers."}
+              {isAutoProvisioned
+                ? "Your servers have been automatically provisioned. Review the setup below and deploy when ready."
+                : isLb
+                  ? "Verify your cluster setup before deploying. This will execute commands on 3 PostgreSQL servers and configure the Hetzner Load Balancer."
+                  : "Verify your cluster setup before deploying. This will execute commands on all 6 servers."}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-6">
+            {isAutoProvisioned && (
+              <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 flex items-center gap-2 text-sm">
+                <Zap className="size-4 text-primary shrink-0" />
+                <span className="text-muted-foreground">
+                  Auto-provisioned cluster. Servers, network, and floating IP have been created on Hetzner.
+                </span>
+              </div>
+            )}
             {!isLb && (
               <>
                 <div>
@@ -1010,7 +1032,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
         <Button
           variant="outline"
           onClick={() => setStep((s) => s - 1)}
-          disabled={step === 0}
+          disabled={step === 0 || isAutoProvisioned}
         >
           <ArrowLeft className="size-4 mr-1" />
           Back
