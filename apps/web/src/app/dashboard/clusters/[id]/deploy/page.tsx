@@ -146,7 +146,7 @@ export default function DeployPage({ params }: { params: Promise<{ id: string }>
     ),
   );
 
-  // Poll live output every 500ms for real-time streaming
+  // Poll live output every 500ms for real-time streaming (keep polling on failure so logs stay visible)
   const liveOutput = useQuery(
     trpc.execution.getLiveOutput.queryOptions(
       { executionId },
@@ -386,12 +386,12 @@ export default function DeployPage({ params }: { params: Promise<{ id: string }>
       {isRunning && (
         <div className="mt-6 flex justify-end">
           <Button variant="destructive" onClick={cancelExecution}>
-            Cancel Deployment
+            {execution.data?.executionType === "patch" ? "Cancel Patch" : "Cancel Deployment"}
           </Button>
         </div>
       )}
 
-      {execution.data?.status === "failed" && (
+      {execution.data?.status === "failed" && execution.data?.executionType !== "patch" && (
         <div className="mt-6 flex justify-end gap-2">
           <Button
             onClick={async () => {
@@ -409,7 +409,15 @@ export default function DeployPage({ params }: { params: Promise<{ id: string }>
         </div>
       )}
 
-      {execution.data?.status === "completed" && (
+      {execution.data?.status === "failed" && execution.data?.executionType === "patch" && (
+        <div className="mt-6 flex justify-end gap-2">
+          <Button variant="outline" onClick={() => router.push(`/dashboard/clusters/${clusterId}/overview`)}>
+            Back to Cluster
+          </Button>
+        </div>
+      )}
+
+      {execution.data?.status === "completed" && execution.data?.executionType !== "patch" && (
         <Card className="mt-6 border-green-500/30 bg-green-500/5">
           <CardContent className="py-6 text-center">
             <div className="text-2xl mb-2">&#10003;</div>
@@ -417,6 +425,21 @@ export default function DeployPage({ params }: { params: Promise<{ id: string }>
             <p className="text-muted-foreground mt-1">
               Your PostgreSQL HA cluster is now running. Connect to your database via the Floating IP on port 5432.
             </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {execution.data?.status === "completed" && execution.data?.executionType === "patch" && (
+        <Card className="mt-6 border-green-500/30 bg-green-500/5">
+          <CardContent className="py-6 text-center">
+            <div className="text-2xl mb-2">&#10003;</div>
+            <h3 className="text-lg font-semibold">Patch Applied Successfully!</h3>
+            <p className="text-muted-foreground mt-1">
+              Your cluster has been updated. All nodes are running the latest version.
+            </p>
+            <Button className="mt-4" onClick={() => router.push(`/dashboard/clusters/${clusterId}/overview`)}>
+              Back to Cluster
+            </Button>
           </CardContent>
         </Card>
       )}

@@ -43,6 +43,13 @@
       "when": 1777400000000,
       "tag": "0005_add_cluster_patches",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777500000000,
+      "tag": "0006_add_execution_type",
+      "breakpoints": true
     }
   ]
 }

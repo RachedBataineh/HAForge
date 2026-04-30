@@ -75,6 +75,10 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
     ),
   );
 
+  const availablePatches = useQuery(
+    trpc.cluster.getAvailablePatches.queryOptions({ clusterId }),
+  );
+
   const isLb = cluster.data?.clusterType === "hetzner_lb";
   const floatingIpDetails = useQuery(
     trpc.floatingIp.details.queryOptions(
@@ -228,6 +232,9 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
           })()}
         </div>
       </div>
+
+      {/* Patches / Updates - only shown when patches are available */}
+      {cluster.data.status === "running" && availablePatches.data && availablePatches.data.length > 0 && <PatchUpdatesSection clusterId={clusterId} />}
 
       {/* Connection Info */}
       {cluster.data.status === "running" && connectionHost && (
@@ -533,9 +540,6 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
       {/* Monitoring */}
       {cluster.data.status === "running" && <MonitoringSection clusterId={clusterId} pgServers={pgServers} haServers={haServers} />}
 
-      {/* Patches / Updates */}
-      {cluster.data.status === "running" && <PatchUpdatesSection clusterId={clusterId} />}
-
       {/* Redeploy Confirmation Dialog */}
       <Dialog open={redeployOpen} onOpenChange={setRedeployOpen}>
         <DialogContent className="sm:max-w-md">
@@ -830,9 +834,10 @@ const PHASE_LABELS: Record<string, string> = {
 };
 
 function PatchUpdatesSection({ clusterId }: { clusterId: string }) {
+  const router = useRouter();
   const [applyingPatch, setApplyingPatch] = useState<string | null>(null);
 
-  const availablePatches = useQuery(
+  const { data: availablePatches } = useQuery(
     trpc.cluster.getAvailablePatches.queryOptions({ clusterId }),
   );
 
@@ -841,13 +846,9 @@ function PatchUpdatesSection({ clusterId }: { clusterId: string }) {
       return trpcClient.cluster.applyPatch.mutate({ clusterId, patchId });
     },
     onSuccess: (data) => {
-      const failed = (data?.results || []).filter((r: any) => !r.success);
-      if (failed.length > 0) {
-        toast.warning(`Patch applied with ${failed.length} warnings`);
-      } else {
-        toast.success("Patch applied successfully");
+      if (data.executionId) {
+        router.push(`/dashboard/clusters/${clusterId}/deploy?executionId=${data.executionId}`);
       }
-      availablePatches.refetch();
     },
     onError: (err) => toast.error(err.message),
     onSettled: () => setApplyingPatch(null),
@@ -858,19 +859,9 @@ function PatchUpdatesSection({ clusterId }: { clusterId: string }) {
       return trpcClient.cluster.applyAllPatches.mutate({ clusterId });
     },
     onSuccess: (data) => {
-      if (data.appliedCount === 0) {
-        toast.info("All patches already applied");
-      } else {
-        const failedPatches = (data.results || []).filter((r: any) =>
-          r.results?.some((s: any) => !s.success),
-        );
-        if (failedPatches.length > 0) {
-          toast.warning(`${data.appliedCount - failedPatches.length} of ${data.appliedCount} patches applied successfully`);
-        } else {
-          toast.success(`${data.appliedCount} patches applied successfully`);
-        }
+      if (data.firstExecutionId) {
+        router.push(`/dashboard/clusters/${clusterId}/deploy?executionId=${data.firstExecutionId}`);
       }
-      availablePatches.refetch();
     },
     onError: (err) => toast.error(err.message),
     onSettled: () => setApplyingPatch(null),

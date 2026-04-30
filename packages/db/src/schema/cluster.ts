@@ -43,6 +43,11 @@ export const executionStatusEnum = pgEnum("execution_status", [
   "cancelled",
 ]);
 
+export const executionTypeEnum = pgEnum("execution_type", [
+  "deploy",
+  "patch",
+]);
+
 export const stepStatusEnum = pgEnum("step_status", [
   "pending",
   "running",
@@ -154,6 +159,7 @@ export const executions = pgTable(
       .references(() => clusters.id, { onDelete: "cascade" }),
 
     status: executionStatusEnum("status").default("running").notNull(),
+    executionType: executionTypeEnum("execution_type").default("deploy").notNull(),
     currentPhase: text("current_phase"),
     currentStep: text("current_step"),
 
