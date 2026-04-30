@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
 import { SSHExecutor } from "../services/ssh-executor";
-import { verifyServerOwnership } from "./shared";
+import { verifyServerOwnership, decryptPrivateKey } from "./shared";
 
 export const serverRouter = router({
   add: protectedProcedure
@@ -155,14 +155,16 @@ export const serverRouter = router({
       const key = await db.query.sshKeys.findFirst({
         where: eq(sshKeys.id, input.sshKeyId),
       });
-      if (!key?.privateKey) throw new Error("SSH key has no private key");
+      if (!key) throw new Error("SSH key not found");
+      const privateKey = decryptPrivateKey(key.privateKey);
+      if (!privateKey) throw new Error("SSH key has no private key");
       if (key.userId !== ctx.session.user.id) throw new Error("Access denied");
 
       const ssh = new SSHExecutor({
         host: input.ipAddress,
         port: input.sshPort,
         username: input.sshUser,
-        privateKey: key.privateKey,
+        privateKey,
       });
 
       try {

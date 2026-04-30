@@ -25,7 +25,7 @@ export default function FloatingIpDetailPage({ params }: { params: Promise<{ id:
   const router = useRouter();
 
   const profile = useQuery(trpc.settings.getProfile.queryOptions());
-  const hasToken = !!profile.data?.hetznerApiToken;
+  const hasToken = profile.data?.hasHetznerToken ?? false;
 
   const ip = useQuery(
     trpc.floatingIp.details.queryOptions(

@@ -77,7 +77,7 @@ export default function NetworkDetailPage({ params }: { params: Promise<{ id: st
   const router = useRouter();
 
   const profile = useQuery(trpc.settings.getProfile.queryOptions());
-  const hasToken = !!profile.data?.hetznerApiToken;
+  const hasToken = profile.data?.hasHetznerToken ?? false;
 
   const net = useQuery(
     trpc.network.details.queryOptions(

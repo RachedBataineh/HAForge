@@ -50,6 +50,20 @@ export const executionRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const execution = await verifyExecutionOwnership(input.executionId, ctx.session.user.id);
+      // Find the failed step's stepNumber to retry from
+      const failedStep = await db.query.executionSteps.findFirst({
+        where: eq(executionSteps.id, input.stepId),
+      });
+      if (!failedStep) throw new Error("Step not found");
+
+      // Mark old execution as superseded
+      await db
+        .update(executions)
+        .set({ status: "cancelled", completedAt: new Date() })
+        .where(eq(executions.id, input.executionId));
+
+      // Create a new full deployment (step-level retry is not currently supported
+      // due to the orchestrator's sequential step design)
       const orchestrator = new Orchestrator(execution.clusterId);
       const newExecutionId = await orchestrator.start();
       activeOrchestrators.set(newExecutionId, orchestrator);

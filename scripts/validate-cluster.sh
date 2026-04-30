@@ -106,7 +106,14 @@ if $IS_PG; then
   check "etcd SSL certificates present" test -f /etc/etcd/ssl/ca.crt
   check "etcd SSL certificates not expired" sudo openssl x509 -checkend 86400 -in /etc/etcd/ssl/ca.crt
 
-  ETCD_HEALTH=$(sudo etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/etcd/ssl/ca.crt --cert=/etc/etcd/ssl/etcd-node1.crt --key=/etc/etcd/ssl/etcd-node1.key endpoint health 2>&1 || echo "unhealthy")
+  _ETCD_NODE_NAME=$(hostname -s)
+  _ETCD_CRT="/etc/etcd/ssl/etcd-${_ETCD_NODE_NAME}.crt"
+  _ETCD_KEY="/etc/etcd/ssl/etcd-${_ETCD_NODE_NAME}.key"
+  if sudo test -f "$_ETCD_CRT" && sudo test -f "$_ETCD_KEY"; then
+    ETCD_HEALTH=$(sudo etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/etcd/ssl/ca.crt --cert="$_ETCD_CRT" --key="$_ETCD_KEY" endpoint health 2>&1 || echo "unhealthy")
+  else
+    ETCD_HEALTH="cert files not found at $_ETCD_CRT"
+  fi
   if echo "$ETCD_HEALTH" | grep -q "healthy"; then pass "etcd endpoint healthy"; else fail "etcd endpoint healthy" "(${ETCD_HEALTH})"; fi
 
   check "Patroni service active" sudo systemctl is-active patroni

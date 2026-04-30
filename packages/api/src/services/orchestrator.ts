@@ -4,7 +4,7 @@ import { SSHExecutor } from "./ssh-executor";
 import { generateClusterCertificates, type GeneratedCerts } from "./cert-generator";
 import { resolveVariables, type VariableMap } from "./variable-resolver";
 import { getClusterSteps, getLbClusterSteps, type StepDefinition, type TargetRole } from "../templates/cluster-steps";
-import { decrypt } from "../services/crypto";
+import { encrypt, decrypt, isEncrypted } from "../services/crypto";
 import { getHardeningSteps } from "../templates/hardening/hardening-steps";
 import { generatePassword, SERVER_INFO_SCRIPT, parseServerInfo } from "./server-info";
 import { EventEmitter } from "events";
@@ -70,23 +70,28 @@ export class Orchestrator extends EventEmitter {
         : "Cluster must have 6 servers (3 PostgreSQL + 3 HAProxy)");
     }
 
-    // Auto-generate passwords if not set
+    // Auto-generate passwords if not set (encrypt before storing)
     if (!cluster.superuserPassword || !cluster.replicationPassword) {
+      const generatedSuperuser = cluster.superuserPassword || generatePassword();
+      const generatedReplication = cluster.replicationPassword || generatePassword();
       await db
         .update(clusters)
         .set({
-          superuserPassword: cluster.superuserPassword || generatePassword(),
-          replicationPassword: cluster.replicationPassword || generatePassword(),
+          superuserPassword: encrypt(generatedSuperuser),
+          replicationPassword: encrypt(generatedReplication),
           status: "deploying",
         })
         .where(eq(clusters.id, this.clusterId));
 
-      // Re-fetch
-      const updated = await db.query.clusters.findFirst({
-        where: eq(clusters.id, this.clusterId),
-      });
-      if (updated) Object.assign(cluster, updated);
+      // Use the plaintext values for orchestration
+      cluster.superuserPassword = generatedSuperuser;
+      cluster.replicationPassword = generatedReplication;
     } else {
+      // Decrypt existing passwords for use
+      const sp = cluster.superuserPassword;
+      const rp = cluster.replicationPassword;
+      cluster.superuserPassword = isEncrypted(sp) ? decrypt(sp) : sp;
+      cluster.replicationPassword = isEncrypted(rp) ? decrypt(rp) : rp;
       await db
         .update(clusters)
         .set({ status: "deploying" })

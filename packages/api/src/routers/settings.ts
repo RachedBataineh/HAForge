@@ -17,7 +17,7 @@ export const settingsRouter = router({
       name: u.name,
       email: u.email,
       image: u.image,
-      hetznerApiToken: u.hetznerApiToken ? decrypt(u.hetznerApiToken) : "",
+      hasHetznerToken: !!u.hetznerApiToken,
     };
   }),
 

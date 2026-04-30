@@ -1,5 +1,9 @@
 {
   "enabledPlugins": {
-    "core@factory-plugins": true
+    "core@factory-plugins": true,
+    "security-engineer@factory-plugins": true,
+    "typescript@factory-plugins": true,
+    "code-review@factory-plugins": true,
+    "debugging@factory-plugins": true
   }
 }

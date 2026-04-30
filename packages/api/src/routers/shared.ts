@@ -40,10 +40,8 @@ export async function verifyServerOwnership(serverId: string, userId: string) {
   return server;
 }
 
-export async function getServerSshKeyMaps(userId?: string) {
-  const dbServerRecords = userId
-    ? await db.query.servers.findMany({ where: eq(servers.userId, userId) })
-    : await db.query.servers.findMany();
+export async function getServerSshKeyMaps(userId: string) {
+  const dbServerRecords = await db.query.servers.findMany({ where: eq(servers.userId, userId) });
   const sshKeyMap = new Map<string, string | null>();
   const sshPrivateKeyMap = new Map<string, string | null>();
   for (const s of dbServerRecords) {
@@ -51,9 +49,7 @@ export async function getServerSshKeyMaps(userId?: string) {
       sshKeyMap.set(s.hetznerServerId, s.sshKeyId);
     }
   }
-  const allSshKeys = userId
-    ? await db.query.sshKeys.findMany({ where: eq(sshKeys.userId, userId) })
-    : await db.query.sshKeys.findMany();
+  const allSshKeys = await db.query.sshKeys.findMany({ where: eq(sshKeys.userId, userId) });
   const sshKeyNameMap = new Map<string, string>();
   for (const k of allSshKeys) {
     sshKeyNameMap.set(k.id, k.name);
@@ -65,7 +61,7 @@ export async function getServerSshKeyMaps(userId?: string) {
         try {
           sshPrivateKeyMap.set(s.hetznerServerId, decrypt(key.privateKey));
         } catch {
-          sshPrivateKeyMap.set(s.hetznerServerId, key.privateKey); // Lazy migration fallback
+          sshPrivateKeyMap.set(s.hetznerServerId, key.privateKey);
         }
       }
     }

@@ -83,10 +83,9 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const [draftLoaded, setDraftLoaded] = useState(false);
   const [draftSaving, setDraftSaving] = useState(false);
 
-  // Get Hetzner API token from user settings
+  // Get Hetzner API token status from user settings
   const userProfile = useQuery(trpc.settings.getProfile.queryOptions());
-  const hetznerToken = userProfile.data?.hetznerApiToken || "";
-  const tokenReady = hetznerToken.length > 10;
+  const tokenReady = userProfile.data?.hasHetznerToken ?? false;
 
   const floatingIps = useQuery(
     trpc.cluster.hetznerFloatingIps.queryOptions(

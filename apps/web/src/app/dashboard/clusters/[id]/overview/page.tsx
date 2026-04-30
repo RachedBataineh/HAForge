@@ -837,7 +837,7 @@ function PatchUpdatesSection({ clusterId }: { clusterId: string }) {
   const router = useRouter();
   const [applyingPatch, setApplyingPatch] = useState<string | null>(null);
 
-  const { data: availablePatches } = useQuery(
+  const availablePatches = useQuery(
     trpc.cluster.getAvailablePatches.queryOptions({ clusterId }),
   );
 

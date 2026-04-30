@@ -1176,37 +1176,8 @@ export const clusterRouter = router({
       return { success: true };
     }),
 
-  sshExec: protectedProcedure
-    .input(z.object({
-      serverId: z.string(),
-      command: z.string(),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      await verifyServerOwnership(input.serverId, ctx.session.user.id);
-      const server = await db.query.servers.findFirst({
-        where: eq(servers.id, input.serverId),
-        with: { sshKey: true },
-      });
-      if (!server) throw new Error("Server not found");
-      const privateKey = decryptPrivateKey(server.sshKey?.privateKey);
-      if (!privateKey) throw new Error("No SSH key configured");
-
-      const { SSHExecutor } = await import("../services/ssh-executor");
-      const ssh = new SSHExecutor({
-        host: server.ipAddress || "",
-        port: server.sshPort || 22,
-        username: server.sshUser || "root",
-        privateKey,
-      });
-      await ssh.connect();
-      try {
-        const result = await ssh.exec(input.command);
-        if (result.exitCode !== 0) throw new Error(result.stderr || `Exit code ${result.exitCode}`);
-        return { success: true, stdout: result.stdout, stderr: result.stderr };
-      } finally {
-        await ssh.disconnect();
-      }
-    }),
+  // REMOVED: sshExec endpoint was an unrestricted RCE vector.
+  // Use the WebSocket terminal (/ws/terminal) for interactive server access.
 
   refreshServerInfo: protectedProcedure
     .input(z.object({ serverId: z.string() }))

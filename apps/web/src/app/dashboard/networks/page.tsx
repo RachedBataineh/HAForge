@@ -28,7 +28,7 @@ export default function NetworksPage() {
   const [deleteName, setDeleteName] = useState("");
 
   const profile = useQuery(trpc.settings.getProfile.queryOptions());
-  const hasToken = !!profile.data?.hetznerApiToken;
+  const hasToken = profile.data?.hasHetznerToken ?? false;
 
   const networks = useQuery(
     trpc.network.list.queryOptions(undefined, { enabled: hasToken }),

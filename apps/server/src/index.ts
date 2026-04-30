@@ -12,8 +12,18 @@ import { db, sshKeys, clusters } from "@HAForge/db";
 import { servers } from "@HAForge/db";
 import { eq } from "drizzle-orm";
 
-// --- In-memory rate limiter ---
+// --- In-memory rate limiter with periodic cleanup ---
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_CLEANUP_INTERVAL = 60_000; // prune stale entries every 60s
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitStore) {
+    if (now > entry.resetAt) {
+      rateLimitStore.delete(ip);
+    }
+  }
+}, RATE_LIMIT_CLEANUP_INTERVAL);
 
 function getClientIp(c: any): string {
   const forwarded = c.req.header("x-forwarded-for");
@@ -53,6 +63,15 @@ function rateLimiter(options: { windowMs: number; max: number }) {
 
 const app = new Hono();
 
+// Request body size limit (1MB)
+app.use("/*", async (c, next) => {
+  const contentLength = c.req.header("content-length");
+  if (contentLength && parseInt(contentLength) > 1_000_000) {
+    return c.json({ error: { message: "Request body too large" } }, 413);
+  }
+  await next();
+});
+
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
 app.use(logger());
@@ -82,8 +101,18 @@ app.use(
   }),
 );
 
-app.get("/", (c) => {
-  return c.text("OK");
+app.get("/", async (c) => {
+  return c.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+app.get("/health", async (c) => {
+  try {
+    const { sql } = await import("drizzle-orm");
+    await db.execute(sql`SELECT 1`);
+    return c.json({ status: "ok", db: "connected", timestamp: new Date().toISOString() });
+  } catch {
+    return c.json({ status: "degraded", db: "unreachable", timestamp: new Date().toISOString() }, 503);
+  }
 });
 
 // WebSocket terminal endpoint
@@ -202,6 +231,12 @@ app.get(
                 return;
               }
             }
+            // Deny access if server has no owner and no cluster (orphaned)
+            if (!ownerId && !server.clusterId) {
+              ws.send(JSON.stringify({ type: "error", message: "Access denied." }));
+              ws.close();
+              return;
+            }
 
             // Resolve private key from ssh_keys table via sshKeyId
             let privateKey: string | null = null;
@@ -278,3 +313,20 @@ const server = serve(
 );
 
 injectWebSocket(server);
+
+// Graceful shutdown
+function shutdown(signal: string) {
+  console.log(`\nReceived ${signal}. Shutting down gracefully...`);
+  server.close(() => {
+    console.log("HTTP server closed.");
+    process.exit(0);
+  });
+  // Force exit after 10s if graceful shutdown hangs
+  setTimeout(() => {
+    console.warn("Forced shutdown after timeout.");
+    process.exit(1);
+  }, 10_000);
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

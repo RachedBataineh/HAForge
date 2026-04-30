@@ -25,13 +25,9 @@ export default function SettingsPage() {
   }
 
   // Hetzner API Token
+  const hasHetznerToken = p?.hasHetznerToken ?? false;
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
-  const [tokenLoaded, setTokenLoaded] = useState(false);
-  if (p && !tokenLoaded) {
-    setToken(p.hetznerApiToken);
-    setTokenLoaded(true);
-  }
 
   // Password
   const [currentPassword, setCurrentPassword] = useState("");
@@ -146,11 +142,14 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
-          {token && (
+          {hasHetznerToken && !token && (
             <div className="flex items-center gap-2 text-xs text-green-600">
               <CheckCircle2 className="size-3.5" />
               Token saved — Hetzner integration is active
             </div>
+          )}
+          {hasHetznerToken && (
+            <p className="text-xs text-muted-foreground">Enter a new token to replace the existing one.</p>
           )}
           <div className="flex justify-end">
             <Button onClick={() => updateToken.mutate()} disabled={updateToken.isPending}>

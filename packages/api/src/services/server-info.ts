@@ -2,10 +2,25 @@ import crypto from "crypto";
 
 export function generatePassword(length = 32): string {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  const charsLength = chars.length;
   let result = "";
-  for (let i = 0; i < length; i++) {
-    result += chars[bytes[i]! % chars.length];
+  const randomBytes = crypto.getRandomValues(new Uint8Array(length * 2));
+  let byteIndex = 0;
+
+  while (result.length < length) {
+    if (byteIndex >= randomBytes.length) {
+      // Regenerate if we run out of bytes
+      const newBytes = crypto.getRandomValues(new Uint8Array(length * 2));
+      randomBytes.set(newBytes);
+      byteIndex = 0;
+    }
+    // Rejection sampling to eliminate modulo bias
+    // Max unbiased value is the largest multiple of charsLength <= 256
+    const unbiasedMax = 256 - (256 % charsLength);
+    const byte = randomBytes[byteIndex++]!;
+    if (byte < unbiasedMax) {
+      result += chars[byte % charsLength];
+    }
   }
   return result;
 }

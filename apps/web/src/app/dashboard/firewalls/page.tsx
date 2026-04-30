@@ -28,7 +28,7 @@ export default function FirewallsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState("");
 
   const profile = useQuery(trpc.settings.getProfile.queryOptions());
-  const hasToken = !!profile.data?.hetznerApiToken;
+  const hasToken = profile.data?.hasHetznerToken ?? false;
 
   const firewalls = useQuery(
     trpc.firewall.list.queryOptions(undefined, { enabled: hasToken }),

@@ -29,7 +29,7 @@ export default function LoadBalancersPage() {
   const [deleteName, setDeleteName] = useState("");
 
   const profile = useQuery(trpc.settings.getProfile.queryOptions());
-  const hasToken = !!profile.data?.hetznerApiToken;
+  const hasToken = profile.data?.hasHetznerToken ?? false;
 
   const loadBalancers = useQuery(
     trpc.cluster.hetznerLoadBalancers.queryOptions(undefined, { enabled: hasToken }),
