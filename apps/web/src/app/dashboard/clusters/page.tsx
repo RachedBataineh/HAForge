@@ -171,10 +171,12 @@ export default function ClusterListPage() {
   const [provisioningMode, setProvisioningMode] = useState<"manual" | "automatic">("manual");
   const [autoStep, setAutoStep] = useState(0); // 0: basics, 1: server types, 2: invoice, 3: provisioning
   const [autoLocation, setAutoLocation] = useState("");
-  const [autoImage, setAutoImage] = useState("");
+  const [autoNetworkZone, setAutoNetworkZone] = useState("");
   const [autoSshKeyId, setAutoSshKeyId] = useState("");
   const [autoHaServerType, setAutoHaServerType] = useState("");
   const [autoPgServerType, setAutoPgServerType] = useState("");
+  const [autoAdminUsername, setAutoAdminUsername] = useState("haforge");
+  const [autoDbUsername, setAutoDbUsername] = useState("postgres");
   const [provisioningProgress, setProvisioningProgress] = useState(0);
 
   const [activeTab, setActiveTab] = useState<"active" | "draft">("active");
@@ -187,13 +189,13 @@ export default function ClusterListPage() {
   // Hetzner data for automatic mode
   const serverTypes = useQuery(trpc.cluster.hetznerServerTypes.queryOptions());
   const locations = useQuery(trpc.cluster.hetznerLocations.queryOptions());
-  const images = useQuery(trpc.cluster.hetznerImages.queryOptions({}));
+  const networkZones = useQuery(trpc.cluster.hetznerNetworkZones.queryOptions());
   const sshKeys = useQuery(trpc.cluster.allHetznerSshKeys.queryOptions());
   const pricing = useQuery(trpc.cluster.hetznerPricing.queryOptions());
 
   const serverTypesData = (serverTypes.data ?? []) as any[];
   const locationsData = (locations.data ?? []) as any[];
-  const imagesData = (images.data ?? []) as any[];
+  const networkZonesData = (networkZones.data ?? []) as any[];
   const sshKeysData = (sshKeys.data ?? []) as any[];
 
   // Manual cluster creation
@@ -215,10 +217,12 @@ export default function ClusterListPage() {
         name: newClusterName,
         clusterType: newClusterType,
         location: autoLocation,
-        image: autoImage,
+        networkZone: autoNetworkZone,
         sshKeyId: autoSshKeyId,
         haproxyServerType: autoHaServerType,
         postgresqlServerType: autoPgServerType,
+        adminUsername: autoAdminUsername,
+        superuserUsername: autoDbUsername,
       });
     },
     onSuccess: (data) => {
@@ -242,7 +246,7 @@ export default function ClusterListPage() {
     setProvisioningMode("manual");
     setAutoStep(0);
     setAutoLocation("");
-    setAutoImage("");
+    setAutoNetworkZone("");
     setAutoSshKeyId("");
     setAutoHaServerType("");
     setAutoPgServerType("");
@@ -262,7 +266,7 @@ export default function ClusterListPage() {
   const getTotalMonthly = () => (getHaPrice() * 3 + getPgPrice() * 3 + getFipPrice()).toFixed(2);
 
   const canProceedAutoBasics = () =>
-    !!newClusterName.trim() && !!autoLocation && !!autoImage && !!autoSshKeyId;
+    !!newClusterName.trim() && !!autoLocation && !!autoNetworkZone && !!autoSshKeyId;
   const canProceedAutoServerTypes = () => !!autoHaServerType && !!autoPgServerType;
 
   // Simulate progress during provisioning
@@ -340,21 +344,46 @@ export default function ClusterListPage() {
       </div>
 
       <div className="grid gap-2">
-        <Label>OS Image</Label>
-        <Select value={autoImage} onValueChange={(v) => setAutoImage(v ?? "")}>
+        <Label>Network Zone</Label>
+        <Select value={autoNetworkZone} onValueChange={(v) => setAutoNetworkZone(v ?? "")}>
           <SelectTrigger>
-            {autoImage
-              ? imagesData.find((i: any) => String(i.id) === autoImage)?.description || autoImage
-              : "Select OS image"}
+            {autoNetworkZone
+              ? (() => { const z = networkZonesData.find((z: any) => z.name === autoNetworkZone); return z ? `${z.name} (${z.locations.join(", ")})` : autoNetworkZone; })()
+              : "Select network zone"}
           </SelectTrigger>
-          <SelectContent className="max-h-64" side="bottom">
-            {imagesData.map((i: any) => (
-              <SelectItem key={String(i.id)} value={String(i.id)}>
-                {i.description || i.name}
+          <SelectContent className="!w-auto min-w-[400px]" side="bottom">
+            {networkZonesData.map((z: any) => (
+              <SelectItem key={z.name} value={z.name}>
+                <span className="grid grid-cols-[auto_1fr] gap-x-4 w-full">
+                  <span className="font-medium">{z.name}</span>
+                  <span className="text-muted-foreground text-xs">{z.locations.join(", ")}</span>
+                </span>
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+        <p className="text-xs text-muted-foreground">All servers must be in the same network zone as the selected location.</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-2">
+          <Label>Admin Username</Label>
+          <Input
+            placeholder="haforge"
+            value={autoAdminUsername}
+            onChange={(e) => setAutoAdminUsername(e.target.value.replace(/[^a-z_][a-z0-9_-]*/g, ""))}
+          />
+          <p className="text-xs text-muted-foreground">Created with sudo access on all servers. Root login will be disabled.</p>
+        </div>
+        <div className="grid gap-2">
+          <Label>Database Username</Label>
+          <Input
+            placeholder="postgres"
+            value={autoDbUsername}
+            onChange={(e) => setAutoDbUsername(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">PostgreSQL superuser. A secure password will be auto-generated.</p>
+        </div>
       </div>
 
       <div className="grid gap-2">

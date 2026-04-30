@@ -422,10 +422,12 @@ export const clusterRouter = router({
       name: z.string().min(1).max(100),
       clusterType: z.enum(["haproxy", "hetzner_lb"]),
       location: z.string().min(1),
-      image: z.string().min(1),
+      networkZone: z.string().min(1),
       sshKeyId: z.string().min(1),
       haproxyServerType: z.string().min(1),
       postgresqlServerType: z.string().min(1),
+      adminUsername: z.string().default("haforge"),
+      superuserUsername: z.string().default("postgres"),
     }))
     .mutation(async ({ ctx, input }) => {
       const token = await getUserApiToken(ctx.session.user.id);
@@ -450,20 +452,44 @@ export const clusterRouter = router({
           clusterType: input.clusterType,
           provisioningMode: "automatic",
           status: "draft",
+          adminUsername: input.adminUsername,
+          superuserUsername: input.superuserUsername,
         })
         .returning();
 
       if (!cluster) throw new Error("Failed to create cluster record");
 
       try {
-        // 2. Create network
+        // 2. Find next available /16 range and create network
+        const existingNetsRes = await fetch(`${HETZNER_API}/networks`, { headers });
+        if (!existingNetsRes.ok) throw new Error("Failed to fetch existing networks");
+        const existingNetsData = await existingNetsRes.json() as any;
+        const usedRanges = new Set<string>();
+        for (const n of existingNetsData.networks || []) {
+          if (n.ip_range) usedRanges.add(n.ip_range);
+          for (const s of n.subnets || []) {
+            if (s.ip_range) usedRanges.add(s.ip_range);
+          }
+        }
+
+        // Try 10.0.0.0/16 through 10.255.0.0/16
+        let chosenRange = "";
+        for (let i = 0; i < 256; i++) {
+          const candidate = `10.${i}.0.0/16`;
+          if (!usedRanges.has(candidate)) {
+            chosenRange = candidate;
+            break;
+          }
+        }
+        if (!chosenRange) throw new Error("Could not find an available network range");
+
         const netRes = await fetch(`${HETZNER_API}/networks`, {
           method: "POST",
           headers,
           body: JSON.stringify({
             name: `${input.name}-net`,
-            ip_range: "10.0.0.0/16",
-            network_zone: "eu-central",
+            ip_range: chosenRange,
+            network_zone: input.networkZone,
           }),
         });
         if (!netRes.ok) {
@@ -480,8 +506,8 @@ export const clusterRouter = router({
           headers,
           body: JSON.stringify({
             type: "cloud",
-            network_zone: "eu-central",
-            ip_range: "10.0.0.0/24",
+            network_zone: input.networkZone,
+            ip_range: chosenRange.replace("/16", "/24"),
           }),
         });
         if (!subnetRes.ok) {
@@ -516,7 +542,7 @@ export const clusterRouter = router({
               name: cfg.name,
               server_type: cfg.type,
               location: input.location,
-              image: input.image,
+              image: "ubuntu-24.04",
               networks: [Number(networkNumId)],
               ssh_keys: [Number(hetznerKeyId)],
               start_after_create: true,
@@ -639,6 +665,47 @@ export const clusterRouter = router({
           floatingIpId,
           wizardStep: 3,
         }).where(eq(clusters.id, cluster.id));
+
+        // 7.5. Create firewalls
+        const pgServerHetznerIds = createdServers
+          .filter((s) => s.role.startsWith("postgresql"))
+          .map((s) => Number(s.hetznerId));
+        const haServerHetznerIds = createdServers
+          .filter((s) => s.role.startsWith("haproxy"))
+          .map((s) => Number(s.hetznerId));
+
+        // PostgreSQL firewall: only SSH (port 22)
+        await fetch(`${HETZNER_API}/firewalls`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            name: `${input.name}-pg-fw`,
+            rules: [
+              { direction: "in", protocol: "tcp", port: "22", source_ips: ["0.0.0.0/0", "::/0"], destination_ips: [] },
+              { direction: "out", protocol: "tcp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [], port: "" },
+              { direction: "out", protocol: "udp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [], port: "" },
+              { direction: "out", protocol: "icmp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [] },
+            ],
+            apply_to: pgServerHetznerIds.map((id) => ({ type: "server", server: { id } })),
+          }),
+        });
+
+        // HAProxy firewall: SSH (22) + PostgreSQL (5432)
+        await fetch(`${HETZNER_API}/firewalls`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            name: `${input.name}-haproxy-fw`,
+            rules: [
+              { direction: "in", protocol: "tcp", port: "22", source_ips: ["0.0.0.0/0", "::/0"], destination_ips: [] },
+              { direction: "in", protocol: "tcp", port: "5432", source_ips: ["0.0.0.0/0", "::/0"], destination_ips: [] },
+              { direction: "out", protocol: "tcp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [], port: "" },
+              { direction: "out", protocol: "udp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [], port: "" },
+              { direction: "out", protocol: "icmp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [] },
+            ],
+            apply_to: haServerHetznerIds.map((id) => ({ type: "server", server: { id } })),
+          }),
+        });
 
         // 8. Calculate monthly cost
         const [stRes, pricingRes] = await Promise.all([
@@ -1145,7 +1212,27 @@ export const clusterRouter = router({
         description: l.description,
         country: l.country,
         city: l.city,
+        networkZone: l.network_zone || "",
       }));
+    }),
+
+  hetznerNetworkZones: protectedProcedure
+    .query(async ({ ctx }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const res = await fetch(`${HETZNER_API}/locations`, { headers: hetznerHeaders(token) });
+      if (!res.ok) throw new Error(`Hetzner API error: ${res.status}`);
+      const data = await res.json() as any;
+      const seen = new Set<string>();
+      const zones: { name: string; locationCount: number; locations: string[] }[] = [];
+      for (const l of data.locations || []) {
+        const z = l.network_zone;
+        if (!z || seen.has(z)) continue;
+        seen.add(z);
+        const locs = data.locations.filter((loc: any) => loc.network_zone === z);
+        zones.push({ name: z, locationCount: locs.length, locations: locs.map((loc: any) => loc.name) });
+      }
+      return zones;
     }),
 
   hetznerImages: protectedProcedure
