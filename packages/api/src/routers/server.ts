@@ -131,6 +131,7 @@ export const serverRouter = router({
         const cluster = await db.query.clusters.findFirst({ where: eq(clusters.id, server.clusterId) });
         if (cluster && cluster.userId !== ctx.session.user.id) return null;
       }
+      if (!ownerId && !server.clusterId) return null;
       return server;
     }),
 

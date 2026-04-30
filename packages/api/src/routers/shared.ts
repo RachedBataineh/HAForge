@@ -37,13 +37,14 @@ export async function verifyServerOwnership(serverId: string, userId: string) {
     const cluster = await db.query.clusters.findFirst({ where: eq(clusters.id, server.clusterId) });
     if (cluster && cluster.userId !== userId) throw new Error("Access denied");
   }
+  // Deny access if server has no owner and no cluster (orphaned)
+  if (!server.userId && !server.clusterId) throw new Error("Access denied");
   return server;
 }
 
 export async function getServerSshKeyMaps(userId: string) {
   const dbServerRecords = await db.query.servers.findMany({ where: eq(servers.userId, userId) });
   const sshKeyMap = new Map<string, string | null>();
-  const sshPrivateKeyMap = new Map<string, string | null>();
   for (const s of dbServerRecords) {
     if (s.hetznerServerId) {
       sshKeyMap.set(s.hetznerServerId, s.sshKeyId);
@@ -54,17 +55,5 @@ export async function getServerSshKeyMaps(userId: string) {
   for (const k of allSshKeys) {
     sshKeyNameMap.set(k.id, k.name);
   }
-  for (const s of dbServerRecords) {
-    if (s.hetznerServerId && s.sshKeyId) {
-      const key = allSshKeys.find((k) => k.id === s.sshKeyId);
-      if (key?.privateKey) {
-        try {
-          sshPrivateKeyMap.set(s.hetznerServerId, decrypt(key.privateKey));
-        } catch {
-          sshPrivateKeyMap.set(s.hetznerServerId, key.privateKey);
-        }
-      }
-    }
-  }
-  return { sshKeyMap, sshKeyNameMap, sshPrivateKeyMap };
+  return { sshKeyMap, sshKeyNameMap };
 }

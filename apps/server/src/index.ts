@@ -11,6 +11,7 @@ import { Client } from "ssh2";
 import { db, sshKeys, clusters } from "@HAForge/db";
 import { servers } from "@HAForge/db";
 import { eq } from "drizzle-orm";
+import { createDecipheriv } from "crypto";
 
 // --- In-memory rate limiter with periodic cleanup ---
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
@@ -244,7 +245,31 @@ app.get(
               const key = await db.query.sshKeys.findFirst({
                 where: eq(sshKeys.id, server.sshKeyId),
               });
-              privateKey = key?.privateKey || null;
+              if (key?.privateKey) {
+                try {
+                  const raw = key.privateKey;
+                  if (raw.startsWith("enc:v1:")) {
+                    // Decrypt AES-256-GCM encrypted private key
+                    const withoutPrefix = raw.slice(7);
+                    const parts = withoutPrefix.split(":");
+                    if (parts.length === 3) {
+                      const encryptionKey = Buffer.from(env.SECRET_ENCRYPTION_KEY, "hex");
+                      const iv = Buffer.from(parts[0]!, "hex");
+                      const encrypted = Buffer.from(parts[1]!, "hex");
+                      const authTag = Buffer.from(parts[2]!, "hex");
+                      const decipher = createDecipheriv("aes-256-gcm", encryptionKey, iv, { authTagLength: 16 });
+                      decipher.setAuthTag(authTag);
+                      privateKey = Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
+                    } else {
+                      privateKey = raw;
+                    }
+                  } else {
+                    privateKey = raw;
+                  }
+                } catch {
+                  privateKey = key.privateKey;
+                }
+              }
             }
 
             if (!privateKey) {

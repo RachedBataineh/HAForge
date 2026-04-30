@@ -5,6 +5,7 @@ import { generateClusterCertificates, type GeneratedCerts } from "./cert-generat
 import { resolveVariables, type VariableMap } from "./variable-resolver";
 import { getClusterSteps, getLbClusterSteps, type StepDefinition, type TargetRole } from "../templates/cluster-steps";
 import { encrypt, decrypt, isEncrypted } from "../services/crypto";
+import { decryptPrivateKey } from "../routers/shared";
 import { getHardeningSteps } from "../templates/hardening/hardening-steps";
 import { generatePassword, SERVER_INFO_SCRIPT, parseServerInfo } from "./server-info";
 import { EventEmitter } from "events";
@@ -403,7 +404,7 @@ export class Orchestrator extends EventEmitter {
           where: eq(sshKeys.id, server.sshKeyId),
         });
         if (key?.privateKey) {
-          server.resolvedPrivateKey = key.privateKey;
+          server.resolvedPrivateKey = decryptPrivateKey(key.privateKey);
         }
       }
       if (!server.resolvedPrivateKey) {
