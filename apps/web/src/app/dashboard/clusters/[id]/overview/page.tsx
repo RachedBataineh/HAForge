@@ -87,6 +87,8 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
     ),
   );
   const servers = cluster.data?.servers ?? [];
+  const roleOrder = ["postgresql_1", "postgresql_2", "postgresql_3", "haproxy_1", "haproxy_2", "haproxy_3"];
+  servers.sort((a: any, b: any) => roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role));
   const pgServers = servers.filter((s: any) => s.role?.startsWith("postgresql"));
   const haServers = servers.filter((s: any) => s.role?.startsWith("haproxy"));
 
