@@ -4,7 +4,7 @@ import { eq, ne, and } from "drizzle-orm";
 import { z } from "zod";
 import { protectedProcedure, router } from "../index";
 import { SERVER_INFO_SCRIPT, parseServerInfo } from "../services/server-info";
-import { encrypt, decrypt } from "../services/crypto";
+import { encrypt, decrypt, isEncrypted } from "../services/crypto";
 import { HETZNER_API, hetznerHeaders, getUserApiToken, verifyServerOwnership, getServerSshKeyMaps, decryptPrivateKey } from "./shared";
 import { ALL_PATCHES } from "../patches";
 import { runPatch } from "../services/patch-runner";
@@ -668,6 +668,13 @@ export const clusterRouter = router({
         with: { servers: true },
       });
       if (!cluster) throw new Error("Cluster not found");
+      // Decrypt passwords for display (encrypted at rest, decrypted for the owner)
+      if (cluster.superuserPassword && isEncrypted(cluster.superuserPassword)) {
+        cluster.superuserPassword = decrypt(cluster.superuserPassword);
+      }
+      if (cluster.replicationPassword && isEncrypted(cluster.replicationPassword)) {
+        cluster.replicationPassword = decrypt(cluster.replicationPassword);
+      }
       return cluster;
     }),
 
@@ -677,7 +684,8 @@ export const clusterRouter = router({
       with: { servers: true },
       orderBy: (clusters, { desc }) => [desc(clusters.createdAt)],
     });
-    return result;
+    // Strip sensitive fields before sending to client
+    return result.map(({ superuserPassword, replicationPassword, ...safe }) => safe);
   }),
 
   getServerById: protectedProcedure
@@ -715,6 +723,14 @@ export const clusterRouter = router({
         clusterType: server.cluster?.clusterType || null,
         serverName,
         serverStatus,
+        // Strip sensitive SSH key data before sending to client
+        sshKey: server.sshKey ? {
+          id: server.sshKey.id,
+          name: server.sshKey.name,
+          fingerprint: server.sshKey.fingerprint,
+          hasPrivateKey: !!server.sshKey.privateKey,
+        } : null,
+        cluster: undefined,
       };
     }),
 
@@ -986,7 +1002,11 @@ export const clusterRouter = router({
       where: eq(sshKeys.userId, ctx.session.user.id),
       orderBy: (sshKeys, { desc }) => [desc(sshKeys.createdAt)],
     });
-    return dbKeys;
+    // Decrypt private keys before returning (user needs to view/copy them)
+    return dbKeys.map((k) => ({
+      ...k,
+      privateKey: k.privateKey ? decryptPrivateKey(k.privateKey) : null,
+    }));
   }),
 
   addPrivateKey: protectedProcedure

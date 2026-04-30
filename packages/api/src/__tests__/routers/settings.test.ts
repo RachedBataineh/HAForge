@@ -33,7 +33,7 @@ const settingsRouter = router({
       name: u.name,
       email: u.email,
       image: u.image,
-      hetznerApiToken: u.hetznerApiToken || "",
+      hasHetznerToken: !!u.hetznerApiToken,
     };
   }),
 
@@ -104,13 +104,13 @@ describe("settingsRouter", () => {
       expect(result.id).toBe("test-user-1");
     });
 
-    it("returns hetzner token (empty string if null)", async () => {
+    it("returns hasHetznerToken false when token is null", async () => {
       mockDb.query.user.findFirst.mockResolvedValue({ ...mockUser, hetznerApiToken: null });
       const caller = createCaller();
 
       const result = await caller.settings.getProfile();
 
-      expect(result.hetznerApiToken).toBe("");
+      expect(result.hasHetznerToken).toBe(false);
     });
 
     it("throws if user not found", async () => {
