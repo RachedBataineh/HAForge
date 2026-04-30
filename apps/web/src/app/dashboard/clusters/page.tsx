@@ -537,9 +537,9 @@ export default function ClusterListPage() {
                       <span>HAProxy ({haType?.description || autoHaServerType})</span>
                     </div>
                   </td>
-                  <td className="py-2 px-3 text-right font-mono">{haPrice}</td>
+                  <td className="py-2 px-3 text-right font-mono">€{haPrice}</td>
                   <td className="py-2 px-3 text-right">3</td>
-                  <td className="py-2 px-3 text-right font-mono">{haTotal}</td>
+                  <td className="py-2 px-3 text-right font-mono">€{haTotal}</td>
                 </tr>
                 <tr className="border-t">
                   <td className="py-2 px-3">
@@ -548,9 +548,9 @@ export default function ClusterListPage() {
                       <span>PostgreSQL ({pgType?.description || autoPgServerType})</span>
                     </div>
                   </td>
-                  <td className="py-2 px-3 text-right font-mono">{pgPrice}</td>
+                  <td className="py-2 px-3 text-right font-mono">€{pgPrice}</td>
                   <td className="py-2 px-3 text-right">3</td>
-                  <td className="py-2 px-3 text-right font-mono">{pgTotal}</td>
+                  <td className="py-2 px-3 text-right font-mono">€{pgTotal}</td>
                 </tr>
                 {newClusterType === "haproxy" && (
                   <tr className="border-t">
@@ -560,16 +560,16 @@ export default function ClusterListPage() {
                         <span>Floating IP</span>
                       </div>
                     </td>
-                    <td className="py-2 px-3 text-right font-mono">{fipPrice}</td>
+                    <td className="py-2 px-3 text-right font-mono">€{fipPrice}</td>
                     <td className="py-2 px-3 text-right">1</td>
-                    <td className="py-2 px-3 text-right font-mono">{fipPrice}</td>
+                    <td className="py-2 px-3 text-right font-mono">€{fipPrice}</td>
                   </tr>
                 )}
               </tbody>
               <tfoot>
                 <tr className="border-t bg-muted/50">
                   <td colSpan={3} className="py-2.5 px-3 font-semibold">Total Monthly</td>
-                  <td className="py-2.5 px-3 text-right font-mono font-semibold">{total}</td>
+                  <td className="py-2.5 px-3 text-right font-mono font-semibold">€{total}</td>
                 </tr>
               </tfoot>
             </table>
