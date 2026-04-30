@@ -15,19 +15,21 @@ export default function Terminal({ serverId, serverIsOn }: TerminalProps) {
   const xtermRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const fitAddonRef = useRef<any>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const disconnect = useCallback(() => {
+    if (resizeObserverRef.current) {
+      resizeObserverRef.current.disconnect();
+      resizeObserverRef.current = null;
+    }
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
     if (xtermRef.current) {
-      if ((xtermRef.current as any)._resizeHandler) {
-        window.removeEventListener("resize", (xtermRef.current as any)._resizeHandler);
-      }
       xtermRef.current.dispose();
       xtermRef.current = null;
     }
@@ -35,10 +37,24 @@ export default function Terminal({ serverId, serverIsOn }: TerminalProps) {
     setConnected(false);
   }, []);
 
+  const sendResize = useCallback(() => {
+    if (!fitAddonRef.current || !xtermRef.current || !wsRef.current) return;
+    if (wsRef.current.readyState !== WebSocket.OPEN) return;
+    try {
+      fitAddonRef.current.fit();
+      const dims = fitAddonRef.current.proposeDimensions();
+      if (dims) {
+        wsRef.current.send(JSON.stringify({ type: "resize", cols: dims.cols, rows: dims.rows }));
+      }
+    } catch {
+      // Terminal may be disposed during unmount
+    }
+  }, []);
+
   const connect = useCallback(async () => {
     if (!serverIsOn) return;
 
-    // Wait for the div to be rendered
+    // Wait for the container div to be in the DOM
     await new Promise((r) => setTimeout(r, 50));
     if (!terminalRef.current) return;
 
@@ -52,46 +68,79 @@ export default function Terminal({ serverId, serverIsOn }: TerminalProps) {
         import("@xterm/addon-fit"),
       ]);
 
-      // Inject xterm CSS once
+      // Load xterm CSS (bundled at build time)
+      // Use dynamic link injection to match xterm v6 CSS
       if (!document.getElementById("xterm-css")) {
         const link = document.createElement("link");
         link.id = "xterm-css";
         link.rel = "stylesheet";
-        link.href = "https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css";
+        // Resolve from node_modules via Next.js static serving
+        link.href = "https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/css/xterm.css";
         document.head.appendChild(link);
+        // Wait for CSS to load before rendering
+        await new Promise<void>((resolve) => {
+          link.onload = () => resolve();
+          link.onerror = () => resolve(); // Don't block on failure
+        });
       }
 
       const term = new Terminal({
         cursorBlink: true,
-        fontSize: 13,
-        fontFamily: "Menlo, Monaco, 'Courier New', monospace",
+        fontSize: 14,
+        fontFamily: "'JetBrains Mono', 'Fira Code', Menlo, Monaco, 'Courier New', monospace",
+        fontWeight: "normal",
+        fontWeightBold: "bold",
         theme: {
           background: "#0d1117",
           foreground: "#c9d1d9",
           cursor: "#58a6ff",
+          cursorAccent: "#0d1117",
           selectionBackground: "#264f78",
+          selectionForeground: "#ffffff",
+          black: "#484f58",
+          red: "#ff7b72",
+          green: "#3fb950",
+          yellow: "#d29922",
+          blue: "#58a6ff",
+          magenta: "#bc8cff",
+          cyan: "#39c5cf",
+          white: "#b1bac4",
+          brightBlack: "#6e7681",
+          brightRed: "#ffa198",
+          brightGreen: "#56d364",
+          brightYellow: "#e3b341",
+          brightBlue: "#79c0ff",
+          brightMagenta: "#d2a8ff",
+          brightCyan: "#56d4dd",
+          brightWhite: "#f0f6fc",
         },
+        scrollback: 10_000,
+        allowProposedApi: true,
+        allowTransparency: false,
+        scrollSensitivity: 1,
+        convertEol: false,
+        lineHeight: 1.2,
       });
 
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
       term.open(terminalRef.current);
 
-      // Wait for CSS + DOM to settle, then fit and snap container to exact row height
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-      fitAddon.fit();
-
-      // Snap container height to exact row multiple to prevent ghost lines
-      const xtermEl = terminalRef.current.querySelector(".xterm-screen");
-      if (xtermEl) {
-        const renderedHeight = (xtermEl as HTMLElement).offsetHeight;
-        terminalRef.current.style.height = `${renderedHeight}px`;
-        fitAddon.fit();
-      }
-
       xtermRef.current = term;
       fitAddonRef.current = fitAddon;
 
+      // Initial fit after CSS + DOM settle
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      fitAddon.fit();
+
+      // Watch container size changes (sidebar collapse, panel resize, etc.)
+      const observer = new ResizeObserver(() => {
+        sendResize();
+      });
+      observer.observe(terminalRef.current);
+      resizeObserverRef.current = observer;
+
+      // Connect WebSocket
       const wsUrl = env.NEXT_PUBLIC_SERVER_URL.replace("http", "ws");
       const ws = new WebSocket(`${wsUrl}/ws/terminal?serverId=${serverId}`);
       wsRef.current = ws;
@@ -108,11 +157,15 @@ export default function Terminal({ serverId, serverIsOn }: TerminalProps) {
           if (parsed.type === "connected") {
             setConnected(true);
             setLoading(false);
-            requestAnimationFrame(() => requestAnimationFrame(() => fitAddon.fit()));
+            // Re-fit and send initial dimensions after connection
+            requestAnimationFrame(() => {
+              fitAddon.fit();
+              sendResize();
+            });
             return;
           }
         } catch {
-          // Raw terminal data
+          // Raw terminal data — write to xterm
           term.write(data);
         }
       };
@@ -130,29 +183,24 @@ export default function Terminal({ serverId, serverIsOn }: TerminalProps) {
         setLoading(false);
       };
 
+      // Send typed input to server
       term.onData((data: string) => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(data);
         }
       });
 
-      const onResize = () => {
-        if (fitAddonRef.current && xtermRef.current) {
-          fitAddonRef.current.fit();
-          const dims = fitAddonRef.current.proposeDimensions();
-          if (dims && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "resize", cols: dims.cols, rows: dims.rows }));
-          }
+      // Send terminal size changes to server
+      term.onResize(({ cols, rows }) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "resize", cols, rows }));
         }
-      };
-
-      window.addEventListener("resize", onResize);
-      (term as any)._resizeHandler = onResize;
+      });
     } catch (err: any) {
       setError(err.message);
       setLoading(false);
     }
-  }, [serverId, serverIsOn, disconnect]);
+  }, [serverId, serverIsOn, disconnect, sendResize]);
 
   // Auto-connect when mounted and server is on
   useEffect(() => {
@@ -177,7 +225,7 @@ export default function Terminal({ serverId, serverIsOn }: TerminalProps) {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">
@@ -203,8 +251,8 @@ export default function Terminal({ serverId, serverIsOn }: TerminalProps) {
 
       <div
         ref={terminalRef}
-        className="overflow-hidden border bg-[#0d1117]"
-        style={{ height: 400, padding: 0 }}
+        className="overflow-hidden rounded-md border border-border bg-[#0d1117]"
+        style={{ height: "70vh", minHeight: 300, padding: 4 }}
       />
     </div>
   );
