@@ -95,7 +95,6 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
   const [destroyOpen, setDestroyOpen] = useState(false);
   const [destroyConfirm, setDestroyConfirm] = useState("");
   const [destroyMode, setDestroyMode] = useState<"delete" | "clean">("delete");
-  const [redeployOpen, setRedeployOpen] = useState(false);
   const toggleHaProxy = useMutation({
     mutationFn: async (action: "start" | "stop") => {
       return trpcClient.cluster.toggleHaProxy.mutate({ clusterId, action });
@@ -210,14 +209,6 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
               Destroy
             </Button>
           )}
-          <Button variant="outline" onClick={() => setRedeployOpen(true)}>
-            <svg xmlns="http://www.w3.org/2000/svg" className="size-5" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor" fill="none" strokeLinecap="round" strokeLinejoin="round">
-              <path stroke="none" d="M0 0h24v24H0z" fill="none" />
-              <path d="M10.09 4.01l.496 -.495a2 2 0 0 1 2.828 0l7.071 7.07a2 2 0 0 1 0 2.83l-7.07 7.07a2 2 0 0 1 -2.83 0l-7.07 -7.07a2 2 0 0 1 0 -2.83l3.535 -3.535h-3.988" />
-              <path d="M7.05 11.038v-3.988" />
-            </svg>
-            Redeploy
-          </Button>
           {!isLb && cluster.data.status === "running" && (() => {
             const haProxyActive = (pgRoles.data as any)?.haProxyActive;
             const paused = haProxyActive === false;
@@ -542,24 +533,6 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
       {/* Monitoring */}
       {cluster.data.status === "running" && <MonitoringSection clusterId={clusterId} pgServers={pgServers} haServers={haServers} />}
 
-      {/* Redeploy Confirmation Dialog */}
-      <Dialog open={redeployOpen} onOpenChange={setRedeployOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Redeploy Cluster</DialogTitle>
-            <DialogDescription>
-              This will wipe and reconfigure all {servers.length} servers from scratch. Existing data will be lost. Are you sure?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRedeployOpen(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => { setRedeployOpen(false); startDeployment(); }}>
-              <RotateCcw className="size-4 mr-2" />
-              Redeploy
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Destroy Cluster Dialog */}
       <Dialog open={destroyOpen} onOpenChange={(open) => { setDestroyOpen(open); if (!open) { setDestroyConfirm(""); setDestroyMode("delete"); } }}>
