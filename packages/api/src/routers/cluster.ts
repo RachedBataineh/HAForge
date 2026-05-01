@@ -2073,6 +2073,10 @@ ${nodeTargets.join("\n")}
 ${pgTargets.join("\n")}
   - job_name: '${jobName}-patroni'
     scrape_interval: 15s
+    metrics_path: '/metrics'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
     static_configs:
       - targets:
 ${patroniTargets.join("\n")}
