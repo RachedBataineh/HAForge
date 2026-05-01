@@ -91,7 +91,7 @@ function TerminalPanel({
       </div>
       <pre
         ref={scrollRef}
-        className="p-3 text-xs font-mono text-green-400 overflow-auto flex-1 min-h-[200px] whitespace-pre-wrap"
+        className="p-3 text-xs font-mono text-green-400 overflow-auto flex-1 whitespace-pre-wrap"
       >
         {output || (isRunning ? "Connecting..." : "Waiting to start...")}
         {isRunning && <span className="animate-pulse">_</span>}
@@ -244,7 +244,7 @@ export default function DeployPage({ params }: { params: Promise<{ id: string }>
   };
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col fixed inset-0 pt-12 pl-56">
       {/* Header */}
       <div className="shrink-0 border-b bg-background px-6 py-4">
         <div className="flex items-center justify-between">
@@ -347,17 +347,17 @@ export default function DeployPage({ params }: { params: Promise<{ id: string }>
         {/* Right panel: Terminals + Log */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Live Terminal Area */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-hidden p-4">
             {runningStep && activeLiveStep && activeLiveStep.servers.length > 0 && (
-              <div>
-                <div className="flex items-center gap-2 mb-3">
+              <div className="flex flex-col h-full">
+                <div className="flex items-center gap-2 mb-3 shrink-0">
                   <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />
                   <h2 className="text-sm font-semibold">{runningStep.stepName}</h2>
                   <span className="text-xs text-muted-foreground">
                     {runningStep.targetRole.replace("all_pg", "3 PostgreSQL nodes").replace("all_ha", "3 HAProxy nodes")}
                   </span>
                 </div>
-                <div className={`grid gap-3 ${
+                <div className={`flex-1 grid gap-3 min-h-0 ${
                   activeLiveStep.servers.length === 1 ? "grid-cols-1" :
                   activeLiveStep.servers.length === 2 ? "grid-cols-2" :
                   "grid-cols-1 xl:grid-cols-3"
