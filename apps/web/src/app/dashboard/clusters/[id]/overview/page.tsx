@@ -171,9 +171,13 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
     );
   }
 
-  const connectionHost = isLb
+  const rawConnectionHost = isLb
     ? cluster.data.loadBalancerIp || ""
     : cluster.data.floatingIp || "";
+  const rawDnsPtr = floatingIpDetails.data?.dnsPtr?.[0]?.ptr || "";
+  const isHetznerAutoPtr = rawDnsPtr.endsWith(".clients.your-server.de");
+  const reverseDns = !isLb && rawDnsPtr && !isHetznerAutoPtr ? rawDnsPtr : "";
+  const connectionHost = reverseDns || rawConnectionHost;
   const pgUrl = `postgresql://${cluster.data.superuserUsername || "postgres"}:${cluster.data.superuserPassword}@${connectionHost}:5432/postgres`;
 
   return (
@@ -269,6 +273,9 @@ export default function ClusterOverviewPage({ params }: { params: Promise<{ id: 
                       <Copy className="size-3.5" />
                     </Button>
                   </div>
+                  {reverseDns && (
+                    <p className="text-xs text-muted-foreground mt-0.5 font-mono">{rawConnectionHost}</p>
+                  )}
                 </div>
                 <div>
                   <span className="text-muted-foreground">Port</span>
