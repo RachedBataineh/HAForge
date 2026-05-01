@@ -15,14 +15,15 @@ export function getPgExporterSteps(): StepDefinition[] {
         {
           commands: [
             "id postgres_exporter &>/dev/null || sudo useradd --no-create-home --shell /usr/sbin/nologin postgres_exporter",
-            "sudo -u postgres psql -c \"DO \\$\\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'postgres_exporter') THEN CREATE USER postgres_exporter; END IF; END \\$\\$;\" || true",
-            "sudo -u postgres psql -c \"GRANT pg_monitor TO postgres_exporter;\" || true",
-            "sudo -u postgres psql -c \"GRANT CONNECT ON DATABASE postgres TO postgres_exporter;\" || true",
+            "sudo -u \\${SUPERUSER_USERNAME} psql -c \"DO \\$\\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'postgres_exporter') THEN CREATE USER postgres_exporter; END IF; END \\$\\$;\" || true",
+            "sudo -u \\${SUPERUSER_USERNAME} psql -c \"GRANT pg_monitor TO postgres_exporter;\" || true",
+            "sudo -u \\${SUPERUSER_USERNAME} psql -c \"GRANT pg_read_all_data TO postgres_exporter;\" || true",
+            "sudo -u \\${SUPERUSER_USERNAME} psql -c \"GRANT CONNECT ON DATABASE postgres TO postgres_exporter;\" || true",
           ],
         },
       ],
       files: [],
-      validation: "sudo -u postgres psql -c \"SELECT 1 FROM pg_roles WHERE rolname = 'postgres_exporter'\" -tA | grep -q 1 && echo 'OK' || echo 'MISSING'",
+      validation: "sudo -u \\${SUPERUSER_USERNAME} psql -c \"SELECT 1 FROM pg_roles WHERE rolname = 'postgres_exporter'\" -tA | grep -q 1 && echo 'OK' || echo 'MISSING'",
     },
     {
       phase: "monitoring",
