@@ -937,16 +937,18 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
               <>
                 <div>
                   <h3 className="text-sm font-medium mb-3">Floating IP</h3>
-                  <div className="grid grid-cols-2 gap-4 text-sm bg-muted/50 rounded-lg p-3">
-                    <div>
-                      <span className="text-muted-foreground">IP Address</span>
-                      <p className="font-mono">{floatingIp}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">IP ID</span>
-                      <p className="font-mono">{floatingIpId}</p>
-                    </div>
-                  </div>
+                  <Card>
+                    <CardContent className="py-3 grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-muted-foreground text-xs">IP Address</span>
+                        <p className="font-mono">{floatingIp}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground text-xs">IP ID</span>
+                        <p className="font-mono">{floatingIpId}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
                 <Separator />
                 <div>
