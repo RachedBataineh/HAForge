@@ -83,6 +83,8 @@ export const clusters = pgTable("cluster", {
   loadBalancerId: text("load_balancer_id"),
   loadBalancerIp: text("load_balancer_ip"),
   networkId: text("network_id"),
+  networkZone: text("network_zone"),
+  applyFirewall: integer("apply_firewall").default(1),
   wizardStep: integer("wizard_step"),
 
   // Provisioning

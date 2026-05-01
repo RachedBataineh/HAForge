@@ -50,8 +50,14 @@ describe("getPgExporterSteps", () => {
       expect(grantCmd).toContain("postgres_exporter");
     });
 
+    it("grants pg_read_all_data role", () => {
+      const grantCmd = cmds[3]!;
+      expect(grantCmd).toContain("GRANT pg_read_all_data");
+      expect(grantCmd).toContain("postgres_exporter");
+    });
+
     it("grants CONNECT on postgres database", () => {
-      const connectCmd = cmds[3]!;
+      const connectCmd = cmds[4]!;
       expect(connectCmd).toContain("GRANT CONNECT");
       expect(connectCmd).toContain("postgres");
     });

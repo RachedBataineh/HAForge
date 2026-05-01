@@ -663,7 +663,7 @@ export const clusterRouter = router({
           networkId,
           floatingIp,
           floatingIpId,
-          wizardStep: 3,
+          wizardStep: 4,
         }).where(eq(clusters.id, cluster.id));
 
         // 7.5. Create firewalls
@@ -784,6 +784,8 @@ export const clusterRouter = router({
         superuserUsername: z.string().optional(),
         adminUsername: z.string().optional(),
         enableMonitoring: z.number().optional(),
+        networkZone: z.string().optional(),
+        applyFirewall: z.number().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {

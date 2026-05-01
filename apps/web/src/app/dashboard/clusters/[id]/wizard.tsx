@@ -29,6 +29,7 @@ import {
   ArrowLeft,
   KeyRound,
   Zap,
+  Shield,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -69,14 +70,14 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const isLb = clusterType === "hetzner_lb";
   const isAutoProvisioned = (cluster.data as any)?.provisioningMode === "automatic";
 
-  // Steps: HAProxy mode = [HAProxy Nodes, PG Nodes, Review], LB mode = [Load Balancer, PG Nodes, Review]
-  const totalSteps = 3;
+  // Steps: HAProxy mode = [HAProxy Nodes, PG Nodes, Firewall & Network, Review], LB mode = [Load Balancer, PG Nodes, Firewall & Network, Review]
+  const totalSteps = 4;
   const stepIcons = isLb
-    ? [Network, Database, Rocket]
-    : [Network, Database, Rocket];
+    ? [Network, Database, Shield, Rocket]
+    : [Network, Database, Shield, Rocket];
   const stepTitles = isLb
-    ? ["Load Balancer", "PostgreSQL Nodes", "Review & Deploy"]
-    : ["HAProxy Nodes", "PostgreSQL Nodes", "Review & Deploy"];
+    ? ["Load Balancer", "PostgreSQL Nodes", "Firewall & Network", "Review & Deploy"]
+    : ["HAProxy Nodes", "PostgreSQL Nodes", "Firewall & Network", "Review & Deploy"];
 
   const [step, setStep] = useState(0);
   const [testingRole, setTestingRole] = useState<string | null>(null);
@@ -88,6 +89,9 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   // Get Hetzner API token status from user settings
   const userProfile = useQuery(trpc.settings.getProfile.queryOptions());
   const tokenReady = userProfile.data?.hasHetznerToken ?? false;
+
+  const networkZones = useQuery(trpc.cluster.hetznerNetworkZones.queryOptions(undefined, { enabled: tokenReady }));
+  const networkZonesData = (networkZones.data ?? []) as any[];
 
   const floatingIps = useQuery(
     trpc.cluster.hetznerFloatingIps.queryOptions(
@@ -139,6 +143,8 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
   const [superuserUsername, setSuperuserUsername] = useState("postgres");
   const [adminUsername, setAdminUsername] = useState("haforge");
   const [enableMonitoring, setEnableMonitoring] = useState(true);
+  const [applyFirewall, setApplyFirewall] = useState(true);
+  const [networkZone, setNetworkZone] = useState("");
 
   const [pgServers, setPgServers] = useState<Record<string, ServerForm>>({
     postgresql_1: { ipAddress: "", sshUser: "root", sshPort: 22, hetznerServerId: "", privateIpAddress: "", sshKeyId: "" },
@@ -187,6 +193,8 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
     if (c.loadBalancerId) setSelectedLbId(c.loadBalancerId);
     if (c.superuserUsername) setSuperuserUsername(c.superuserUsername);
     if (c.adminUsername) setAdminUsername(c.adminUsername);
+    if ((c as any).applyFirewall !== undefined && (c as any).applyFirewall !== null) setApplyFirewall((c as any).applyFirewall === 1);
+    if ((c as any).networkZone) setNetworkZone((c as any).networkZone);
 
     const servers = c.servers ?? [];
     if (servers.length > 0) {
@@ -266,6 +274,10 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
         clusterData.superuserUsername = superuserUsername;
         clusterData.adminUsername = adminUsername;
       }
+      if (currentStep >= 2) {
+        clusterData.applyFirewall = applyFirewall ? 1 : 0;
+        clusterData.networkZone = networkZone || undefined;
+      }
       await updateCluster.mutateAsync(clusterData);
 
       const existing = cluster.data?.servers ?? [];
@@ -313,9 +325,11 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
           loadBalancerId: selectedLbId,
           loadBalancerIp: lb?.publicIp || "",
           enableMonitoring: enableMonitoring ? 1 : 0,
+          applyFirewall: applyFirewall ? 1 : 0,
+          networkZone: networkZone || undefined,
         });
       } else {
-        await updateCluster.mutateAsync({ id: clusterId, floatingIp, floatingIpId, enableMonitoring: enableMonitoring ? 1 : 0 });
+        await updateCluster.mutateAsync({ id: clusterId, floatingIp, floatingIpId, enableMonitoring: enableMonitoring ? 1 : 0, applyFirewall: applyFirewall ? 1 : 0, networkZone: networkZone || undefined });
       }
 
       // For auto-provisioned clusters, servers are already in the DB — just deploy
@@ -358,10 +372,12 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
     if (isLb) {
       if (step === 0) return !!selectedLbId;
       if (step === 1) return PG_ROLES.every((r) => pgServers[r.role].ipAddress && pgServers[r.role].sshKeyId);
+      if (step === 2) return !!networkZone;
       return true;
     }
     if (step === 0) return !!(floatingIp && floatingIpId) && HA_ROLES.every((r) => haServers[r.role].ipAddress && haServers[r.role].sshKeyId && haServers[r.role].hetznerServerId);
     if (step === 1) return PG_ROLES.every((r) => pgServers[r.role].ipAddress && pgServers[r.role].sshKeyId);
+    if (step === 2) return !!networkZone;
     return true;
   };
 
@@ -909,7 +925,99 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       )}
 
       {/* Step 2: Review & Deploy */}
-      {step === 2 && (
+      {/* Step 2: Firewall & Network */}
+      {step === 2 && tokenReady && (
+        <div className="grid gap-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Shield className="size-4" />
+                Firewall
+              </CardTitle>
+              <CardDescription>
+                Automatically create and apply firewall rules to your servers during deployment.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Apply Firewall Rules</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Creates two firewalls: one for PostgreSQL (SSH only) and one for HAProxy (SSH + PostgreSQL).
+                  </p>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <span className="text-sm text-muted-foreground">{applyFirewall ? "Enabled" : "Disabled"}</span>
+                  <div
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${applyFirewall ? "bg-primary" : "bg-muted"}`}
+                    onClick={() => setApplyFirewall(!applyFirewall)}
+                  >
+                    <span className={`inline-block size-4 transform rounded-full bg-white transition-transform ${applyFirewall ? "translate-x-6" : "translate-x-1"}`} />
+                  </div>
+                </label>
+              </div>
+              {applyFirewall && (
+                <div className="grid grid-cols-2 gap-3">
+                  <Card className="bg-muted/30">
+                    <CardContent className="py-3">
+                      <p className="text-sm font-medium">PostgreSQL Firewall</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Inbound: TCP 22 (SSH) — any IPv4/IPv6
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Outbound: all traffic allowed
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-muted/30">
+                    <CardContent className="py-3">
+                      <p className="text-sm font-medium">HAProxy Firewall</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Inbound: TCP 22 (SSH), TCP 5432 (PostgreSQL) — any IPv4/IPv6
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Outbound: all traffic allowed
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Network Zone</CardTitle>
+              <CardDescription>
+                Select the network zone for the private network connecting your servers.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              <Select value={networkZone} onValueChange={(v) => setNetworkZone(v ?? "")}>
+                <SelectTrigger>
+                  {networkZone
+                    ? (() => { const z = networkZonesData.find((z: any) => z.name === networkZone); return z ? `${z.name} (${z.locations.join(", ")})` : networkZone; })()
+                    : "Select network zone"}
+                </SelectTrigger>
+                <SelectContent className="!w-auto min-w-[400px]" side="bottom">
+                  {networkZonesData.map((z: any) => (
+                    <SelectItem key={z.name} value={z.name}>
+                      <span className="grid grid-cols-[auto_1fr] gap-x-4 w-full">
+                        <span className="font-medium">{z.name}</span>
+                        <span className="text-muted-foreground text-xs">{z.locations.join(", ")}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">All servers must be in the same network zone. Choose the zone matching your server locations.</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Step 3: Review & Deploy */}
+      {step === 3 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1058,7 +1166,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
           <ArrowLeft className="size-4 mr-1" />
           Back
         </Button>
-        {step < 2 ? (
+        {step < 3 ? (
           <Button
             onClick={async () => {
               await saveDraft(step);
