@@ -5,7 +5,7 @@ import { generateClusterCertificates, type GeneratedCerts } from "./cert-generat
 import { resolveVariables, type VariableMap } from "./variable-resolver";
 import { getClusterSteps, getLbClusterSteps, type StepDefinition, type TargetRole } from "../templates/cluster-steps";
 import { encrypt, decrypt, isEncrypted } from "../services/crypto";
-import { decryptPrivateKey, HETZNER_API } from "../routers/shared";
+import { decryptPrivateKey } from "../routers/shared";
 import { getHardeningSteps } from "../templates/hardening/hardening-steps";
 import { generatePassword, SERVER_INFO_SCRIPT, parseServerInfo } from "./server-info";
 import { EventEmitter } from "events";
@@ -204,11 +204,6 @@ export class Orchestrator extends EventEmitter {
 
       // Cache server info after successful deployment
       await this.cacheServerInfo();
-
-      // Apply firewalls if enabled
-      if (cluster.applyFirewall !== 0) {
-        await this.applyFirewalls(cluster, serverMap);
-      }
 
       // Update server records: sshUser is now the admin user
       for (const server of Array.from(serverMap.values())) {
@@ -573,60 +568,6 @@ export class Orchestrator extends EventEmitter {
       );
     } catch (err) {
       console.error("Failed to add service to LB (may already exist):", err);
-    }
-  }
-
-  private async applyFirewalls(cluster: any, serverMap: Map<string, any>) {
-    const token = await (await import("../routers/shared")).getUserApiToken(cluster.userId);
-    if (!token) return;
-
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    };
-
-    const allServers = Array.from(serverMap.values());
-    const pgServers = allServers.filter((s: any) => s.role?.startsWith("postgresql"));
-    const haServers = allServers.filter((s: any) => s.role?.startsWith("haproxy"));
-
-    const pgHetznerIds = pgServers.map((s: any) => Number(s.hetznerServerId)).filter(Boolean);
-    const haHetznerIds = haServers.map((s: any) => Number(s.hetznerServerId)).filter(Boolean);
-
-    // PostgreSQL firewall: SSH (22) only
-    if (pgHetznerIds.length > 0) {
-      await fetch(`${HETZNER_API}/firewalls`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          name: `${cluster.name}-pg-fw`,
-          rules: [
-            { direction: "in", protocol: "tcp", port: "22", source_ips: ["0.0.0.0/0", "::/0"], destination_ips: [] },
-            { direction: "out", protocol: "tcp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [], port: "" },
-            { direction: "out", protocol: "udp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [], port: "" },
-            { direction: "out", protocol: "icmp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [] },
-          ],
-          apply_to: pgHetznerIds.map((id: number) => ({ type: "server", server: { id } })),
-        }),
-      });
-    }
-
-    // HAProxy firewall: SSH (22) + PostgreSQL (5432)
-    if (haHetznerIds.length > 0) {
-      await fetch(`${HETZNER_API}/firewalls`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          name: `${cluster.name}-haproxy-fw`,
-          rules: [
-            { direction: "in", protocol: "tcp", port: "22", source_ips: ["0.0.0.0/0", "::/0"], destination_ips: [] },
-            { direction: "in", protocol: "tcp", port: "5432", source_ips: ["0.0.0.0/0", "::/0"], destination_ips: [] },
-            { direction: "out", protocol: "tcp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [], port: "" },
-            { direction: "out", protocol: "udp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [], port: "" },
-            { direction: "out", protocol: "icmp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [] },
-          ],
-          apply_to: haHetznerIds.map((id: number) => ({ type: "server", server: { id } })),
-        }),
-      });
     }
   }
 

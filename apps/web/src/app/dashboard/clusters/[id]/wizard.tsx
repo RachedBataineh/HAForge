@@ -361,6 +361,11 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
         }
       }
 
+      // Prepare Hetzner infrastructure (network, firewalls, floating IP) before deploying
+      if (!isAutoProvisioned) {
+        await trpcClient.cluster.prepareInfrastructure.mutate({ clusterId });
+      }
+
       startDeployment.mutate();
     } catch (err: any) {
       toast.error(err.message || "Failed to save and deploy");

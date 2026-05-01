@@ -388,17 +388,17 @@ export default function DeployPage({ params }: { params: Promise<{ id: string }>
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">
                   <div className="text-4xl mb-3">&#10003;</div>
-                  <h3 className="text-lg font-semibold">Deployment Complete!</h3>
+                  <h3 className="text-lg font-semibold">
+                    {execution.data?.executionType === "patch" ? "Patch Applied!" : "Cluster Ready!"}
+                  </h3>
                   <p className="text-muted-foreground mt-1 text-sm">
                     {execution.data?.executionType === "patch"
-                      ? "Your cluster has been updated. All nodes are running the latest version."
-                      : "Your PostgreSQL HA cluster is now running. Connect via Floating IP on port 5432."}
+                      ? "All nodes have been updated successfully."
+                      : "Your high-availability PostgreSQL cluster is up and running."}
                   </p>
-                  {execution.data?.executionType === "patch" && (
-                    <Button className="mt-4" onClick={() => router.push(`/dashboard/clusters/${clusterId}/overview`)}>
-                      Back to Cluster
-                    </Button>
-                  )}
+                  <Button className="mt-4" onClick={() => router.replace(`/dashboard/clusters/${clusterId}/overview`)}>
+                    Go to Cluster
+                  </Button>
                 </div>
               </div>
             )}

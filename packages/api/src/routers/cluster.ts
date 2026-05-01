@@ -1237,6 +1237,221 @@ export const clusterRouter = router({
       return zones;
     }),
 
+  prepareInfrastructure: protectedProcedure
+    .input(z.object({
+      clusterId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const token = await getUserApiToken(ctx.session.user.id);
+      if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
+      const headers = hetznerHeaders(token);
+
+      const cluster = await db.query.clusters.findFirst({
+        where: eq(clusters.id, input.clusterId),
+        with: { servers: true },
+      });
+      if (!cluster || cluster.userId !== ctx.session.user.id) throw new Error("Cluster not found");
+      if (!cluster.networkZone) throw new Error("Network zone not set");
+
+      // 1. Create network if not already created
+      let networkId = cluster.networkId;
+      let networkNumId = networkId ? Number(networkId) : null;
+
+      if (!networkId) {
+        // Find next available /16 range
+        const existingNetsRes = await fetch(`${HETZNER_API}/networks`, { headers });
+        if (!existingNetsRes.ok) throw new Error("Failed to fetch existing networks");
+        const existingNetsData = await existingNetsRes.json() as any;
+        const usedRanges = new Set<string>();
+        for (const n of existingNetsData.networks || []) {
+          if (n.ip_range) usedRanges.add(n.ip_range);
+          for (const s of n.subnets || []) {
+            if (s.ip_range) usedRanges.add(s.ip_range);
+          }
+        }
+
+        let chosenRange = "";
+        for (let i = 0; i < 256; i++) {
+          const candidate = `10.${i}.0.0/16`;
+          if (!usedRanges.has(candidate)) {
+            chosenRange = candidate;
+            break;
+          }
+        }
+        if (!chosenRange) throw new Error("Could not find an available network range");
+
+        const netRes = await fetch(`${HETZNER_API}/networks`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            name: `${cluster.name}-net`,
+            ip_range: chosenRange,
+            network_zone: cluster.networkZone,
+          }),
+        });
+        if (!netRes.ok) {
+          const err = await netRes.json() as any;
+          throw new Error(`Failed to create network: ${err.error?.message || netRes.status}`);
+        }
+        const netData = await netRes.json() as any;
+        networkNumId = Number(netData.network.id);
+        networkId = String(networkNumId);
+
+        // Add subnet (required before attaching servers)
+        const subnetRes = await fetch(`${HETZNER_API}/networks/${networkNumId}/actions/add_subnet`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            type: "cloud",
+            network_zone: cluster.networkZone,
+            ip_range: chosenRange.replace("/16", "/24"),
+          }),
+        });
+        if (!subnetRes.ok) {
+          const err = await subnetRes.json() as any;
+          throw new Error(`Failed to create subnet: ${err.error?.message || subnetRes.status}`);
+        }
+
+        await db.update(clusters).set({ networkId }).where(eq(clusters.id, cluster.id));
+      }
+
+      // 2. Attach all servers to the network (skip if already attached)
+      const srvRes = await fetch(`${HETZNER_API}/servers`, { headers });
+      if (!srvRes.ok) throw new Error("Failed to fetch servers");
+      const srvData = await srvRes.json() as any;
+      const hetznerServers = new Map<string, any>();
+      for (const s of srvData.servers || []) {
+        hetznerServers.set(String(s.id), s);
+      }
+
+      for (const server of cluster.servers) {
+        if (!server.hetznerServerId) continue;
+        const hSrv = hetznerServers.get(String(server.hetznerServerId));
+        if (!hSrv) continue;
+        // Check if already on this network
+        const alreadyAttached = hSrv.private_net?.some((n: any) => String(n.network) === String(networkNumId));
+        if (alreadyAttached) continue;
+
+        const attachRes = await fetch(`${HETZNER_API}/servers/${Number(server.hetznerServerId)}/actions/attach_to_network`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ network: networkNumId }),
+        });
+        if (!attachRes.ok) {
+          const err = await attachRes.json() as any;
+          console.error(`Failed to attach server ${server.hetznerServerId}: ${err.error?.message}`);
+        }
+      }
+
+      // 3. Wait for private IPs to be assigned (poll, max 60s)
+      const maxWait = 60_000;
+      const pollInterval = 5_000;
+      const pollStart = Date.now();
+      let allHavePrivateIps = false;
+
+      while (Date.now() - pollStart < maxWait) {
+        const refreshRes = await fetch(`${HETZNER_API}/servers`, { headers });
+        if (refreshRes.ok) {
+          const refreshData = await refreshRes.json() as any;
+          const freshServers = new Map<string, any>();
+          for (const s of refreshData.servers || []) {
+            freshServers.set(String(s.id), s);
+          }
+
+          let allFound = true;
+          for (const server of cluster.servers) {
+            if (!server.hetznerServerId) continue;
+            const hSrv = freshServers.get(String(server.hetznerServerId));
+            const privateIp = hSrv?.private_net?.find((n: any) => String(n.network) === String(networkNumId))?.ip;
+            if (!privateIp) { allFound = false; break; }
+          }
+
+          if (allFound) {
+            allHavePrivateIps = true;
+            // Update DB records
+            for (const server of cluster.servers) {
+              if (!server.hetznerServerId) continue;
+              const hSrv = freshServers.get(String(server.hetznerServerId));
+              const privateIp = hSrv?.private_net?.find((n: any) => String(n.network) === String(networkNumId))?.ip;
+              if (privateIp) {
+                await db.update(servers).set({ privateIpAddress: privateIp }).where(eq(servers.id, server.id));
+              }
+            }
+            break;
+          }
+        }
+        await new Promise((r) => setTimeout(r, pollInterval));
+      }
+
+      if (!allHavePrivateIps) {
+        throw new Error("Timed out waiting for private IPs to be assigned to servers");
+      }
+
+      // 4. Assign floating IP to haproxy_1 (HAProxy mode only)
+      if (cluster.floatingIpId && cluster.clusterType === "haproxy") {
+        const ha1 = cluster.servers.find((s: any) => s.role === "haproxy_1");
+        if (ha1?.hetznerServerId) {
+          // Check if already assigned
+          const fipRes = await fetch(`${HETZNER_API}/floating_ips/${cluster.floatingIpId}`, { headers });
+          if (fipRes.ok) {
+            const fipData = await fipRes.json() as any;
+            if (!fipData.floating_ip?.server) {
+              await fetch(`${HETZNER_API}/floating_ips/${cluster.floatingIpId}/actions/assign`, {
+                method: "POST",
+                headers,
+                body: JSON.stringify({ server: Number(ha1.hetznerServerId) }),
+              });
+            }
+          }
+        }
+      }
+
+      // 5. Create firewalls if enabled
+      if (cluster.applyFirewall !== 0) {
+        const pgServers = cluster.servers.filter((s: any) => s.role?.startsWith("postgresql"));
+        const haServers = cluster.servers.filter((s: any) => s.role?.startsWith("haproxy"));
+        const pgHetznerIds = pgServers.map((s: any) => Number(s.hetznerServerId)).filter(Boolean);
+        const haHetznerIds = haServers.map((s: any) => Number(s.hetznerServerId)).filter(Boolean);
+
+        if (pgHetznerIds.length > 0) {
+          await fetch(`${HETZNER_API}/firewalls`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              name: `${cluster.name}-pg-fw`,
+              rules: [
+                { direction: "in", protocol: "tcp", port: "22", source_ips: ["0.0.0.0/0", "::/0"], destination_ips: [] },
+                { direction: "out", protocol: "tcp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [], port: "" },
+                { direction: "out", protocol: "udp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [], port: "" },
+                { direction: "out", protocol: "icmp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [] },
+              ],
+              apply_to: pgHetznerIds.map((id: number) => ({ type: "server", server: { id } })),
+            }),
+          });
+        }
+
+        if (haHetznerIds.length > 0) {
+          await fetch(`${HETZNER_API}/firewalls`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              name: `${cluster.name}-haproxy-fw`,
+              rules: [
+                { direction: "in", protocol: "tcp", port: "22", source_ips: ["0.0.0.0/0", "::/0"], destination_ips: [] },
+                { direction: "in", protocol: "tcp", port: "5432", source_ips: ["0.0.0.0/0", "::/0"], destination_ips: [] },
+                { direction: "out", protocol: "tcp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [], port: "" },
+                { direction: "out", protocol: "udp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [], port: "" },
+                { direction: "out", protocol: "icmp", destination_ips: ["0.0.0.0/0", "::/0"], source_ips: [] },
+              ],
+              apply_to: haHetznerIds.map((id: number) => ({ type: "server", server: { id } })),
+            }),
+          });
+        }
+      }
+
+      return { success: true, networkId };
+    }),
+
   hetznerImages: protectedProcedure
     .input(z.object({ architecture: z.string().optional() }))
     .query(async ({ input, ctx }) => {
