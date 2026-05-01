@@ -715,31 +715,31 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
       {/* Step 1: PostgreSQL Nodes */}
       {step === 1 && tokenReady && (
         <div className="grid gap-4">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Server Security</CardTitle>
-              <CardDescription>A dedicated admin user will be created on every server. Root login will be disabled.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-1.5 max-w-xs">
-                <Label className="text-xs">Admin Username</Label>
-                <Input
-                  placeholder="haforge"
-                  value={adminUsername}
-                  onChange={(e) => setAdminUsername(e.target.value.replace(/[^a-z_][a-z0-9_-]*/g, ""))}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                This user will be created with sudo access. Root SSH login will be disabled for security.
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Database Settings</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Server Security</CardTitle>
+                <CardDescription>A dedicated admin user will be created on every server. Root login will be disabled.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Admin Username</Label>
+                  <Input
+                    placeholder="haforge"
+                    value={adminUsername}
+                    onChange={(e) => setAdminUsername(e.target.value.replace(/[^a-z_][a-z0-9_-]*/g, ""))}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  This user will be created with sudo access. Root SSH login will be disabled for security.
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Database Settings</CardTitle>
+              </CardHeader>
+              <CardContent>
                 <div className="grid gap-1.5">
                   <Label className="text-xs">Username</Label>
                   <Input
@@ -748,12 +748,12 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                     onChange={(e) => setSuperuserUsername(e.target.value)}
                   />
                 </div>
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                A secure password will be auto-generated. Defaults to "postgres" — change only if needed.
-              </p>
-            </CardContent>
+                <p className="text-xs text-muted-foreground mt-2">
+                  A secure password will be auto-generated. Defaults to "postgres" — change only if needed.
+                </p>
+              </CardContent>
           </Card>
+          </div>
           {hetznerServers.isLoading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
               <Loader2 className="size-4 animate-spin" />
