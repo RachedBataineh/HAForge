@@ -951,16 +951,22 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                 <Separator />
                 <div>
                   <h3 className="text-sm font-medium mb-3">HAProxy Nodes</h3>
-                  <div className="grid gap-2">
+                  <div className="grid grid-cols-3 gap-3">
                     {HA_ROLES.map((r) => (
-                      <div key={r.role} className="flex items-center gap-2 text-sm bg-muted/50 rounded-lg p-2.5">
-                        <Network className="size-4 text-muted-foreground" />
-                        <Badge variant="secondary" className="text-xs">{r.sublabel}</Badge>
-                        <span className="font-mono">{haServers[r.role].ipAddress}</span>
-                        <span className="text-muted-foreground text-xs">
-                          (Private: {haServers[r.role].privateIpAddress || "N/A"})
-                        </span>
-                      </div>
+                      <Card key={r.role}>
+                        <CardHeader className="pb-2">
+                          <div className="flex items-center justify-between">
+                            <CardTitle className="text-sm">{r.label}</CardTitle>
+                            <Badge variant="secondary" className="text-xs">{r.sublabel}</Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="grid gap-1">
+                          <div className="text-xs text-muted-foreground">Public IP</div>
+                          <p className="font-mono text-sm">{haServers[r.role].ipAddress || "N/A"}</p>
+                          <div className="text-xs text-muted-foreground mt-1">Private IP</div>
+                          <p className="font-mono text-sm">{haServers[r.role].privateIpAddress || "N/A"}</p>
+                        </CardContent>
+                      </Card>
                     ))}
                   </div>
                 </div>
@@ -991,16 +997,22 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
             )}
             <div>
               <h3 className="text-sm font-medium mb-3">PostgreSQL Nodes</h3>
-              <div className="grid gap-2">
+              <div className="grid grid-cols-3 gap-3">
                 {PG_ROLES.map((r) => (
-                  <div key={r.role} className="flex items-center gap-2 text-sm bg-muted/50 rounded-lg p-2.5">
-                    <Database className="size-4 text-muted-foreground" />
-                    <Badge variant="secondary" className="text-xs">{r.sublabel}</Badge>
-                    <span className="font-mono">{pgServers[r.role].ipAddress}</span>
-                    <span className="text-muted-foreground text-xs">
-                      (Private: {pgServers[r.role].privateIpAddress || "N/A"})
-                    </span>
-                  </div>
+                  <Card key={r.role}>
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-sm">{r.label}</CardTitle>
+                        <Badge variant="secondary" className="text-xs">{r.sublabel}</Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="grid gap-1">
+                      <div className="text-xs text-muted-foreground">Public IP</div>
+                      <p className="font-mono text-sm">{pgServers[r.role].ipAddress || "N/A"}</p>
+                      <div className="text-xs text-muted-foreground mt-1">Private IP</div>
+                      <p className="font-mono text-sm">{pgServers[r.role].privateIpAddress || "N/A"}</p>
+                    </CardContent>
+                  </Card>
                 ))}
               </div>
             </div>
