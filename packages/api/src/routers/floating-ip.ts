@@ -176,7 +176,7 @@ export const floatingIpRouter = router({
     .mutation(async ({ input, ctx }) => {
       const token = await getUserApiToken(ctx.session.user.id);
       if (!token) throw new Error("No Hetzner API token configured. Add one in Settings.");
-      const res = await fetch(`${API}/floating_ips/${input.floatingIpId}/actions/change_reverse_dns`, {
+      const res = await fetch(`${API}/floating_ips/${input.floatingIpId}/actions/change_dns_ptr`, {
         method: "POST",
         headers: headers(token),
         body: JSON.stringify({ ip: input.ip, dns_ptr: input.dnsPtr }),
