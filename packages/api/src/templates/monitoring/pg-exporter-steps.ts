@@ -67,7 +67,7 @@ User=postgres_exporter
 Group=postgres_exporter
 Type=simple
 Environment="DATA_SOURCE_NAME=user=postgres_exporter host=/var/run/postgresql dbname=postgres"
-ExecStart=/usr/local/bin/postgres_exporter --web.listen-address=0.0.0.0:9187
+ExecStart=/usr/local/bin/postgres_exporter --collector.postmaster --collector.stat_checkpointer --web.listen-address=0.0.0.0:9187
 
 [Install]
 WantedBy=multi-user.target
