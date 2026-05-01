@@ -962,11 +962,15 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                             <Badge variant="secondary" className="text-xs">{r.sublabel}</Badge>
                           </div>
                         </CardHeader>
-                        <CardContent className="grid gap-1">
-                          <div className="text-xs text-muted-foreground">Public IP</div>
-                          <p className="font-mono text-sm">{haServers[r.role].ipAddress || "N/A"}</p>
-                          <div className="text-xs text-muted-foreground mt-1">Private IP</div>
-                          <p className="font-mono text-sm">{haServers[r.role].privateIpAddress || "N/A"}</p>
+                        <CardContent className="grid grid-cols-2 gap-x-3 gap-y-1">
+                          <div>
+                            <div className="text-xs text-muted-foreground">Public IP</div>
+                            <p className="font-mono text-sm">{haServers[r.role].ipAddress || "N/A"}</p>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground">Private IP</div>
+                            <p className="font-mono text-sm">{haServers[r.role].privateIpAddress || "N/A"}</p>
+                          </div>
                         </CardContent>
                       </Card>
                     ))}
@@ -1008,11 +1012,15 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                         <Badge variant="secondary" className="text-xs">{r.sublabel}</Badge>
                       </div>
                     </CardHeader>
-                    <CardContent className="grid gap-1">
-                      <div className="text-xs text-muted-foreground">Public IP</div>
-                      <p className="font-mono text-sm">{pgServers[r.role].ipAddress || "N/A"}</p>
-                      <div className="text-xs text-muted-foreground mt-1">Private IP</div>
-                      <p className="font-mono text-sm">{pgServers[r.role].privateIpAddress || "N/A"}</p>
+                    <CardContent className="grid grid-cols-2 gap-x-3 gap-y-1">
+                      <div>
+                        <div className="text-xs text-muted-foreground">Public IP</div>
+                        <p className="font-mono text-sm">{pgServers[r.role].ipAddress || "N/A"}</p>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Private IP</div>
+                        <p className="font-mono text-sm">{pgServers[r.role].privateIpAddress || "N/A"}</p>
+                      </div>
                     </CardContent>
                   </Card>
                 ))}
