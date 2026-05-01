@@ -48,6 +48,14 @@ const ROLE_LABELS: Record<string, string> = {
   haproxy_3: "HAProxy 3",
 };
 
+function filterCommands(output: string): string {
+  return output
+    .split("\n")
+    .filter((line) => !line.startsWith("$ "))
+    .join("\n")
+    .trim();
+}
+
 function TerminalPanel({
   title,
   output,
@@ -93,7 +101,7 @@ function TerminalPanel({
         ref={scrollRef}
         className="p-3 text-xs font-mono text-green-400 overflow-auto flex-1 whitespace-pre-wrap"
       >
-        {output || (isRunning ? "Connecting..." : "Waiting to start...")}
+        {filterCommands(output) || (isRunning ? "Connecting..." : "Waiting to start...")}
         {isRunning && <span className="animate-pulse">_</span>}
       </pre>
     </div>
@@ -130,7 +138,7 @@ function FullLogEntry({ server, collapsed }: { server: any; collapsed: boolean }
         ref={scrollRef}
         className="p-1.5 text-[11px] font-mono text-zinc-400 overflow-auto max-h-32 whitespace-pre-wrap"
       >
-        {server.output || " "}
+        {filterCommands(server.output) || " "}
       </pre>
     </div>
   );
@@ -244,7 +252,7 @@ export default function DeployPage({ params }: { params: Promise<{ id: string }>
   };
 
   return (
-    <div className="flex flex-col fixed inset-0 pt-12 pl-56">
+    <div className="flex flex-col" style={{ height: "calc(100vh - 3rem)" }}>
       {/* Header */}
       <div className="shrink-0 border-b bg-background px-6 py-4">
         <div className="flex items-center justify-between">

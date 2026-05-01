@@ -567,14 +567,10 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                   </Select>
                 </div>
                 {haServers[r.role].hetznerServerId && (
-                  <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <span className="text-muted-foreground text-xs">Public IP</span>
                       <p className="font-mono">{haServers[r.role].ipAddress}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground text-xs">Private IP</span>
-                      <p className="font-mono">{haServers[r.role].privateIpAddress || "N/A"}</p>
                     </div>
                     <div>
                       <span className="text-muted-foreground text-xs">Server ID</span>
@@ -840,14 +836,10 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                     </Select>
                   </div>
                   {pgServers[r.role].hetznerServerId && (
-                    <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div className="grid grid-cols-2 gap-4 text-sm">
                       <div>
                         <span className="text-muted-foreground text-xs">Public IP</span>
                         <p className="font-mono">{pgServers[r.role].ipAddress}</p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground text-xs">Private IP</span>
-                        <p className="font-mono">{pgServers[r.role].privateIpAddress || "N/A"}</p>
                       </div>
                       <div>
                         <span className="text-muted-foreground text-xs">Server ID</span>
@@ -1075,14 +1067,10 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                             <Badge variant="secondary" className="text-xs">{r.sublabel}</Badge>
                           </div>
                         </CardHeader>
-                        <CardContent className="grid grid-cols-2 gap-x-3 gap-y-1">
+                        <CardContent className="grid gap-1">
                           <div>
                             <div className="text-xs text-muted-foreground">Public IP</div>
                             <p className="font-mono text-sm">{haServers[r.role].ipAddress || "N/A"}</p>
-                          </div>
-                          <div>
-                            <div className="text-xs text-muted-foreground">Private IP</div>
-                            <p className="font-mono text-sm">{haServers[r.role].privateIpAddress || "N/A"}</p>
                           </div>
                         </CardContent>
                       </Card>
@@ -1125,14 +1113,10 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                         <Badge variant="secondary" className="text-xs">{r.sublabel}</Badge>
                       </div>
                     </CardHeader>
-                    <CardContent className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    <CardContent className="grid gap-1">
                       <div>
                         <div className="text-xs text-muted-foreground">Public IP</div>
                         <p className="font-mono text-sm">{pgServers[r.role].ipAddress || "N/A"}</p>
-                      </div>
-                      <div>
-                        <div className="text-xs text-muted-foreground">Private IP</div>
-                        <p className="font-mono text-sm">{pgServers[r.role].privateIpAddress || "N/A"}</p>
                       </div>
                     </CardContent>
                   </Card>
