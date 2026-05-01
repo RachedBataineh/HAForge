@@ -719,7 +719,6 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Server Security</CardTitle>
-                <CardDescription>A dedicated admin user will be created on every server. Root login will be disabled.</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid gap-1.5">
