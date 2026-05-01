@@ -168,7 +168,7 @@ export default function ClusterListPage() {
   const [newClusterType, setNewClusterType] = useState<"haproxy" | "hetzner_lb">("haproxy");
 
   // Automatic mode state
-  const [provisioningMode, setProvisioningMode] = useState<"manual" | "automatic">("manual");
+  const [provisioningMode, setProvisioningMode] = useState<"select" | "manual" | "automatic">("select");
   const [autoStep, setAutoStep] = useState(0); // 0: basics, 1: server types, 2: invoice, 3: provisioning
   const [autoLocation, setAutoLocation] = useState("");
   const [autoNetworkZone, setAutoNetworkZone] = useState("");
@@ -243,7 +243,7 @@ export default function ClusterListPage() {
     setDialogOpen(false);
     setNewClusterName("");
     setNewClusterType("haproxy");
-    setProvisioningMode("manual");
+    setProvisioningMode("select");
     setAutoStep(0);
     setAutoLocation("");
     setAutoNetworkZone("");
@@ -625,6 +625,61 @@ export default function ClusterListPage() {
   };
 
   const renderDialog = () => {
+    // Step 0: Mode selection — Automatic vs Manual
+    if (provisioningMode === "select") {
+      return (
+        <Dialog open={dialogOpen} onOpenChange={(v) => { if (!v) closeDialog(); else setDialogOpen(true); }}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Create New Cluster</DialogTitle>
+              <DialogDescription>
+                How would you like to set up your cluster?
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-4 py-4">
+              <Card
+                className="cursor-pointer transition-all hover:border-primary hover:shadow-md group"
+                onClick={() => {
+                  setProvisioningMode("automatic");
+                  setAutoStep(0);
+                }}
+              >
+                <CardContent className="py-6 text-center space-y-3">
+                  <div className="mx-auto size-12 rounded-full bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                    <Zap className="size-6 text-primary" />
+                  </div>
+                  <div>
+                    <p className="font-semibold">Automatic</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Let HAForge provision servers, network, and firewalls for you
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card
+                className="cursor-pointer transition-all hover:border-primary hover:shadow-md group"
+                onClick={() => {
+                  setProvisioningMode("manual");
+                }}
+              >
+                <CardContent className="py-6 text-center space-y-3">
+                  <div className="mx-auto size-12 rounded-full bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+                    <Hand className="size-6 text-primary" />
+                  </div>
+                  <div>
+                    <p className="font-semibold">Manual</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Choose your own servers and configure step by step
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </DialogContent>
+        </Dialog>
+      );
+    }
+
     if (provisioningMode === "manual") {
       return (
         <Dialog open={dialogOpen} onOpenChange={(v) => { if (!v) closeDialog(); else setDialogOpen(true); }}>
@@ -668,12 +723,21 @@ export default function ClusterListPage() {
                   onChange={(e) => setNewClusterName(e.target.value)}
                 />
               </div>
-              <Button
-                onClick={() => createCluster.mutate({ name: newClusterName, type: newClusterType })}
-                disabled={!newClusterName.trim() || createCluster.isPending}
-              >
-                {createCluster.isPending ? "Creating..." : "Create Cluster"}
-              </Button>
+              <div className="flex justify-between pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setProvisioningMode("select")}
+                >
+                  <ArrowLeft className="size-4 mr-1" />
+                  Back
+                </Button>
+                <Button
+                  onClick={() => createCluster.mutate({ name: newClusterName, type: newClusterType })}
+                  disabled={!newClusterName.trim() || createCluster.isPending}
+                >
+                  {createCluster.isPending ? "Creating..." : "Create Cluster"}
+                </Button>
+              </div>
             </div>
           </DialogContent>
         </Dialog>
@@ -735,14 +799,14 @@ export default function ClusterListPage() {
                 variant="outline"
                 onClick={() => {
                   if (autoStep === 0) {
-                    setProvisioningMode("manual");
+                    setProvisioningMode("select");
                   } else {
                     setAutoStep((s) => s - 1);
                   }
                 }}
               >
                 <ArrowLeft className="size-4 mr-1" />
-                {autoStep === 0 ? "Back to Manual" : "Back"}
+                {autoStep === 0 ? "Back" : "Back"}
               </Button>
               {autoStep < 2 ? (
                 <Button
@@ -816,22 +880,9 @@ export default function ClusterListPage() {
         <div className="ml-auto flex gap-2">
           <Button
             size="sm"
-            variant="outline"
             className="gap-2 mb-1"
             onClick={() => {
-              setProvisioningMode("automatic");
-              setAutoStep(0);
-              setDialogOpen(true);
-            }}
-          >
-            <Zap className="size-4" />
-            Automatic
-          </Button>
-          <Button
-            size="sm"
-            className="gap-2 mb-1"
-            onClick={() => {
-              setProvisioningMode("manual");
+              setProvisioningMode("select");
               setDialogOpen(true);
             }}
           >
