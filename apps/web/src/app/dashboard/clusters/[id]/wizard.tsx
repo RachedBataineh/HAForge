@@ -965,7 +965,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                         Inbound: TCP 22 (SSH) — any IPv4/IPv6
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Outbound: all traffic allowed
+                        Outbound: TCP, UDP, ICMP — any IPv4/IPv6
                       </p>
                     </CardContent>
                   </Card>
@@ -976,7 +976,7 @@ export default function ClusterSetupWizard({ params }: { params: Promise<{ id: s
                         Inbound: TCP 22 (SSH), TCP 5432 (PostgreSQL) — any IPv4/IPv6
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Outbound: all traffic allowed
+                        Outbound: TCP, UDP, ICMP — any IPv4/IPv6
                       </p>
                     </CardContent>
                   </Card>
