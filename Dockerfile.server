@@ -7,7 +7,7 @@ COPY package.json package-lock.json turbo.json tsconfig.json ./
 COPY packages/ ./packages/
 COPY apps/server/ ./apps/server/
 
-RUN npm ci --workspaces --include-workspace-root
+RUN npm install --workspaces --include-workspace-root
 RUN npx turbo build --filter=server
 
 # Production stage — only the bundle + runtime deps
