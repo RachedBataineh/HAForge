@@ -20,7 +20,7 @@ ENV NODE_ENV=production
 RUN groupadd --gid 1001 nodejs && useradd --uid 1001 --gid nodejs appuser
 
 COPY --from=builder /app/apps/server/dist ./dist
-COPY --from=builder /app/apps/server/node_modules ./node_modules
+COPY --from=builder /app/node_modules ./node_modules
 
 USER appuser
 
