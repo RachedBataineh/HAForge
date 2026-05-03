@@ -1,0 +1,29 @@
+# Build stage — needs full monorepo to resolve workspaces
+FROM node:22-slim AS builder
+
+WORKDIR /app
+
+COPY package.json package-lock.json turbo.json tsconfig.json ./
+COPY packages/ ./packages/
+COPY apps/server/ ./apps/server/
+
+RUN npm ci --workspaces --include-workspace-root
+RUN npx turbo build --filter=server
+
+# Production stage — only the bundle + runtime deps
+FROM node:22-slim AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+RUN groupadd --gid 1001 nodejs && useradd --uid 1001 --gid nodejs appuser
+
+COPY --from=builder /app/apps/server/dist ./dist
+COPY --from=builder /app/apps/server/node_modules ./node_modules
+
+USER appuser
+
+EXPOSE 3000
+
+CMD ["node", "dist/index.mjs"]
