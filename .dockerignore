@@ -8,7 +8,6 @@ dist
 .factory
 .env
 .env*
-apps/web
 apps/server/.env
 apps/server/.env*
 autobase-*
