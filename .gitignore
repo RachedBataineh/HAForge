@@ -54,3 +54,7 @@ temp
 
 # Factory
 .factory/
+
+# Autobase source (reference only)
+autobase*
+Instructions/

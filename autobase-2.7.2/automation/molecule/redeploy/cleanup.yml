@@ -1,5 +1,0 @@
----
-- name: Molecule.redeploy.cleanup
-  hosts: localhost
-  gather_facts: false
-  tasks: []
