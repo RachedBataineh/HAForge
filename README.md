@@ -1,5 +1,7 @@
 # HAForge
 
+# Warning this app is not ready for production, use it at your own risk. This app has also been archived.
+
 Web-based platform for provisioning and managing high-availability PostgreSQL clusters on Hetzner Cloud. Automates the deployment of Patroni-based PostgreSQL replication with HAProxy load balancing, monitoring, and server hardening through a guided wizard.
 
 ## Architecture
